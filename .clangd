@@ -1,0 +1,20 @@
+CompileFlags:
+  Add:
+    - -I.
+    - -Iexternal/steam
+    - -Iexternal/imgui
+    - -Iexternal/kiero
+    - -Iexternal/kiero/minhook/include
+    - -D_CRT_SECURE_NO_WARNINGS
+    - -std=c++17
+    - -fms-extensions
+    - -fms-compatibility
+    - -Wno-microsoft-enum-forward-reference
+    - -Wno-ignored-attributes
+    - -Wno-unknown-pragmas
+    - -x
+    - c++
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None

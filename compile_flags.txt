@@ -1,0 +1,11 @@
+-x
+c++
+-I.
+-Iexternal/steam
+-Iexternal/imgui
+-Iexternal/kiero
+-Iexternal/kiero/minhook/include
+-D_CRT_SECURE_NO_WARNINGS
+-std=c++17
+-fms-extensions
+-fms-compatibility
