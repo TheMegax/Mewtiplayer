@@ -2,12 +2,20 @@
 #include "mewjector.h"
 #include "steam_api.h"
 #include <vector>
+#include <string>
 
 enum class PacketType : uint8_t {
   Handshake,
   Ping,
   GameStateSync,
   ChatMessage
+};
+ 
+struct LobbyInfo {
+  CSteamID id;
+  std::string name;
+  int memberCount;
+  int maxMembers;
 };
 
 #pragma pack(push, 1)
@@ -26,12 +34,16 @@ public:
         return instance;
     }
 
-    void Init(MewjectorAPI* mj);
+    void Init(MewjectorAPI* mj, const char* modID);
     void Update();
 
-    void HostLobby();
+    void HostLobby(const char* lobbyName);
+    void LeaveLobby();
     void JoinLobby(CSteamID lobbyID);
     void JoinAnyLobby();
+    void RefreshLobbyList();
+
+    const std::vector<LobbyInfo>& GetLobbyList() const { return m_LobbyList; }
 
     bool SendPacket(CSteamID target, PacketType type, const void* data, uint32_t size);
     void ReceivePackets();
@@ -44,7 +56,11 @@ private:
     }
 
     MewjectorAPI* m_mj;
+    std::string m_ModID;
+    std::string m_PendingLobbyName;
     CSteamID m_CurrentLobby;
+    std::vector<LobbyInfo> m_LobbyList;
+    bool m_AutoJoinSearch = false;
 
     CCallResult<NetworkManager, LobbyCreated_t> m_LobbyCreatedCallResult;
     void OnLobbyCreated(LobbyCreated_t *pCallback, bool bIOFailure);

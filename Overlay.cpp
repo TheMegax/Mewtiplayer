@@ -1,4 +1,5 @@
 #include "Overlay.h"
+#include "NetworkManager.h"
 #include "imgui.h"
 #include "imgui_hook.h"
 #include <deque>
@@ -11,6 +12,7 @@ static std::deque<std::string> g_logLines;
 static std::mutex g_logMutex;
 static const size_t MAX_LOG_LINES = 512;
 static bool g_visible = true;
+static char g_lobbyNameBuffer[128] = "Multigenics Match";
 
 static MJ_fn_Log g_origMjLog = nullptr;
 
@@ -56,27 +58,110 @@ static void InternalRender() {
   ImGui::Begin("Multigenics  |  F1 to hide", &g_visible,
                ImGuiWindowFlags_NoNav);
 
-  ImGui::BeginChild("##log", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()),
-                    false, ImGuiWindowFlags_HorizontalScrollbar);
-  {
-    std::lock_guard<std::mutex> lock(g_logMutex);
-    for (const auto &line : g_logLines) {
-      ImVec4 col = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
-      if (line.find("[WARN]") != std::string::npos)
-        col = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
-      else if (line.find("[ERR]") != std::string::npos)
-        col = ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
-      else if (line.find("[OK]") != std::string::npos)
-        col = ImVec4(0.4f, 1.0f, 0.5f, 1.0f);
-      ImGui::TextColored(col, "%s", line.c_str());
+  if (ImGui::BeginTabBar("##tabs")) {
+    if (ImGui::BeginTabItem("Logs")) {
+      ImGui::BeginChild("##log", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()),
+                        false, ImGuiWindowFlags_HorizontalScrollbar);
+      {
+        std::lock_guard<std::mutex> lock(g_logMutex);
+        for (const auto &line : g_logLines) {
+          ImVec4 col = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
+          if (line.find("[WARN]") != std::string::npos)
+            col = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
+          else if (line.find("[ERR]") != std::string::npos)
+            col = ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+          else if (line.find("[OK]") != std::string::npos)
+            col = ImVec4(0.4f, 1.0f, 0.5f, 1.0f);
+          ImGui::TextColored(col, "%s", line.c_str());
+        }
+        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+          ImGui::SetScrollHereY(1.0f);
+      }
+      ImGui::EndChild();
+      ImGui::EndTabItem();
     }
-    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-      ImGui::SetScrollHereY(1.0f);
-  }
-  ImGui::EndChild();
 
-  ImGui::Separator();
-  ImGui::TextDisabled("F5 Host  |  F6 Join  |  F7 Ping  |  F1 Hide");
+    if (ImGui::BeginTabItem("Network")) {
+      CSteamID current = NetworkManager::Get().GetCurrentLobby();
+
+      if (current.IsValid()) {
+        if (ImGui::Button("Leave Lobby")) {
+          NetworkManager::Get().LeaveLobby();
+        }
+      } else {
+        if (ImGui::Button("Host Lobby")) {
+          ImGui::OpenPopup("Host Lobby Modal");
+        }
+      }
+
+      ImGui::SameLine();
+      if (ImGui::Button("Refresh List")) {
+        NetworkManager::Get().RefreshLobbyList();
+      }
+
+      if (current.IsValid()) {
+        ImGui::Text("Current Lobby: %llu", current.ConvertToUint64());
+      } else {
+        ImGui::Text("Status: Not in a lobby.");
+      }
+
+      // Modal for Lobby Creation
+      if (ImGui::BeginPopupModal("Host Lobby Modal", NULL,
+                                 ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Enter a name for your lobby:");
+        ImGui::InputText("##name", g_lobbyNameBuffer,
+                         sizeof(g_lobbyNameBuffer));
+        ImGui::Separator();
+
+        if (ImGui::Button("Create", ImVec2(120, 0))) {
+          NetworkManager::Get().HostLobby(g_lobbyNameBuffer);
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+      }
+
+      ImGui::Separator();
+      ImGui::Text("Available Lobbies:");
+
+      if (ImGui::BeginTable("##lobbies", 3,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Name");
+        ImGui::TableSetupColumn("Players");
+        ImGui::TableSetupColumn("Action");
+        ImGui::TableHeadersRow();
+
+        const auto &lobbies = NetworkManager::Get().GetLobbyList();
+        for (const auto &lobby : lobbies) {
+          ImGui::TableNextRow();
+          ImGui::TableSetColumnIndex(0);
+          ImGui::Text("%s", lobby.name.c_str());
+
+          ImGui::TableSetColumnIndex(1);
+          ImGui::Text("%d/%d", lobby.memberCount, lobby.maxMembers);
+
+          ImGui::TableSetColumnIndex(2);
+          if (lobby.id == current) {
+            ImGui::TextDisabled("Joined");
+          } else {
+            std::string label =
+                "Join##" + std::to_string(lobby.id.ConvertToUint64());
+            if (ImGui::Button(label.c_str())) {
+              NetworkManager::Get().JoinLobby(lobby.id);
+            }
+          }
+        }
+        ImGui::EndTable();
+      }
+      ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
+  }
+
   ImGui::End();
 }
 

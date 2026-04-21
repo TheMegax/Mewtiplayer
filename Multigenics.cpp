@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #define MOD_NAME "Multigenics"
+#define MOD_VERSION "1.0.0"
 
 static MewjectorAPI mj;
 static UINT_PTR g_gameBase = 0;
@@ -19,7 +20,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
   if (rcx && !g_networkInitialized) {
     g_networkInitialized = true;
     Overlay::Log("Captured application instance: %p", rcx);
-    NetworkManager::Get().Init(&mj);
+    NetworkManager::Get().Init(&mj, MOD_NAME "-" MOD_VERSION);
     Overlay::Setup(&mj); // Initialize overlay once network is ready or at start
   }
 
@@ -30,25 +31,27 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
   // --- Keybinds ---
   static bool f1 = false, f5 = false, f6 = false, f7 = false;
 
-  bool f1_now = (GetAsyncKeyState(VK_F1) & 0x8000) != 0;
+  const int KEY_DOWN_BIT = 0x8000;
+
+  bool f1_now = (GetAsyncKeyState(VK_F1) & KEY_DOWN_BIT) != 0;
   if (f1_now && !f1) {
     Overlay::ToggleVisible();
   }
   f1 = f1_now;
 
-  bool f5_now = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+  bool f5_now = (GetAsyncKeyState(VK_F5) & KEY_DOWN_BIT) != 0;
   if (f5_now && !f5) {
-    NetworkManager::Get().HostLobby();
+    NetworkManager::Get().HostLobby("Multigenics Match");
   }
   f5 = f5_now;
 
-  bool f6_now = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+  bool f6_now = (GetAsyncKeyState(VK_F6) & KEY_DOWN_BIT) != 0;
   if (f6_now && !f6) {
     NetworkManager::Get().JoinAnyLobby();
   }
   f6 = f6_now;
 
-  bool f7_now = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+  bool f7_now = (GetAsyncKeyState(VK_F7) & KEY_DOWN_BIT) != 0;
   if (f7_now && !f7) {
     CSteamID lobby = NetworkManager::Get().GetCurrentLobby();
     if (lobby.IsValid()) {
