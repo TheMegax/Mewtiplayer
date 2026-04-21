@@ -1,6 +1,8 @@
 -x
 c++
 -I.
+-Iinclude
+-Iexternal/mewjector
 -Iexternal/steam
 -Iexternal/imgui
 -Iexternal/kiero

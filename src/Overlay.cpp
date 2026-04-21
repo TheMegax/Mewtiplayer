@@ -1,4 +1,5 @@
 #include "Overlay.h"
+#include "GameUtils.h"
 #include "NetworkManager.h"
 #include "imgui.h"
 #include "imgui_hook.h"
@@ -157,6 +158,36 @@ static void InternalRender() {
         }
         ImGui::EndTable();
       }
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("RNG")) {
+      uint32_t state[8] = {0};
+      GameUtils::GetRNGState(state);
+
+      ImGui::Text("Xoshiro256 State (TLS +0x178):");
+      ImGui::Separator();
+
+      // Display the 32-byte state
+      ImGui::Columns(2, "##rng_cols", false);
+      ImGui::Text("s[0]: 0x%08X", state[0]);
+      ImGui::Text("s[1]: 0x%08X", state[1]);
+      ImGui::Text("s[2]: 0x%08X", state[2]);
+      ImGui::Text("s[3]: 0x%08X", state[3]);
+      ImGui::NextColumn();
+      uint64_t *s64 = (uint64_t *)&state[4];
+      ImGui::Text("s[4-5]: 0x%016llX", s64[0]);
+      ImGui::Text("s[6-7]: 0x%016llX", s64[1]);
+      ImGui::Columns(1);
+
+      ImGui::Text("Current RNG: %u", state[0]);
+
+      ImGui::Separator();
+      ImGui::TextWrapped("This displays the current 32-byte RNG state.");
+
+      if (ImGui::Button("Sync with Host (Simulated)")) {
+        Overlay::Log("[OK] RNG State synchronized (Simulated).");
+      }
+
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();

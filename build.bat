@@ -24,8 +24,8 @@ if %errorlevel% neq 0 (
 echo Compiling Multigenics...
 if not exist build mkdir build
 cl /LD /O2 /GS- /W3 /D_CRT_SECURE_NO_WARNINGS ^
-  /I external/steam /I external/imgui /I external/kiero /I external/kiero/minhook/include ^
-  Multigenics.cpp Scanner.cpp NetworkManager.cpp Overlay.cpp imgui_hook.cpp ^
+  /I . /I include /I external/mewjector /I external/steam /I external/imgui /I external/kiero /I external/kiero/minhook/include ^
+  Multigenics.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/imgui_hook.cpp src/GameUtils.cpp ^
   external/kiero/kiero.cpp ^
   external/kiero/minhook/src/buffer.c ^
   external/kiero/minhook/src/hook.c ^
@@ -37,7 +37,7 @@ cl /LD /O2 /GS- /W3 /D_CRT_SECURE_NO_WARNINGS ^
   external/imgui/imgui_widgets.cpp ^
   external/imgui/imgui_impl_opengl2.cpp ^
   external/imgui/imgui_impl_win32.cpp ^
-  steam_api64.lib user32.lib opengl32.lib gdi32.lib dwmapi.lib ^
+  external/steam/steam_api64.lib user32.lib opengl32.lib gdi32.lib dwmapi.lib ^
   /Fo:build\ /Fe:build\Multigenics.dll
 if %errorlevel% neq 0 (
     echo Compilation failed!
