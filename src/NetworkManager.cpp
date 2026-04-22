@@ -1,5 +1,6 @@
 #include "NetworkManager.h"
 #include "Overlay.h"
+#include "GameUtils.h"
 #include <string.h>
 
 void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
@@ -53,6 +54,21 @@ void NetworkManager::ReceivePackets() {
       break;
     case PacketType::Handshake:
       Overlay::Log("Received Handshake from %llu", remoteID.ConvertToUint64());
+      if (SteamMatchmaking()->GetLobbyOwner(m_CurrentLobby) ==
+          SteamUser()->GetSteamID()) {
+        uint8_t rngState[32];
+        GameUtils::GetRNGState(rngState);
+        SendPacket(remoteID, PacketType::RNGSync, rngState, 32);
+        Overlay::Log("Sent RNG state to %llu", remoteID.ConvertToUint64());
+      }
+      break;
+    case PacketType::RNGSync:
+      if (hdr->length == 32) {
+        GameUtils::SetRNGState(buffer.data() + sizeof(PacketHeader));
+        Overlay::Log("RNG state synchronized with host.");
+      } else {
+        Overlay::Log("Received invalid RNGSync packet (length %u)", hdr->length);
+      }
       break;
     default:
       break;
@@ -119,6 +135,13 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCB, bool bIO) {
   }
   m_CurrentLobby = pCB->m_ulSteamIDLobby;
   Overlay::Log("Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
+
+  // If we are not the host, send a handshake to the host to request state
+  CSteamID hostID = SteamMatchmaking()->GetLobbyOwner(m_CurrentLobby);
+  if (hostID != SteamUser()->GetSteamID()) {
+    SendPacket(hostID, PacketType::Handshake, nullptr, 0);
+    Overlay::Log("Sent handshake to host %llu", hostID.ConvertToUint64());
+  }
 }
 
 void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCB, bool bIO) {

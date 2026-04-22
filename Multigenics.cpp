@@ -28,47 +28,6 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     NetworkManager::Get().Update();
   }
 
-  // --- Keybinds ---
-  static bool f1 = false, f5 = false, f6 = false, f7 = false;
-
-  const int KEY_DOWN_BIT = 0x8000;
-
-  bool f1_now = (GetAsyncKeyState(VK_F1) & KEY_DOWN_BIT) != 0;
-  if (f1_now && !f1) {
-    Overlay::ToggleVisible();
-  }
-  f1 = f1_now;
-
-  bool f5_now = (GetAsyncKeyState(VK_F5) & KEY_DOWN_BIT) != 0;
-  if (f5_now && !f5) {
-    NetworkManager::Get().HostLobby("Multigenics Match");
-  }
-  f5 = f5_now;
-
-  bool f6_now = (GetAsyncKeyState(VK_F6) & KEY_DOWN_BIT) != 0;
-  if (f6_now && !f6) {
-    NetworkManager::Get().JoinAnyLobby();
-  }
-  f6 = f6_now;
-
-  bool f7_now = (GetAsyncKeyState(VK_F7) & KEY_DOWN_BIT) != 0;
-  if (f7_now && !f7) {
-    CSteamID lobby = NetworkManager::Get().GetCurrentLobby();
-    if (lobby.IsValid()) {
-      int n = SteamMatchmaking()->GetNumLobbyMembers(lobby);
-      for (int i = 0; i < n; i++) {
-        CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(lobby, i);
-        if (member != SteamUser()->GetSteamID()) {
-          NetworkManager::Get().SendPacket(member, PacketType::Ping, nullptr,
-                                           0);
-        }
-      }
-    } else {
-      Overlay::Log("[WARN] Not in a lobby.");
-    }
-  }
-  f7 = f7_now;
-
   if (g_origRunFrame)
     g_origRunFrame(rcx, rdx);
 }

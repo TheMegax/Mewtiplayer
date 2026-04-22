@@ -183,11 +183,6 @@ static void InternalRender() {
 
       ImGui::Separator();
       ImGui::TextWrapped("This displays the current 32-byte RNG state.");
-
-      if (ImGui::Button("Sync with Host (Simulated)")) {
-        Overlay::Log("[OK] RNG State synchronized (Simulated).");
-      }
-
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();

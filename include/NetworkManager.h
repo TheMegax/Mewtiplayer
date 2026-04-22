@@ -8,7 +8,8 @@ enum class PacketType : uint8_t {
   Handshake,
   Ping,
   GameStateSync,
-  ChatMessage
+  ChatMessage,
+  RNGSync
 };
  
 struct LobbyInfo {

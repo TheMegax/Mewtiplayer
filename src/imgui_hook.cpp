@@ -34,6 +34,13 @@ static std::string g_lastError;
 // WndProc callback ImGui handler
 static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
                                       LPARAM lParam) {
+  if (uMsg == WM_KEYDOWN && wParam == VK_F1) {
+    if (!(lParam & (1 << 30))) {
+      Overlay::ToggleVisible();
+    }
+    return 1; // Handled
+  }
+
   if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
     return true;
 
