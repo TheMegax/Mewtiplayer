@@ -78,10 +78,13 @@ void NetworkManager::ReceivePackets() {
         MouseEventData *mouse =
             (MouseEventData *)(buffer.data() + sizeof(PacketHeader));
         if (IsHost()) {
-          Overlay::Log("Sync: Received mouse event %u from client, simulating",
+          Overlay::Log("Sync: Received mouse event %u from client, simulating "
+                       "and relaying",
                        mouse->type);
           InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
                                     ImGuiHook::GetHWND());
+          BroadcastPacket(PacketType::MouseEvent, mouse, sizeof(MouseEventData),
+                          true);
         } else {
           Overlay::Log("Sync: Received mouse event %u from host, simulating",
                        mouse->type);
