@@ -9,8 +9,17 @@ enum class PacketType : uint8_t {
   Ping,
   GameStateSync,
   ChatMessage,
-  RNGSync
+  RNGSync,
+  MouseEvent
 };
+
+#pragma pack(push, 1)
+struct MouseEventData {
+    uint32_t type; // Message type (WM_LBUTTONDOWN, etc)
+    float x;       // Normalized X (0.0 to 1.0)
+    float y;       // Normalized Y (0.0 to 1.0)
+};
+#pragma pack(pop)
  
 struct LobbyInfo {
   CSteamID id;
@@ -50,6 +59,9 @@ public:
     void ReceivePackets();
 
     CSteamID GetCurrentLobby() const { return m_CurrentLobby; }
+    bool IsHost() const;
+    CSteamID GetHostID() const;
+    void BroadcastPacket(PacketType type, const void* data, uint32_t size, bool excludeSelf = true);
 
 private:
     NetworkManager() : m_mj(nullptr) {

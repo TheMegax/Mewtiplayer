@@ -1,6 +1,8 @@
 #include "NetworkManager.h"
-#include "Overlay.h"
 #include "GameUtils.h"
+#include "InputGhost.h"
+#include "Overlay.h"
+#include "imgui_hook.h"
 #include <string.h>
 
 void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
@@ -67,7 +69,25 @@ void NetworkManager::ReceivePackets() {
         GameUtils::SetRNGState(buffer.data() + sizeof(PacketHeader));
         Overlay::Log("RNG state synchronized with host.");
       } else {
-        Overlay::Log("Received invalid RNGSync packet (length %u)", hdr->length);
+        Overlay::Log("Received invalid RNGSync packet (length %u)",
+                     hdr->length);
+      }
+      break;
+    case PacketType::MouseEvent:
+      if (hdr->length == sizeof(MouseEventData)) {
+        MouseEventData *mouse =
+            (MouseEventData *)(buffer.data() + sizeof(PacketHeader));
+        if (IsHost()) {
+          Overlay::Log("Sync: Received mouse event %u from client, simulating",
+                       mouse->type);
+          InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
+                                    ImGuiHook::GetHWND());
+        } else {
+          Overlay::Log("Sync: Received mouse event %u from host, simulating",
+                       mouse->type);
+          InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
+                                    ImGuiHook::GetHWND());
+        }
       }
       break;
     default:
@@ -190,4 +210,34 @@ void NetworkManager::OnP2PSessionRequest(P2PSessionRequest_t *pCB) {
   Overlay::Log("P2P Session request from %llu — accepting.",
                pCB->m_steamIDRemote.ConvertToUint64());
   SteamNetworking()->AcceptP2PSessionWithUser(pCB->m_steamIDRemote);
+}
+
+bool NetworkManager::IsHost() const {
+  if (!m_CurrentLobby.IsValid())
+    return false;
+  return SteamMatchmaking()->GetLobbyOwner(m_CurrentLobby) ==
+         SteamUser()->GetSteamID();
+}
+
+CSteamID NetworkManager::GetHostID() const {
+  if (!m_CurrentLobby.IsValid())
+    return CSteamID();
+  return SteamMatchmaking()->GetLobbyOwner(m_CurrentLobby);
+}
+
+void NetworkManager::BroadcastPacket(PacketType type, const void *data,
+                                     uint32_t size, bool excludeSelf) {
+  if (!m_CurrentLobby.IsValid())
+    return;
+
+  int memberCount = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  CSteamID myID = SteamUser()->GetSteamID();
+
+  for (int i = 0; i < memberCount; i++) {
+    CSteamID memberID =
+        SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+    if (excludeSelf && memberID == myID)
+      continue;
+    SendPacket(memberID, type, data, size);
+  }
 }

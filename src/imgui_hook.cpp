@@ -4,6 +4,8 @@
 #include "imgui.h"
 #include "imgui_impl_opengl2.h"
 #include "imgui_impl_win32.h"
+#include "InputGhost.h"
+#include "NetworkManager.h"
 #include <windows.h>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
@@ -43,6 +45,39 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
 
   if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
     return true;
+
+  // Mouse event sync
+  bool isSimulated = (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
+                      uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP ||
+                      uMsg == WM_MOUSEMOVE) &&
+                     ((wParam & 0xFF00) == 0x8800);
+
+  if (!isSimulated && (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
+                       uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP)) {
+    float nx, ny;
+    InputGhost::NormalizeCoordinates(LOWORD(lParam), HIWORD(lParam), hWnd, nx,
+                                     ny);
+
+    auto &nm = NetworkManager::Get();
+    if (nm.IsHost()) {
+      // Host: Broadcast to all clients
+      MouseEventData data = {uMsg, nx, ny};
+      nm.BroadcastPacket(PacketType::MouseEvent, &data, sizeof(data));
+      Overlay::Log("Sync: Broadcast mouse event %u (%.2f, %.2f) to clients", uMsg,
+                   nx, ny);
+      // Continue to process locally
+    } else if (nm.GetCurrentLobby().IsValid()) {
+      // Client: Send to host and discard local click
+      MouseEventData data = {uMsg, nx, ny};
+      nm.SendPacket(nm.GetHostID(), PacketType::MouseEvent, &data, sizeof(data));
+      Overlay::Log("Sync: Sent mouse event %u (%.2f, %.2f) to host", uMsg, nx,
+                   ny);
+      return 0; // Discard local click
+    }
+  }
+
+  if (isSimulated)
+    wParam &= ~0xFF00;
 
   return CallWindowProc(g_WndProc_o, hWnd, uMsg, wParam, lParam);
 }
@@ -87,6 +122,8 @@ static bool Init_ImGui(const HDC hDc) {
     wglMakeCurrent(hDc, o_WglContext);
     return false;
   }
+
+  ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
   if (!ImGui_ImplWin32_Init(g_hWnd)) {
     g_lastError = "Failed to init ImGui_ImplWin32";
@@ -202,4 +239,6 @@ void Unload() {
 }
 
 std::string GetLastError() { return g_lastError; }
+
+HWND GetHWND() { return g_hWnd; }
 } // namespace ImGuiHook

@@ -25,7 +25,7 @@ echo Compiling Multigenics...
 if not exist build mkdir build
 cl /LD /O2 /GS- /W3 /D_CRT_SECURE_NO_WARNINGS ^
   /I . /I include /I external/mewjector /I external/steam /I external/imgui /I external/kiero /I external/kiero/minhook/include ^
-  Multigenics.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/imgui_hook.cpp src/GameUtils.cpp ^
+  Multigenics.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/imgui_hook.cpp src/GameUtils.cpp src/InputGhost.cpp ^
   external/kiero/kiero.cpp ^
   external/kiero/minhook/src/buffer.c ^
   external/kiero/minhook/src/hook.c ^

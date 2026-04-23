@@ -3,6 +3,7 @@
 #include "Scanner.h"
 #include "imgui_hook.h"
 #include "mewjector.h"
+#include "InputGhost.h"
 #include <stdint.h>
 #include <windows.h>
 
@@ -26,6 +27,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
 
   if (g_networkInitialized) {
     NetworkManager::Get().Update();
+    InputGhost::SetIsHost(NetworkManager::Get().IsHost());
   }
 
   if (g_origRunFrame)

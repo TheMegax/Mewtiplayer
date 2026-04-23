@@ -3,6 +3,7 @@
 #include "mewjector.h"
 #include <functional>
 #include <string>
+#include <windows.h>
 
 namespace ImGuiHook {
 /**
@@ -21,4 +22,5 @@ void Unload();
  * @brief Get the last error message.
  */
 std::string GetLastError();
+HWND GetHWND();
 } // namespace ImGuiHook

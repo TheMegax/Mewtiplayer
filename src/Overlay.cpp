@@ -1,6 +1,7 @@
 #include "Overlay.h"
 #include "GameUtils.h"
 #include "NetworkManager.h"
+#include "InputGhost.h"
 #include "imgui.h"
 #include "imgui_hook.h"
 #include <deque>
@@ -51,8 +52,12 @@ static void __cdecl WrappedMjLog(const char *owner, const char *fmt, ...) {
 void Overlay::ToggleVisible() { g_visible = !g_visible; }
 
 static void InternalRender() {
-  if (!g_visible)
+  if (!g_visible) {
+    InputGhost::RenderDebug();
     return;
+  }
+
+  InputGhost::RenderDebug();
 
   ImGui::SetNextWindowSize(ImVec2(680, 320), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
@@ -183,6 +188,29 @@ static void InternalRender() {
 
       ImGui::Separator();
       ImGui::TextWrapped("This displays the current 32-byte RNG state.");
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Input")) {
+      ImGui::Text("Calibration Status:");
+      if (InputGhost::IsCalibrated()) {
+          ImGui::TextColored(ImVec4(0, 1, 0, 1), "READY: Calibrated and active.");
+          if (ImGui::Button("Reset Calibration")) {
+              InputGhost::ResetCalibration();
+          }
+      } else {
+          ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "WAITING: Click in the game window to calibrate.");
+      }
+
+      ImGui::Separator();
+      ImGui::Text("Test Injection:");
+      if (ImGui::Button("Trigger Test Click (Center)")) {
+          HWND hWnd = ImGuiHook::GetHWND();
+          if (hWnd) {
+              InputGhost::SimulateClick(WM_LBUTTONDOWN, 0.5f, 0.5f, hWnd);
+              InputGhost::SimulateClick(WM_LBUTTONUP, 0.5f, 0.5f, hWnd);
+          }
+      }
+      ImGui::TextWrapped("This will inject a click at the center of the screen to verify your current calibration.");
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
