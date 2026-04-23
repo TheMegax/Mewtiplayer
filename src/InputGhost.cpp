@@ -1,4 +1,5 @@
 #include "InputGhost.h"
+#include "NetworkManager.h"
 #include "Overlay.h"
 #include "external/kiero/minhook/include/MinHook.h"
 #include "imgui.h"
@@ -13,18 +14,22 @@
 // SDL3 Definitions for Polling Hooks and Direct Calls
 typedef uint32_t Uint32;
 typedef uint8_t Uint8;
+typedef uint16_t Uint16;
 typedef uint64_t Uint64;
+typedef int16_t Sint16;
 typedef uint32_t SDL_WindowID;
 typedef uint32_t SDL_MouseID;
 typedef uint32_t SDL_EventType;
 typedef uint32_t SDL_MouseButtonFlags;
+typedef uint32_t SDL_JoystickID;
 
 typedef Uint32 (*SDL_GetMouseState_t)(float *x, float *y);
 typedef bool (*SDL_PushEvent_t)(void *event);
 typedef bool (*SDL_PollEvent_t)(void *event);
-typedef void *(*SDL_GetMouseFocus_t)();
+typedef void *(*SDL_GetFocus_t)();
 typedef SDL_WindowID (*SDL_GetWindowID_t)(void *window);
 typedef Uint64 (*SDL_GetTicksNS_t)();
+typedef Uint32 (*SDL_GetWindowFlags_t)(void *window);
 
 namespace InputGhost {
 // Diagnostic Globals
@@ -40,9 +45,6 @@ static float g_LastSimX = -1.0f;
 static float g_LastSimY = -1.0f;
 static std::chrono::steady_clock::time_point g_LastSimTime;
 
-typedef Uint32 (*SDL_GetWindowFlags_t)(void *window);
-static SDL_GetWindowFlags_t g_Original_SDL_GetWindowFlags = nullptr;
-
 static float g_SimX = 0;
 static float g_SimY = 0;
 static float g_SimGlobalX = 0;
@@ -56,6 +58,7 @@ static SDL_GetMouseState_t g_Original_SDL_GetMouseState = nullptr;
 static SDL_GetMouseState_t g_Original_SDL_GetGlobalMouseState = nullptr;
 static SDL_GetMouseState_t g_Original_SDL_GetRelativeMouseState = nullptr;
 static SDL_PollEvent_t g_Original_SDL_PollEvent = nullptr;
+static SDL_GetWindowFlags_t g_Original_SDL_GetWindowFlags = nullptr;
 
 typedef void *(*SDL_GetFocus_t)();
 static SDL_GetFocus_t g_Original_SDL_GetMouseFocus = nullptr;
@@ -80,22 +83,24 @@ void **ResolveTableEntry(const char *name) {
   return nullptr;
 }
 
-bool IsLazyWrapper(void *ptr) {
-  if (!ptr)
-    return true;
-  uint8_t *code = (uint8_t *)ptr;
-  for (int i = 0; i < 24; i++) {
-    if (code[i] == 0xE8)
-      return true;
-  }
-  return false;
-}
-
 bool IsSimActive() {
   if (g_LastSimX < 0)
     return false;
   auto now = std::chrono::steady_clock::now();
   return std::chrono::duration<float>(now - g_LastSimTime).count() < 0.15f;
+}
+
+struct alignas(8) Internal_SDL_Event {
+  Uint32 type;
+  Uint32 reserved;
+  Uint64 timestamp;
+  Uint8 data[112];
+};
+
+bool IsSimulatedEvent(void *event) {
+  if (!event)
+    return false;
+  return *(uint32_t *)((uint8_t *)event + 4) == 0x88008800;
 }
 
 bool Hooked_SDL_PollEvent(void *event) {
@@ -105,10 +110,38 @@ bool Hooked_SDL_PollEvent(void *event) {
   if (res && event) {
     uint32_t type = *(uint32_t *)event;
 
-    uint32_t FOCUS_LOST = 0x203;
-    uint32_t MOUSE_LEAVE = 0x205;
-    if (type == FOCUS_LOST || type == MOUSE_LEAVE) {
-      return Hooked_SDL_PollEvent(event); // Skip and get next
+    // SDL3 Focus/Window events range
+    if (type == 0x203 || type == 0x205) {
+      return Hooked_SDL_PollEvent(event);
+    }
+
+    // Handle generic input sync in PollEvent (Keyboard/Gamepad)
+    if (!IsSimulatedEvent(event)) {
+      auto &nm = NetworkManager::Get();
+      bool imguiKeys = false;
+      if (ImGui::GetCurrentContext())
+        imguiKeys = ImGui::GetIO().WantCaptureKeyboard;
+
+      // Keyboard: 0x300 (Down), 0x301 (Up)
+      if ((type == 0x300 || type == 0x301) && !imguiKeys) {
+        KeyEventData data;
+        data.type = type;
+        // SDL3 KeyboardEvent Offsets: windowID=16, which=20, scancode=24,
+        // keycode=28, mod=32, raw=34, down=36, repeat=37
+        data.scancode = *(uint32_t *)((uint8_t *)event + 24);
+        data.keycode = *(uint32_t *)((uint8_t *)event + 28);
+        data.mod = *(uint16_t *)((uint8_t *)event + 32);
+        data.down = *((uint8_t *)event + 36);
+        data.repeat = *((uint8_t *)event + 37);
+
+        if (nm.IsHost()) {
+          nm.BroadcastPacket(PacketType::KeyEvent, &data, sizeof(data), true);
+        } else if (nm.GetCurrentLobby().IsValid()) {
+          nm.SendPacket(nm.GetHostID(), PacketType::KeyEvent, &data,
+                        sizeof(data));
+          return Hooked_SDL_PollEvent(event);
+        }
+      }
     }
 
     if (!g_HasObserved) {
@@ -127,11 +160,7 @@ bool Hooked_SDL_PollEvent(void *event) {
 Uint32 Hooked_SDL_GetWindowFlags(void *window) {
   Uint32 flags =
       g_Original_SDL_GetWindowFlags ? g_Original_SDL_GetWindowFlags(window) : 0;
-  // Force focus flags (SDL_WINDOW_INPUT_FOCUS | SDL_WINDOW_MOUSE_FOCUS)
-  // SDL3 flags: 0x01 = FULLSCREEN, 0x02 = OPENGL, 0x04 = HIDDEN, 0x08 =
-  // BORDERLESS, 0x10 = RESIZABLE, 0x20 = MINIMIZED, 0x40 = MAXIMIZED, 0x80 =
-  // MOUSE_GRABBED, 0x100 = INPUT_FOCUS, 0x200 = MOUSE_FOCUS...
-  return flags | 0x100 | 0x200;
+  return flags | 0x100 | 0x200; // Force focus
 }
 
 Uint32 Hooked_SDL_GetMouseState(float *x, float *y) {
@@ -194,8 +223,6 @@ void ApplyDynamicHook(const char *name, void *hookFunc, void **originalStore,
     return;
   if (*entry == hookFunc)
     return;
-  if (!force && IsLazyWrapper(*entry))
-    return;
   DWORD oldProtect;
   if (VirtualProtect(entry, sizeof(void *), PAGE_READWRITE, &oldProtect)) {
     if (originalStore && !*originalStore)
@@ -206,21 +233,6 @@ void ApplyDynamicHook(const char *name, void *hookFunc, void **originalStore,
 }
 
 void SetIsHost(bool host) { g_IsHost = host; }
-
-struct alignas(8) Internal_SDL_Event {
-  Uint32 type;
-  Uint32 reserved;
-  Uint64 timestamp;
-  Uint32 windowID;
-  Uint32 which;
-  Uint8 button;
-  Uint8 down;
-  Uint8 clicks;
-  Uint8 padding1;
-  float x;
-  float y;
-  Uint8 padding2[88];
-};
 
 void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
   int pixelX, pixelY;
@@ -245,62 +257,61 @@ void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
   ApplyDynamicHook("SDL_GetRelativeMouseState",
                    (void *)Hooked_SDL_GetRelativeMouseState,
                    (void **)&g_Original_SDL_GetRelativeMouseState, true);
-
-  // Background focus hooks
   ApplyDynamicHook("SDL_GetMouseFocus", (void *)Hooked_SDL_GetMouseFocus,
                    (void **)&g_Original_SDL_GetMouseFocus, true);
   ApplyDynamicHook("SDL_GetKeyboardFocus", (void *)Hooked_SDL_GetKeyboardFocus,
                    (void **)&g_Original_SDL_GetKeyboardFocus, true);
   ApplyDynamicHook("SDL_GetWindowFlags", (void *)Hooked_SDL_GetWindowFlags,
                    (void **)&g_Original_SDL_GetWindowFlags, true);
+  ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
+                   (void **)&g_Original_SDL_PollEvent, true);
 
   void **pPush = ResolveTableEntry("SDL_PushEvent");
-  void **pFocus = ResolveTableEntry("SDL_GetMouseFocus");
-  void **pWID = ResolveTableEntry("SDL_GetWindowID");
-  void **pTicks = ResolveTableEntry("SDL_GetTicksNS");
-
   if (pPush && *pPush) {
     SDL_PushEvent_t _SDL_PushEvent = (SDL_PushEvent_t)*pPush;
-    SDL_GetMouseFocus_t _SDL_GetMouseFocus =
-        pFocus ? (SDL_GetMouseFocus_t)*pFocus : nullptr;
-    SDL_GetWindowID_t _SDL_GetWindowID =
-        pWID ? (SDL_GetWindowID_t)*pWID : nullptr;
-    SDL_GetTicksNS_t _SDL_GetTicksNS =
-        pTicks ? (SDL_GetTicksNS_t)*pTicks : nullptr;
-
-    void *focus = _SDL_GetMouseFocus ? _SDL_GetMouseFocus() : nullptr;
-    if (focus)
-      g_MainSDLWindow = focus;
-
-    SDL_WindowID wid =
-        (focus && _SDL_GetWindowID) ? _SDL_GetWindowID(focus) : 0;
-    if (g_ObservedWID != 0)
-      wid = g_ObservedWID;
-    g_LastWindowID = wid;
-
     Internal_SDL_Event ev = {0};
+    ev.reserved = 0x88008800; // Mark as simulated
     uint32_t baseType = g_HasObserved ? (g_ObservedType & ~1) : 0x600;
 
     if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
       ev.type = (msg == WM_LBUTTONDOWN) ? baseType + 1 : baseType + 2;
-      ev.button = 1;
-      ev.down = (msg == WM_LBUTTONDOWN ? 1 : 0);
+      ev.data[8] = 1;                               // button at offset 16+8=24
+      ev.data[9] = (msg == WM_LBUTTONDOWN ? 1 : 0); // down at offset 16+9=25
       g_SimButtons = (msg == WM_LBUTTONDOWN ? 1 : 0);
     } else if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) {
       ev.type = (msg == WM_RBUTTONDOWN) ? baseType + 1 : baseType + 2;
-      ev.button = 3;
-      ev.down = (msg == WM_RBUTTONDOWN ? 1 : 0);
+      ev.data[8] = 3;                               // button at offset 24
+      ev.data[9] = (msg == WM_RBUTTONDOWN ? 1 : 0); // down at offset 25
       g_SimButtons = (msg == WM_RBUTTONDOWN ? 4 : 0);
     }
 
     if (ev.type != 0) {
-      ev.timestamp = _SDL_GetTicksNS ? _SDL_GetTicksNS() : 0;
-      ev.windowID = wid;
-      ev.clicks = 1;
-      ev.x = g_SimX;
-      ev.y = g_SimY;
+      *(uint32_t *)(ev.data + 0) = g_ObservedWID; // windowID at offset 16
+      *(float *)(ev.data + 12) = g_SimX;          // x at offset 28
+      *(float *)(ev.data + 16) = g_SimY;          // y at offset 32
       _SDL_PushEvent(&ev);
     }
+  }
+}
+
+void SimulateKeyEvent(uint32_t type, uint32_t keycode, uint32_t scancode,
+                      uint16_t mod, uint8_t down, uint8_t repeat) {
+  void **pPush = ResolveTableEntry("SDL_PushEvent");
+  if (pPush && *pPush) {
+    SDL_PushEvent_t _SDL_PushEvent = (SDL_PushEvent_t)*pPush;
+    Internal_SDL_Event ev = {0};
+    ev.type = type;
+    ev.reserved = 0x88008800;
+    // SDL3 KeyboardEvent Offsets relative to data (offset 16):
+    // windowID=0, which=4, scancode=8, keycode=12, mod=16, raw=18, down=20,
+    // repeat=21
+    *(uint32_t *)(ev.data + 0) = g_ObservedWID;
+    *(uint32_t *)(ev.data + 8) = scancode;
+    *(uint32_t *)(ev.data + 12) = keycode;
+    *(uint16_t *)(ev.data + 16) = mod;
+    *(uint8_t *)(ev.data + 20) = down;
+    *(uint8_t *)(ev.data + 21) = repeat;
+    _SDL_PushEvent(&ev);
   }
 }
 
@@ -350,9 +361,8 @@ void DenormalizeCoordinates(float normX, float normY, HWND hWnd, int &outX,
   outY = vY + (int)(normY * vH);
 }
 
-bool IsSimulated() { return false; }
 void RenderDebug() {
-  static bool forceHook = false;
+  static bool forceHook = true;
   ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
                    (void **)&g_Original_SDL_PollEvent, forceHook);
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <windows.h>
 
 namespace InputGhost {
@@ -19,12 +20,19 @@ void DenormalizeCoordinates(float normX, float normY, HWND hWnd, int &outX,
 void SimulateClick(UINT msg, float normX, float normY, HWND hWnd);
 
 /**
+ * @brief Simulate a key event.
+ */
+void SimulateKeyEvent(uint32_t type, uint32_t keycode, uint32_t scancode,
+                      uint16_t mod, uint8_t down, uint8_t repeat);
+
+/**
  * @brief Set whether the current instance is the host.
  */
 void SetIsHost(bool host);
 
 /**
- * @brief Check if the current thread is simulating an input (to prevent recursion).
+ * @brief Check if the current thread is simulating an input (to prevent
+ * recursion).
  */
 bool IsSimulated();
 

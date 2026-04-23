@@ -93,6 +93,23 @@ void NetworkManager::ReceivePackets() {
         }
       }
       break;
+    case PacketType::KeyEvent:
+      if (hdr->length == sizeof(KeyEventData)) {
+        KeyEventData *key =
+            (KeyEventData *)(buffer.data() + sizeof(PacketHeader));
+        if (IsHost()) {
+          // Process the input, then broadcast to other clients
+          InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
+                                       key->mod, key->down, key->repeat);
+          BroadcastPacket(PacketType::KeyEvent, key, sizeof(KeyEventData),
+                          true);
+        } else {
+          // Just process the input
+          InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
+                                       key->mod, key->down, key->repeat);
+        }
+      }
+      break;
     default:
       break;
     }

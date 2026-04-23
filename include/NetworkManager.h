@@ -10,8 +10,21 @@ enum class PacketType : uint8_t {
   GameStateSync,
   ChatMessage,
   RNGSync,
-  MouseEvent
+  MouseEvent,
+  KeyEvent
 };
+
+#pragma pack(push, 1)
+struct KeyEventData {
+    uint32_t type;    // SDL_EVENT_KEY_DOWN / SDL_EVENT_KEY_UP
+    uint32_t keycode; // SDL_Keycode
+    uint32_t scancode; // SDL_Scancode
+    uint16_t mod;     // SDL_Keymod
+    uint8_t repeat;
+    uint8_t down;
+};
+
+#pragma pack(pop)
 
 #pragma pack(push, 1)
 struct MouseEventData {
