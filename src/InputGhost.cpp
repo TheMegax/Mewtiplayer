@@ -1,14 +1,15 @@
 #include "InputGhost.h"
+#include "ImGuiHook.h"
 #include "NetworkManager.h"
 #include "Overlay.h"
 #include "external/kiero/minhook/include/MinHook.h"
 #include "imgui.h"
-#include "imgui_hook.h"
 #include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <map>
 #include <string>
+#include <vector>
 #include <windows.h>
 
 // SDL3 Definitions for Polling Hooks and Direct Calls
@@ -30,6 +31,21 @@ typedef void *(*SDL_GetFocus_t)();
 typedef SDL_WindowID (*SDL_GetWindowID_t)(void *window);
 typedef Uint64 (*SDL_GetTicksNS_t)();
 typedef Uint32 (*SDL_GetWindowFlags_t)(void *window);
+
+struct SDL_Surface {
+  Uint32 flags;
+  Uint32 format;
+  int w;
+  int h;
+  int pitch;
+  void *pixels;
+  void *reserved;
+};
+
+typedef void *SDL_Cursor;
+typedef SDL_Cursor *(*SDL_CreateColorCursor_t)(SDL_Surface *surface, int hot_x,
+                                               int hot_y);
+typedef bool (*SDL_SetCursor_t)(SDL_Cursor *cursor);
 
 namespace InputGhost {
 // Diagnostic Globals
@@ -54,17 +70,44 @@ static bool g_IsHost = false;
 static void *g_MainSDLWindow = nullptr;
 static HWND g_hMainWnd = nullptr;
 
+static int g_BreakMouseX = 0;
+static int g_BreakMouseY = 0;
+
 static SDL_GetMouseState_t g_Original_SDL_GetMouseState = nullptr;
 static SDL_GetMouseState_t g_Original_SDL_GetGlobalMouseState = nullptr;
 static SDL_GetMouseState_t g_Original_SDL_GetRelativeMouseState = nullptr;
 static SDL_PollEvent_t g_Original_SDL_PollEvent = nullptr;
 static SDL_GetWindowFlags_t g_Original_SDL_GetWindowFlags = nullptr;
+static SDL_CreateColorCursor_t g_Original_SDL_CreateColorCursor = nullptr;
+static SDL_SetCursor_t g_Original_SDL_SetCursor = nullptr;
 
 typedef void *(*SDL_GetFocus_t)();
 static SDL_GetFocus_t g_Original_SDL_GetMouseFocus = nullptr;
 static SDL_GetFocus_t g_Original_SDL_GetKeyboardFocus = nullptr;
 
 static std::map<std::string, void **> g_ResolvedEntries;
+static std::map<void *, uint8_t> g_CursorToType;
+static std::map<uint32_t, uint8_t> g_SignatureToType;
+static uint8_t g_CurrentCursorType = 0;
+static float g_LastBroadcastX = -1.0f;
+static float g_LastBroadcastY = -1.0f;
+static uint8_t g_LastBroadcastCursor = 255;
+
+// Note: Doesn't work, will need to look further
+uint32_t CalculateCRC32(const void *data, size_t n_bytes) {
+  uint32_t crc = 0xFFFFFFFF;
+  const uint8_t *p = (const uint8_t *)data;
+  while (n_bytes--) {
+    crc ^= *p++;
+    for (int i = 0; i < 8; i++)
+      crc = (crc >> 1) ^ (-(int32_t)(crc & 1) & 0xEDB88320);
+  }
+  return ~crc;
+}
+
+void RegisterCursorSignature(uint32_t crc, uint8_t typeIndex) {
+  g_SignatureToType[crc] = typeIndex;
+}
 
 void **ResolveTableEntry(const char *name) {
   if (g_ResolvedEntries.count(name))
@@ -86,8 +129,26 @@ void **ResolveTableEntry(const char *name) {
 bool IsSimActive() {
   if (g_LastSimX < 0)
     return false;
+
+  // Check if hardware mouse broke the simulation
+  // Only break if we are the foreground window (actively being played)
+  // TODO: Need to remove this later, as the active ghost input is then supposed
+  // to take over
+  if (GetForegroundWindow() == g_hMainWnd) {
+    POINT pt;
+    if (GetCursorPos(&pt)) {
+      int dx = pt.x - g_BreakMouseX;
+      int dy = pt.y - g_BreakMouseY;
+      if ((dx * dx + dy * dy) > 100) { // > 10 pixels movement
+        g_LastSimX = -1.0f;
+        return false;
+      }
+    }
+  }
+
   auto now = std::chrono::steady_clock::now();
-  return std::chrono::duration<float>(now - g_LastSimTime).count() < 0.15f;
+  // Persistent simulation as long as hardware mouse is still
+  return std::chrono::duration<float>(now - g_LastSimTime).count() < 3600.0f;
 }
 
 struct alignas(8) Internal_SDL_Event {
@@ -103,6 +164,38 @@ bool IsSimulatedEvent(void *event) {
   return *(uint32_t *)((uint8_t *)event + 4) == 0x88008800;
 }
 
+SDL_Cursor *Hooked_SDL_CreateColorCursor(SDL_Surface *surface, int hot_x,
+                                         int hot_y) {
+  SDL_Cursor *res =
+      g_Original_SDL_CreateColorCursor
+          ? g_Original_SDL_CreateColorCursor(surface, hot_x, hot_y)
+          : nullptr;
+  if (res && surface && surface->pixels) {
+    size_t bytes = (size_t)surface->w * surface->h * 4;
+    if (bytes > 4096)
+      bytes = 4096;
+    uint32_t crc = CalculateCRC32(surface->pixels, bytes);
+    if (g_SignatureToType.count(crc)) {
+      g_CursorToType[res] = g_SignatureToType[crc];
+    } else {
+      if (hot_x == 34 && hot_y == 7)
+        g_CursorToType[res] = 0;
+      else if (hot_x == 17 && hot_y == 58)
+        g_CursorToType[res] = 1;
+      else if (hot_x == 110 && hot_y == 58)
+        g_CursorToType[res] = 2;
+    }
+  }
+  return res;
+}
+
+bool Hooked_SDL_SetCursor(SDL_Cursor *cursor) {
+  if (g_CursorToType.count(cursor)) {
+    g_CurrentCursorType = g_CursorToType[cursor];
+  }
+  return g_Original_SDL_SetCursor ? g_Original_SDL_SetCursor(cursor) : false;
+}
+
 bool Hooked_SDL_PollEvent(void *event) {
   if (!g_Original_SDL_PollEvent)
     return false;
@@ -110,24 +203,20 @@ bool Hooked_SDL_PollEvent(void *event) {
   if (res && event) {
     uint32_t type = *(uint32_t *)event;
 
-    // SDL3 Focus/Window events range
-    if (type == 0x203 || type == 0x205) {
+    // Ignore window focus events. Definitely temporary, just to test locally.
+    if (type == 0x203 || type == 0x205)
       return Hooked_SDL_PollEvent(event);
-    }
 
-    // Handle generic input sync in PollEvent (Keyboard/Gamepad)
     if (!IsSimulatedEvent(event)) {
       auto &nm = NetworkManager::Get();
       bool imguiKeys = false;
       if (ImGui::GetCurrentContext())
         imguiKeys = ImGui::GetIO().WantCaptureKeyboard;
 
-      // Keyboard: 0x300 (Down), 0x301 (Up)
       if ((type == 0x300 || type == 0x301) && !imguiKeys) {
         KeyEventData data;
+        data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
         data.type = type;
-        // SDL3 KeyboardEvent Offsets: windowID=16, which=20, scancode=24,
-        // keycode=28, mod=32, raw=34, down=36, repeat=37
         data.scancode = *(uint32_t *)((uint8_t *)event + 24);
         data.keycode = *(uint32_t *)((uint8_t *)event + 28);
         data.mod = *(uint16_t *)((uint8_t *)event + 32);
@@ -234,9 +323,11 @@ void ApplyDynamicHook(const char *name, void *hookFunc, void **originalStore,
 
 void SetIsHost(bool host) { g_IsHost = host; }
 
-void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
+void SimulateMouseMove(float normX, float normY, HWND hWnd) {
   int pixelX, pixelY;
   DenormalizeCoordinates(normX, normY, hWnd, pixelX, pixelY);
+  float prevX = g_SimX;
+  float prevY = g_SimY;
   g_SimX = (float)pixelX;
   g_SimY = (float)pixelY;
   g_LastSimX = normX;
@@ -244,10 +335,17 @@ void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
   g_LastSimTime = std::chrono::steady_clock::now();
   g_hMainWnd = hWnd;
 
-  POINT pt = {pixelX, pixelY};
-  ClientToScreen(hWnd, &pt);
-  g_SimGlobalX = (float)pt.x;
-  g_SimGlobalY = (float)pt.y;
+  // Store current hardware position as the 'break' point
+  POINT pt;
+  if (GetCursorPos(&pt)) {
+    g_BreakMouseX = pt.x;
+    g_BreakMouseY = pt.y;
+  }
+
+  POINT spt = {pixelX, pixelY};
+  ClientToScreen(hWnd, &spt);
+  g_SimGlobalX = (float)spt.x;
+  g_SimGlobalY = (float)spt.y;
 
   ApplyDynamicHook("SDL_GetMouseState", (void *)Hooked_SDL_GetMouseState,
                    (void **)&g_Original_SDL_GetMouseState, true);
@@ -265,6 +363,71 @@ void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
                    (void **)&g_Original_SDL_GetWindowFlags, true);
   ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
                    (void **)&g_Original_SDL_PollEvent, true);
+  ApplyDynamicHook("SDL_CreateColorCursor",
+                   (void *)Hooked_SDL_CreateColorCursor,
+                   (void **)&g_Original_SDL_CreateColorCursor, true);
+  ApplyDynamicHook("SDL_SetCursor", (void *)Hooked_SDL_SetCursor,
+                   (void **)&g_Original_SDL_SetCursor, true);
+
+  void **pPush = ResolveTableEntry("SDL_PushEvent");
+  if (pPush && *pPush) {
+    SDL_PushEvent_t _SDL_PushEvent = (SDL_PushEvent_t)*pPush;
+    Internal_SDL_Event ev = {0};
+    ev.type = 0x400; // SDL_EVENT_MOUSE_MOTION
+    ev.reserved = 0x88008800;
+    *(uint32_t *)(ev.data + 0) = g_ObservedWID; // windowID
+    *(uint32_t *)(ev.data + 4) = 0;             // which
+    *(uint32_t *)(ev.data + 8) = g_SimButtons;  // state
+    *(float *)(ev.data + 12) = g_SimX;          // x
+    *(float *)(ev.data + 16) = g_SimY;          // y
+    *(float *)(ev.data + 20) = g_SimX - prevX;  // xrel
+    *(float *)(ev.data + 24) = g_SimY - prevY;  // yrel
+    _SDL_PushEvent(&ev);
+  }
+}
+
+void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
+  int pixelX, pixelY;
+  DenormalizeCoordinates(normX, normY, hWnd, pixelX, pixelY);
+  g_SimX = (float)pixelX;
+  g_SimY = (float)pixelY;
+  g_LastSimX = normX;
+  g_LastSimY = normY;
+  g_LastSimTime = std::chrono::steady_clock::now();
+  g_hMainWnd = hWnd;
+
+  POINT pt;
+  if (GetCursorPos(&pt)) {
+    g_BreakMouseX = pt.x;
+    g_BreakMouseY = pt.y;
+  }
+
+  POINT spt = {pixelX, pixelY};
+  ClientToScreen(hWnd, &spt);
+  g_SimGlobalX = (float)spt.x;
+  g_SimGlobalY = (float)spt.y;
+
+  ApplyDynamicHook("SDL_GetMouseState", (void *)Hooked_SDL_GetMouseState,
+                   (void **)&g_Original_SDL_GetMouseState, true);
+  ApplyDynamicHook("SDL_GetGlobalMouseState",
+                   (void *)Hooked_SDL_GetGlobalMouseState,
+                   (void **)&g_Original_SDL_GetGlobalMouseState, true);
+  ApplyDynamicHook("SDL_GetRelativeMouseState",
+                   (void *)Hooked_SDL_GetRelativeMouseState,
+                   (void **)&g_Original_SDL_GetRelativeMouseState, true);
+  ApplyDynamicHook("SDL_GetMouseFocus", (void *)Hooked_SDL_GetMouseFocus,
+                   (void **)&g_Original_SDL_GetMouseFocus, true);
+  ApplyDynamicHook("SDL_GetKeyboardFocus", (void *)Hooked_SDL_GetKeyboardFocus,
+                   (void **)&g_Original_SDL_GetKeyboardFocus, true);
+  ApplyDynamicHook("SDL_GetWindowFlags", (void *)Hooked_SDL_GetWindowFlags,
+                   (void **)&g_Original_SDL_GetWindowFlags, true);
+  ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
+                   (void **)&g_Original_SDL_PollEvent, true);
+  ApplyDynamicHook("SDL_CreateColorCursor",
+                   (void *)Hooked_SDL_CreateColorCursor,
+                   (void **)&g_Original_SDL_CreateColorCursor, true);
+  ApplyDynamicHook("SDL_SetCursor", (void *)Hooked_SDL_SetCursor,
+                   (void **)&g_Original_SDL_SetCursor, true);
 
   void **pPush = ResolveTableEntry("SDL_PushEvent");
   if (pPush && *pPush) {
@@ -275,20 +438,20 @@ void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
 
     if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
       ev.type = (msg == WM_LBUTTONDOWN) ? baseType + 1 : baseType + 2;
-      ev.data[8] = 1;                               // button at offset 16+8=24
-      ev.data[9] = (msg == WM_LBUTTONDOWN ? 1 : 0); // down at offset 16+9=25
+      ev.data[8] = 1;                               // button
+      ev.data[9] = (msg == WM_LBUTTONDOWN ? 1 : 0); // down
       g_SimButtons = (msg == WM_LBUTTONDOWN ? 1 : 0);
     } else if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) {
       ev.type = (msg == WM_RBUTTONDOWN) ? baseType + 1 : baseType + 2;
-      ev.data[8] = 3;                               // button at offset 24
-      ev.data[9] = (msg == WM_RBUTTONDOWN ? 1 : 0); // down at offset 25
+      ev.data[8] = 3;                               // button
+      ev.data[9] = (msg == WM_RBUTTONDOWN ? 1 : 0); // down
       g_SimButtons = (msg == WM_RBUTTONDOWN ? 4 : 0);
     }
 
     if (ev.type != 0) {
-      *(uint32_t *)(ev.data + 0) = g_ObservedWID; // windowID at offset 16
-      *(float *)(ev.data + 12) = g_SimX;          // x at offset 28
-      *(float *)(ev.data + 16) = g_SimY;          // y at offset 32
+      *(uint32_t *)(ev.data + 0) = g_ObservedWID; // windowID
+      *(float *)(ev.data + 12) = g_SimX;          // x
+      *(float *)(ev.data + 16) = g_SimY;          // y
       _SDL_PushEvent(&ev);
     }
   }
@@ -302,9 +465,6 @@ void SimulateKeyEvent(uint32_t type, uint32_t keycode, uint32_t scancode,
     Internal_SDL_Event ev = {0};
     ev.type = type;
     ev.reserved = 0x88008800;
-    // SDL3 KeyboardEvent Offsets relative to data (offset 16):
-    // windowID=0, which=4, scancode=8, keycode=12, mod=16, raw=18, down=20,
-    // repeat=21
     *(uint32_t *)(ev.data + 0) = g_ObservedWID;
     *(uint32_t *)(ev.data + 8) = scancode;
     *(uint32_t *)(ev.data + 12) = keycode;
@@ -361,28 +521,61 @@ void DenormalizeCoordinates(float normX, float normY, HWND hWnd, int &outX,
   outY = vY + (int)(normY * vH);
 }
 
+void Update() {
+  auto &nm = NetworkManager::Get();
+  if (!nm.GetCurrentLobby().IsValid())
+    return;
+  HWND hWnd = ImGuiHook::GetHWND();
+  if (!hWnd)
+    return;
+  g_hMainWnd = hWnd;
+  POINT pt;
+  if (GetCursorPos(&pt) && ScreenToClient(hWnd, &pt)) {
+    float normX, normY;
+    NormalizeCoordinates(pt.x, pt.y, hWnd, normX, normY);
+    if (abs(normX - g_LastBroadcastX) > 0.001f ||
+        abs(normY - g_LastBroadcastY) > 0.001f ||
+        g_CurrentCursorType != g_LastBroadcastCursor) {
+      MouseMoveData data;
+      data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
+      data.x = normX;
+      data.y = normY;
+      data.cursorType = g_CurrentCursorType;
+      if (nm.IsHost())
+        nm.BroadcastPacket(PacketType::MouseMove, &data, sizeof(data), true);
+      else
+        nm.SendPacket(nm.GetHostID(), PacketType::MouseMove, &data,
+                      sizeof(data));
+      g_LastBroadcastX = normX;
+      g_LastBroadcastY = normY;
+      g_LastBroadcastCursor = g_CurrentCursorType;
+    }
+  }
+}
+
 void RenderDebug() {
   static bool forceHook = true;
   ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
                    (void **)&g_Original_SDL_PollEvent, forceHook);
-
-  if (g_LastSimX >= 0) {
-    HWND hWnd = ImGuiHook::GetHWND();
-    if (!hWnd)
-      return;
-    auto now = std::chrono::steady_clock::now();
-    float elapsed = std::chrono::duration<float>(now - g_LastSimTime).count();
-    int x, y;
-    DenormalizeCoordinates(g_LastSimX, g_LastSimY, hWnd, x, y);
-    ImDrawList *drawList = ImGui::GetForegroundDrawList();
-    ImVec2 pos = {(float)x, (float)y};
-    float alpha = 1.0f - (elapsed / 2.0f);
-    if (alpha > 0) {
-      ImU32 color = ImGui::GetColorU32(ImVec4(1.0f, 0.0f, 1.0f, alpha));
-      drawList->AddCircleFilled(pos, 6.0f, color);
-      drawList->AddCircle(pos, 8.0f, color, 0, 2.0f);
-    }
-  }
+  ApplyDynamicHook("SDL_GetMouseState", (void *)Hooked_SDL_GetMouseState,
+                   (void **)&g_Original_SDL_GetMouseState, forceHook);
+  ApplyDynamicHook("SDL_GetGlobalMouseState",
+                   (void *)Hooked_SDL_GetGlobalMouseState,
+                   (void **)&g_Original_SDL_GetGlobalMouseState, forceHook);
+  ApplyDynamicHook("SDL_GetRelativeMouseState",
+                   (void *)Hooked_SDL_GetRelativeMouseState,
+                   (void **)&g_Original_SDL_GetRelativeMouseState, forceHook);
+  ApplyDynamicHook("SDL_GetMouseFocus", (void *)Hooked_SDL_GetMouseFocus,
+                   (void **)&g_Original_SDL_GetMouseFocus, forceHook);
+  ApplyDynamicHook("SDL_GetKeyboardFocus", (void *)Hooked_SDL_GetKeyboardFocus,
+                   (void **)&g_Original_SDL_GetKeyboardFocus, forceHook);
+  ApplyDynamicHook("SDL_GetWindowFlags", (void *)Hooked_SDL_GetWindowFlags,
+                   (void **)&g_Original_SDL_GetWindowFlags, forceHook);
+  ApplyDynamicHook("SDL_CreateColorCursor",
+                   (void *)Hooked_SDL_CreateColorCursor,
+                   (void **)&g_Original_SDL_CreateColorCursor, forceHook);
+  ApplyDynamicHook("SDL_SetCursor", (void *)Hooked_SDL_SetCursor,
+                   (void **)&g_Original_SDL_SetCursor, forceHook);
 }
 
 bool IsCalibrated() { return g_HasObserved; }

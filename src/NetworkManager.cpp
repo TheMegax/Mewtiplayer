@@ -1,8 +1,10 @@
 #include "NetworkManager.h"
 #include "GameUtils.h"
+#include "ImGuiHook.h"
 #include "InputGhost.h"
 #include "Overlay.h"
-#include "imgui_hook.h"
+#include "mewjector.h"
+#include <cstdint>
 #include <string.h>
 
 void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
@@ -110,6 +112,29 @@ void NetworkManager::ReceivePackets() {
         }
       }
       break;
+    case PacketType::MouseMove:
+      if (hdr->length == sizeof(MouseMoveData)) {
+        MouseMoveData *move =
+            (MouseMoveData *)(buffer.data() + sizeof(PacketHeader));
+        if (IsHost()) {
+          BroadcastPacket(PacketType::MouseMove, move, sizeof(MouseMoveData),
+                          true);
+        }
+
+        uint64_t actualSender = move->steamID;
+
+        // Only show the ghost cursor and name tag if it's NOT the local player
+        if (actualSender != SteamUser()->GetSteamID().ConvertToUint64()) {
+          // Only simulate the move into the engine if we are NOT focused.
+          if (GetForegroundWindow() != ImGuiHook::GetHWND()) {
+            InputGhost::SimulateMouseMove(move->x, move->y,
+                                          ImGuiHook::GetHWND());
+          }
+          Overlay::UpdateRemoteCursor(actualSender, move->x, move->y,
+                                      move->cursorType);
+        }
+      }
+      break;
     default:
       break;
     }
@@ -133,103 +158,24 @@ void NetworkManager::LeaveLobby() {
 }
 
 void NetworkManager::JoinLobby(CSteamID lobbyID) {
-  Overlay::Log("Joining Steam Lobby %llu...", lobbyID.ConvertToUint64());
+  Overlay::Log("Joining lobby %llu...", lobbyID.ConvertToUint64());
   SteamAPICall_t call = SteamMatchmaking()->JoinLobby(lobbyID);
   m_LobbyEnterCallResult.Set(call, this, &NetworkManager::OnLobbyEnter);
-  RefreshLobbyList();
 }
 
 void NetworkManager::JoinAnyLobby() {
+  Overlay::Log("Searching for lobbies...");
   m_AutoJoinSearch = true;
   RefreshLobbyList();
 }
 
 void NetworkManager::RefreshLobbyList() {
-  Overlay::Log("Searching for '%s' lobbies...", m_ModID.c_str());
-  SteamMatchmaking()->AddRequestLobbyListStringFilter("mod_id", m_ModID.c_str(),
-                                                      k_ELobbyComparisonEqual);
   SteamMatchmaking()->AddRequestLobbyListDistanceFilter(
       k_ELobbyDistanceFilterWorldwide);
-  SteamMatchmaking()->AddRequestLobbyListFilterSlotsAvailable(1);
+  SteamMatchmaking()->AddRequestLobbyListStringFilter(
+      "multigenics_mod", m_ModID.c_str(), k_ELobbyComparisonEqual);
   SteamAPICall_t call = SteamMatchmaking()->RequestLobbyList();
   m_LobbyMatchListCallResult.Set(call, this, &NetworkManager::OnLobbyMatchList);
-}
-
-void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCB, bool bIO) {
-  if (bIO || pCB->m_eResult != k_EResultOK) {
-    Overlay::Log("Failed to create lobby! Error: %d", pCB->m_eResult);
-    return;
-  }
-  m_CurrentLobby = pCB->m_ulSteamIDLobby;
-  Overlay::Log("Lobby created: %llu", m_CurrentLobby.ConvertToUint64());
-  SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "name",
-                                   m_PendingLobbyName.c_str());
-  SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "mod_id", m_ModID.c_str());
-}
-
-void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCB, bool bIO) {
-  if (bIO || pCB->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
-    Overlay::Log("Failed to join lobby! Response: %d",
-                 pCB->m_EChatRoomEnterResponse);
-    return;
-  }
-  m_CurrentLobby = pCB->m_ulSteamIDLobby;
-  Overlay::Log("Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
-
-  // If we are not the host, send a handshake to the host to request state
-  CSteamID hostID = SteamMatchmaking()->GetLobbyOwner(m_CurrentLobby);
-  if (hostID != SteamUser()->GetSteamID()) {
-    SendPacket(hostID, PacketType::Handshake, nullptr, 0);
-    Overlay::Log("Sent handshake to host %llu", hostID.ConvertToUint64());
-  }
-}
-
-void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCB, bool bIO) {
-  if (bIO)
-    return;
-  m_LobbyList.clear();
-  CSteamID myID = SteamUser()->GetSteamID();
-  for (int i = 0; i < (int)pCB->m_nLobbiesMatching; i++) {
-    CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i);
-
-    LobbyInfo info;
-    info.id = lobbyID;
-    const char *name = SteamMatchmaking()->GetLobbyData(lobbyID, "name");
-    info.name = (name && strlen(name) > 0) ? name : "Steam Lobby";
-    info.memberCount = SteamMatchmaking()->GetNumLobbyMembers(lobbyID);
-    info.maxMembers = SteamMatchmaking()->GetLobbyMemberLimit(lobbyID);
-    m_LobbyList.push_back(info);
-
-    if (m_AutoJoinSearch) {
-      if (lobbyID == m_CurrentLobby)
-        continue;
-      CSteamID ownerID = SteamMatchmaking()->GetLobbyOwner(lobbyID);
-      if (ownerID == myID)
-        continue;
-
-      JoinLobby(lobbyID);
-      m_AutoJoinSearch = false; // Reset flag
-      return;
-    }
-  }
-
-  if (m_AutoJoinSearch) {
-    Overlay::Log("No suitable lobbies found (all were full).");
-    m_AutoJoinSearch = false;
-  } else {
-    Overlay::Log("Found %d lobbies.", (int)m_LobbyList.size());
-  }
-}
-
-void NetworkManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t *pCB) {
-  Overlay::Log("Lobby join requested via Steam overlay.");
-  JoinLobby(pCB->m_steamIDLobby);
-}
-
-void NetworkManager::OnP2PSessionRequest(P2PSessionRequest_t *pCB) {
-  Overlay::Log("P2P Session request from %llu — accepting.",
-               pCB->m_steamIDRemote.ConvertToUint64());
-  SteamNetworking()->AcceptP2PSessionWithUser(pCB->m_steamIDRemote);
 }
 
 bool NetworkManager::IsHost() const {
@@ -249,15 +195,72 @@ void NetworkManager::BroadcastPacket(PacketType type, const void *data,
                                      uint32_t size, bool excludeSelf) {
   if (!m_CurrentLobby.IsValid())
     return;
-
-  int memberCount = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
   CSteamID myID = SteamUser()->GetSteamID();
-
-  for (int i = 0; i < memberCount; i++) {
-    CSteamID memberID =
+  for (int i = 0; i < numMembers; i++) {
+    CSteamID member =
         SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
-    if (excludeSelf && memberID == myID)
+    if (excludeSelf && member == myID)
       continue;
-    SendPacket(memberID, type, data, size);
+    SendPacket(member, type, data, size);
   }
+}
+
+void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback,
+                                    bool bIOFailure) {
+  if (bIOFailure || pCallback->m_eResult != k_EResultOK) {
+    Overlay::Log("[ERR] Failed to create lobby (Result: %d)",
+                 pCallback->m_eResult);
+    return;
+  }
+  m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
+  SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "name",
+                                   m_PendingLobbyName.c_str());
+  SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "multigenics_mod",
+                                   m_ModID.c_str());
+  Overlay::Log("[OK] Lobby created: %llu", m_CurrentLobby.ConvertToUint64());
+}
+
+void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, bool bIOFailure) {
+  if (bIOFailure ||
+      pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
+    Overlay::Log("[ERR] Failed to join lobby (Response: %d)",
+                 pCallback->m_EChatRoomEnterResponse);
+    return;
+  }
+  m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
+  Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
+
+  // Send handshake to host
+  SendPacket(GetHostID(), PacketType::Handshake, nullptr, 0);
+}
+
+void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCallback,
+                                      bool bIOFailure) {
+  m_LobbyList.clear();
+  for (uint32 i = 0; i < pCallback->m_nLobbiesMatching; i++) {
+    CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i);
+    LobbyInfo info;
+    info.id = lobbyID;
+    const char *name = SteamMatchmaking()->GetLobbyData(lobbyID, "name");
+    info.name = name ? name : "Unknown Lobby";
+    info.memberCount = SteamMatchmaking()->GetNumLobbyMembers(lobbyID);
+    info.maxMembers = SteamMatchmaking()->GetLobbyMemberLimit(lobbyID);
+    m_LobbyList.push_back(info);
+  }
+  Overlay::Log("Found %d lobbies.", (int)m_LobbyList.size());
+
+  if (m_AutoJoinSearch && !m_LobbyList.empty()) {
+    JoinLobby(m_LobbyList[0].id);
+  }
+  m_AutoJoinSearch = false;
+}
+
+void NetworkManager::OnP2PSessionRequest(P2PSessionRequest_t *pCallback) {
+  SteamNetworking()->AcceptP2PSessionWithUser(pCallback->m_steamIDRemote);
+}
+
+void NetworkManager::OnGameLobbyJoinRequested(
+    GameLobbyJoinRequested_t *pCallback) {
+  JoinLobby(pCallback->m_steamIDLobby);
 }

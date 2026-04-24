@@ -11,11 +11,13 @@ enum class PacketType : uint8_t {
   ChatMessage,
   RNGSync,
   MouseEvent,
-  KeyEvent
+  KeyEvent,
+  MouseMove
 };
 
 #pragma pack(push, 1)
 struct KeyEventData {
+    uint64_t steamID;
     uint32_t type;    // SDL_EVENT_KEY_DOWN / SDL_EVENT_KEY_UP
     uint32_t keycode; // SDL_Keycode
     uint32_t scancode; // SDL_Scancode
@@ -24,16 +26,21 @@ struct KeyEventData {
     uint8_t down;
 };
 
-#pragma pack(pop)
-
-#pragma pack(push, 1)
 struct MouseEventData {
+    uint64_t steamID;
     uint32_t type; // Message type (WM_LBUTTONDOWN, etc)
     float x;       // Normalized X (0.0 to 1.0)
     float y;       // Normalized Y (0.0 to 1.0)
 };
+
+struct MouseMoveData {
+    uint64_t steamID;
+    float x;
+    float y;
+    uint8_t cursorType;
+};
 #pragma pack(pop)
- 
+
 struct LobbyInfo {
   CSteamID id;
   std::string name;

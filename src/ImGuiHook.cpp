@@ -1,4 +1,4 @@
-#include "imgui_hook.h"
+#include "ImGuiHook.h"
 #include "Overlay.h"
 #include "external/kiero/kiero.h"
 #include "imgui.h"
@@ -61,14 +61,22 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
     auto &nm = NetworkManager::Get();
     if (nm.IsHost()) {
       // Host: Broadcast to all clients
-      MouseEventData data = {uMsg, nx, ny};
+      MouseEventData data;
+      data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
+      data.type = uMsg;
+      data.x = nx;
+      data.y = ny;
       nm.BroadcastPacket(PacketType::MouseEvent, &data, sizeof(data));
       Overlay::Log("Sync: Broadcast mouse event %u (%.2f, %.2f) to clients", uMsg,
                    nx, ny);
       // Continue to process locally
     } else if (nm.GetCurrentLobby().IsValid()) {
       // Client: Send to host and discard local click
-      MouseEventData data = {uMsg, nx, ny};
+      MouseEventData data;
+      data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
+      data.type = uMsg;
+      data.x = nx;
+      data.y = ny;
       nm.SendPacket(nm.GetHostID(), PacketType::MouseEvent, &data, sizeof(data));
       Overlay::Log("Sync: Sent mouse event %u (%.2f, %.2f) to host", uMsg, nx,
                    ny);

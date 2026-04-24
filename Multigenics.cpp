@@ -1,7 +1,7 @@
 #include "NetworkManager.h"
 #include "Overlay.h"
 #include "Scanner.h"
-#include "imgui_hook.h"
+#include "ImGuiHook.h"
 #include "mewjector.h"
 #include "InputGhost.h"
 #include <stdint.h>
@@ -27,6 +27,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
 
   if (g_networkInitialized) {
     NetworkManager::Get().Update();
+  InputGhost::Update();
     InputGhost::SetIsHost(NetworkManager::Get().IsHost());
   }
 

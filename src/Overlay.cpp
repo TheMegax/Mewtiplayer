@@ -1,22 +1,149 @@
 #include "Overlay.h"
 #include "GameUtils.h"
-#include "NetworkManager.h"
+#include "ImGuiHook.h"
 #include "InputGhost.h"
+#include "NetworkManager.h"
 #include "imgui.h"
-#include "imgui_hook.h"
+#include <GL/gl.h>
+#include <chrono>
 #include <deque>
+#include <fstream>
+#include <map>
 #include <mutex>
+#include <sstream>
 #include <stdarg.h>
 #include <string>
+#include <vector>
 #include <windows.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "external/stb_image.h"
+
+struct RemoteCursor {
+  float x, y;
+  uint8_t type;
+  std::chrono::steady_clock::time_point lastUpdate;
+};
 
 static std::deque<std::string> g_logLines;
 static std::mutex g_logMutex;
 static const size_t MAX_LOG_LINES = 512;
 static bool g_visible = true;
 static char g_lobbyNameBuffer[128] = "Multigenics Match";
-
 static MJ_fn_Log g_origMjLog = nullptr;
+
+static std::map<uint64_t, RemoteCursor> g_RemoteCursors;
+static std::mutex g_cursorMutex;
+
+static std::map<uint8_t, GLuint> g_CursorTextures;
+static std::map<uint8_t, ImVec2> g_CursorHotspots;
+static std::map<uint8_t, ImVec2> g_CursorSizes;
+static bool g_TexturesLoaded = false;
+
+// TODO: Currently useless! Only the default cursor is used.
+const char *g_CursorNames[] = {
+    "default",         "grab",       "grabr",
+    "pet_frame1",      "pet_frame2", "pet_frame3",
+    "pet_frame4",      "attack",     "attack_hastargets",
+    "btn_over",        "examine",    "heal",
+    "heal_hastargets", "invalid",    "move",
+    "move_hastargets", "question",   "spell",
+    "spell_hastargets"};
+
+// Simple CRC32 to match InputGhost
+uint32_t Overlay_CRC32(const void *data, size_t n_bytes) {
+  uint32_t crc = 0xFFFFFFFF;
+  const uint8_t *p = (const uint8_t *)data;
+  while (n_bytes--) {
+    crc ^= *p++;
+    for (int i = 0; i < 8; i++)
+      crc = (crc >> 1) ^ (-(int32_t)(crc & 1) & 0xEDB88320);
+  }
+  return ~crc;
+}
+
+void LoadCursorTextures() {
+  if (g_TexturesLoaded)
+    return;
+
+  HMODULE hModule = GetModuleHandleA("Multigenics.dll");
+  if (!hModule) {
+    // Fallback for internal testing if DLL name changes or injected differently
+    hModule = GetModuleHandleA(NULL);
+  }
+
+  // Load hotspots from resource
+  std::map<std::string, ImVec2> hotspots;
+  HRSRC hResHot = FindResourceA(hModule, "hotspots", RT_RCDATA);
+  if (hResHot) {
+    DWORD size = SizeofResource(hModule, hResHot);
+    HGLOBAL hGlobal = LoadResource(hModule, hResHot);
+    char *pData = (char *)LockResource(hGlobal);
+    if (pData) {
+      std::string content(pData, size);
+      std::stringstream ss(content);
+      std::string line;
+      while (std::getline(ss, line)) {
+        std::stringstream lss(line);
+        std::string name, sx, sy;
+        if (std::getline(lss, name, ',') && std::getline(lss, sx, ',') &&
+            std::getline(lss, sy, ',')) {
+          hotspots[name] =
+              ImVec2((float)atof(sx.c_str()), (float)atof(sy.c_str()));
+        }
+      }
+    }
+  }
+
+  for (uint8_t i = 0; i < 19; ++i) {
+    HRSRC hRes = FindResourceA(hModule, g_CursorNames[i], RT_RCDATA);
+    if (hRes) {
+      DWORD size = SizeofResource(hModule, hRes);
+      HGLOBAL hGlobal = LoadResource(hModule, hRes);
+      void *pData = LockResource(hGlobal);
+      if (pData) {
+        int w, h, channels;
+        unsigned char *data = stbi_load_from_memory(
+            (const unsigned char *)pData, size, &w, &h, &channels, 4);
+        if (data) {
+          GLuint tex;
+          glGenTextures(1, &tex);
+          glBindTexture(GL_TEXTURE_2D, tex);
+          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+          glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                       GL_UNSIGNED_BYTE, data);
+
+          g_CursorTextures[i] = tex;
+          g_CursorSizes[i] = ImVec2((float)w, (float)h);
+          if (hotspots.count(g_CursorNames[i])) {
+            g_CursorHotspots[i] = hotspots[g_CursorNames[i]];
+          } else {
+            g_CursorHotspots[i] = ImVec2(0, 0);
+          }
+
+          // Register signature (CRC32 of first 4096 bytes)
+          size_t bytes = (size_t)w * h * 4;
+          if (bytes > 4096)
+            bytes = 4096;
+          uint32_t crc = Overlay_CRC32(data, bytes);
+          InputGhost::RegisterCursorSignature(crc, i);
+
+          stbi_image_free(data);
+        }
+      }
+    } else {
+      Overlay::Log("[ERR] Failed to find resource: %s", g_CursorNames[i]);
+    }
+  }
+  g_TexturesLoaded = true;
+}
+
+void Overlay::UpdateRemoteCursor(uint64_t steamID, float x, float y,
+                                 uint8_t type) {
+  std::lock_guard<std::mutex> lock(g_cursorMutex);
+  g_RemoteCursors[steamID] = {x, y, type, std::chrono::steady_clock::now()};
+}
 
 void Overlay::Log(const char *fmt, ...) {
   va_list args;
@@ -52,12 +179,79 @@ static void __cdecl WrappedMjLog(const char *owner, const char *fmt, ...) {
 void Overlay::ToggleVisible() { g_visible = !g_visible; }
 
 static void InternalRender() {
-  if (!g_visible) {
-    InputGhost::RenderDebug();
-    return;
-  }
+  LoadCursorTextures();
 
   InputGhost::RenderDebug();
+
+  // Draw remote cursors
+  {
+    std::lock_guard<std::mutex> lock(g_cursorMutex);
+    ImDrawList *drawList = ImGui::GetForegroundDrawList();
+    HWND hWnd = ImGuiHook::GetHWND();
+    auto now = std::chrono::steady_clock::now();
+
+    for (auto it = g_RemoteCursors.begin(); it != g_RemoteCursors.end();) {
+      float elapsed =
+          std::chrono::duration<float>(now - it->second.lastUpdate).count();
+      if (elapsed > 3600.0f) { // 1 hour timeout
+        it = g_RemoteCursors.erase(it);
+        continue;
+      }
+
+      if (g_CursorTextures.count(it->second.type)) {
+        int px, py;
+        int vx, vy, vw, vh;
+        InputGhost::GetViewportInfo(hWnd, vx, vy, vw, vh);
+        InputGhost::DenormalizeCoordinates(it->second.x, it->second.y, hWnd, px,
+                                           py);
+
+        float scale = ((float)vw / 1920.0f) * 0.5f;
+        ImVec2 size = g_CursorSizes[it->second.type];
+        ImVec2 hotspot = g_CursorHotspots[it->second.type];
+
+        size.x *= scale;
+        size.y *= scale;
+        hotspot.x *= scale;
+        hotspot.y *= scale;
+
+        ImVec2 pos = ImVec2((float)px - hotspot.x, (float)py - hotspot.y);
+
+        drawList->AddImage(
+            (ImTextureID)(uintptr_t)g_CursorTextures[it->second.type], pos,
+            ImVec2(pos.x + size.x, pos.y + size.y), ImVec2(0, 0), ImVec2(1, 1),
+            IM_COL32(255, 255, 255, 128));
+
+        // Draw player name above cursor
+        const char *steamName = SteamFriends()->GetFriendPersonaName(it->first);
+        char name[64];
+        if (steamName && steamName[0]) {
+          snprintf(name, sizeof(name), "%s", steamName);
+        } else {
+          snprintf(name, sizeof(name), "Player %llu", it->first % 1000);
+        }
+
+        ImVec2 textSize = ImGui::CalcTextSize(name);
+        ImVec2 textPos =
+            ImVec2(pos.x + (size.x * 0.5f) - (textSize.x * 0.5f), pos.y - 15);
+
+        // Draw Outline
+        drawList->AddText(ImVec2(textPos.x - 1, textPos.y),
+                          IM_COL32(0, 0, 0, 255), name);
+        drawList->AddText(ImVec2(textPos.x + 1, textPos.y),
+                          IM_COL32(0, 0, 0, 255), name);
+        drawList->AddText(ImVec2(textPos.x, textPos.y - 1),
+                          IM_COL32(0, 0, 0, 255), name);
+        drawList->AddText(ImVec2(textPos.x, textPos.y + 1),
+                          IM_COL32(0, 0, 0, 255), name);
+
+        drawList->AddText(textPos, IM_COL32(255, 255, 255, 255), name);
+      }
+      ++it;
+    }
+  }
+
+  if (!g_visible)
+    return;
 
   ImGui::SetNextWindowSize(ImVec2(680, 320), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
@@ -193,24 +387,26 @@ static void InternalRender() {
     if (ImGui::BeginTabItem("Input")) {
       ImGui::Text("Calibration Status:");
       if (InputGhost::IsCalibrated()) {
-          ImGui::TextColored(ImVec4(0, 1, 0, 1), "READY: Calibrated and active.");
-          if (ImGui::Button("Reset Calibration")) {
-              InputGhost::ResetCalibration();
-          }
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), "READY: Calibrated and active.");
+        if (ImGui::Button("Reset Calibration")) {
+          InputGhost::ResetCalibration();
+        }
       } else {
-          ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "WAITING: Click in the game window to calibrate.");
+        ImGui::TextColored(ImVec4(1, 0.5f, 0, 1),
+                           "WAITING: Click in the game window to calibrate.");
       }
 
       ImGui::Separator();
       ImGui::Text("Test Injection:");
       if (ImGui::Button("Trigger Test Click (Center)")) {
-          HWND hWnd = ImGuiHook::GetHWND();
-          if (hWnd) {
-              InputGhost::SimulateClick(WM_LBUTTONDOWN, 0.5f, 0.5f, hWnd);
-              InputGhost::SimulateClick(WM_LBUTTONUP, 0.5f, 0.5f, hWnd);
-          }
+        HWND hWnd = ImGuiHook::GetHWND();
+        if (hWnd) {
+          InputGhost::SimulateClick(WM_LBUTTONDOWN, 0.5f, 0.5f, hWnd);
+          InputGhost::SimulateClick(WM_LBUTTONUP, 0.5f, 0.5f, hWnd);
+        }
       }
-      ImGui::TextWrapped("This will inject a click at the center of the screen to verify your current calibration.");
+      ImGui::TextWrapped("This will inject a click at the center of the screen "
+                         "to verify your current calibration.");
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
