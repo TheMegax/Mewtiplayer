@@ -1,4 +1,5 @@
 #include "InputGhost.h"
+#include "GameUtils.h"
 #include "ImGuiHook.h"
 #include "NetworkManager.h"
 #include "Overlay.h"
@@ -93,18 +94,6 @@ static float g_LastBroadcastX = -1.0f;
 static float g_LastBroadcastY = -1.0f;
 static uint8_t g_LastBroadcastCursor = 255;
 
-// Note: Doesn't work, will need to look further
-uint32_t CalculateCRC32(const void *data, size_t n_bytes) {
-  uint32_t crc = 0xFFFFFFFF;
-  const uint8_t *p = (const uint8_t *)data;
-  while (n_bytes--) {
-    crc ^= *p++;
-    for (int i = 0; i < 8; i++)
-      crc = (crc >> 1) ^ (-(int32_t)(crc & 1) & 0xEDB88320);
-  }
-  return ~crc;
-}
-
 void RegisterCursorSignature(uint32_t crc, uint8_t typeIndex) {
   g_SignatureToType[crc] = typeIndex;
 }
@@ -174,7 +163,7 @@ SDL_Cursor *Hooked_SDL_CreateColorCursor(SDL_Surface *surface, int hot_x,
     size_t bytes = (size_t)surface->w * surface->h * 4;
     if (bytes > 4096)
       bytes = 4096;
-    uint32_t crc = CalculateCRC32(surface->pixels, bytes);
+    uint32_t crc = GameUtils::CalculateCRC32(surface->pixels, bytes);
     if (g_SignatureToType.count(crc)) {
       g_CursorToType[res] = g_SignatureToType[crc];
     } else {

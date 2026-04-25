@@ -11,4 +11,7 @@ namespace GameUtils {
 
     // Reads the current 32-byte Xoshiro256 state from the TLS.
     void GetRNGState(void* outSeed32);
+
+    // Simple CRC32 implementation for data verification and signatures.
+    uint32_t CalculateCRC32(const void* data, size_t size);
 }

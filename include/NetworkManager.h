@@ -104,6 +104,13 @@ private:
     CCallResult<NetworkManager, LobbyMatchList_t> m_LobbyMatchListCallResult;
     void OnLobbyMatchList(LobbyMatchList_t *pCallback, bool bIOFailure);
 
+    // Internal packet handlers
+    void HandleHandshake(CSteamID remoteID, const void* data, uint32_t length);
+    void HandleRNGSync(CSteamID remoteID, const void* data, uint32_t length);
+    void HandleMouseEvent(CSteamID remoteID, const void* data, uint32_t length);
+    void HandleKeyEvent(CSteamID remoteID, const void* data, uint32_t length);
+    void HandleMouseMove(CSteamID remoteID, const void* data, uint32_t length);
+
     STEAM_CALLBACK(NetworkManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
     STEAM_CALLBACK(NetworkManager, OnP2PSessionRequest, P2PSessionRequest_t);
 };

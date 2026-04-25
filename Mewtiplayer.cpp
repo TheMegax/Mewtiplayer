@@ -1,13 +1,13 @@
+#include "ImGuiHook.h"
+#include "InputGhost.h"
 #include "NetworkManager.h"
 #include "Overlay.h"
 #include "Scanner.h"
-#include "ImGuiHook.h"
 #include "mewjector.h"
-#include "InputGhost.h"
 #include <stdint.h>
 #include <windows.h>
 
-#define MOD_NAME "Multigenics"
+#define MOD_NAME "Mewtiplayer"
 #define MOD_VERSION "1.0.0"
 
 static MewjectorAPI mj;
@@ -27,7 +27,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
 
   if (g_networkInitialized) {
     NetworkManager::Get().Update();
-  InputGhost::Update();
+    InputGhost::Update();
     InputGhost::SetIsHost(NetworkManager::Get().IsHost());
   }
 

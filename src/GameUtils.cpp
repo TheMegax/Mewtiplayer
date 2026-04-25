@@ -47,4 +47,16 @@ void GetRNGState(void *outSeed32) {
   *(uint64_t *)(out + 6) = *(uint64_t *)(tls + 0x190);
 }
 
+// Note: Doesn't work, will need to look into it further
+uint32_t CalculateCRC32(const void *data, size_t size) {
+  uint32_t crc = 0xFFFFFFFF;
+  const uint8_t *p = (const uint8_t *)data;
+  while (size--) {
+    crc ^= *p++;
+    for (int i = 0; i < 8; i++)
+      crc = (crc >> 1) ^ (-(int32_t)(crc & 1) & 0xEDB88320);
+  }
+  return ~crc;
+}
+
 } // namespace GameUtils

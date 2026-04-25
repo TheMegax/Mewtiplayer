@@ -2,8 +2,6 @@
 #include "Overlay.h"
 #include <string.h>
 
-#define MOD_NAME "Multigenics"
-
 uintptr_t FindPattern(uintptr_t base, const char *signature) {
   if (!base)
     return 0;

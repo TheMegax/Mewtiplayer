@@ -26,10 +26,10 @@ if not exist build mkdir build
 echo Compiling resources...
 rc /fo build\resources.res src\resources.rc
 
-echo Compiling Multigenics...
+echo Compiling Mewtiplayer...
 cl /LD /O2 /GS- /W3 /D_CRT_SECURE_NO_WARNINGS ^
   /I . /I include /I external/mewjector /I external/steam /I external/imgui /I external/kiero /I external/kiero/minhook/include ^
-  Multigenics.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/ImGuiHook.cpp src/GameUtils.cpp src/InputGhost.cpp ^
+  Mewtiplayer.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/ImGuiHook.cpp src/GameUtils.cpp src/InputGhost.cpp ^
   external/kiero/kiero.cpp ^
   external/kiero/minhook/src/buffer.c ^
   external/kiero/minhook/src/hook.c ^
@@ -43,7 +43,7 @@ cl /LD /O2 /GS- /W3 /D_CRT_SECURE_NO_WARNINGS ^
   external/imgui/imgui_impl_win32.cpp ^
   build\resources.res ^
   external/steam/steam_api64.lib user32.lib opengl32.lib gdi32.lib dwmapi.lib ^
-  /Fo:build\ /Fe:build\Multigenics.dll
+  /Fo:build\ /Fe:build\Mewtiplayer.dll
 if %errorlevel% neq 0 (
     echo Compilation failed!
     exit /b %errorlevel%
@@ -53,8 +53,8 @@ echo Compilation successful.
 mkdir "%MODS_DIR%" 2>nul
 
 
-echo Copying Multigenics.dll to %MODS_DIR%...
-copy /Y build\Multigenics.dll "%MODS_DIR%\"
+echo Copying Mewtiplayer.dll to %MODS_DIR%...
+copy /Y build\Mewtiplayer.dll "%MODS_DIR%\"
 
 if %errorlevel% neq 0 (
     echo Failed to copy DLL. Make sure the game is closed before building.
