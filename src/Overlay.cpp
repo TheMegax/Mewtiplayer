@@ -380,6 +380,80 @@ static void RenderInputTab() {
                      "to verify your current calibration.");
 }
 
+static void RenderCombatTab() {
+  auto &nm = NetworkManager::Get();
+  bool active = nm.IsCombatActive();
+  int64_t activeUID = nm.GetActiveCatUID();
+
+  ImGui::Text("Combat Mode: %s", active ? "ACTIVE" : "INACTIVE");
+  if (active) {
+    auto &discovered = nm.GetDiscoveredCats();
+    if (discovered.count(activeUID)) {
+      ImGui::Text("Active Turn: %s (UID: %lld)", discovered.at(activeUID).name.c_str(), activeUID);
+    } else {
+      ImGui::Text("Active Turn: Unknown UID %lld", activeUID);
+    }
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Cat Ownership Assignments:");
+
+  if (ImGui::BeginTable("##cats", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+    ImGui::TableSetupColumn("Cat Name");
+    ImGui::TableSetupColumn("Class");
+    ImGui::TableSetupColumn("Owner");
+    ImGui::TableSetupColumn("Action");
+    ImGui::TableHeadersRow();
+
+    const auto &cats = nm.GetDiscoveredCats();
+    for (const auto &pair : cats) {
+      const auto &cat = pair.second;
+      ImGui::TableNextRow();
+      
+      ImGui::TableSetColumnIndex(0);
+      ImGui::Text("%s", cat.name.c_str());
+      if (cat.uid == activeUID) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), " (TURN)");
+      }
+
+      ImGui::TableSetColumnIndex(1);
+      ImGui::Text("%s", cat.className.c_str());
+
+      ImGui::TableSetColumnIndex(2);
+      uint64_t ownerID = nm.GetCatOwner(cat.uid);
+      if (ownerID == 0) {
+        ImGui::TextDisabled("Unassigned");
+      } else {
+        const char *ownerName = SteamFriends()->GetFriendPersonaName(ownerID);
+        ImGui::Text("%s", ownerName ? ownerName : "Unknown");
+      }
+
+      ImGui::TableSetColumnIndex(3);
+      if (nm.IsHost()) {
+        std::string comboLabel = "##assign_" + std::to_string(cat.uid);
+        if (ImGui::BeginCombo(comboLabel.c_str(), "Assign...")) {
+          CSteamID lobby = nm.GetCurrentLobby();
+          if (lobby.IsValid()) {
+            int members = SteamMatchmaking()->GetNumLobbyMembers(lobby);
+            for (int i = 0; i < members; i++) {
+              CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(lobby, i);
+              const char *memberName = SteamFriends()->GetFriendPersonaName(member);
+              if (ImGui::Selectable(memberName ? memberName : "Unknown Player")) {
+                nm.SyncOwnership(cat.uid, member.ConvertToUint64());
+              }
+            }
+          }
+          ImGui::EndCombo();
+        }
+      } else {
+        ImGui::TextDisabled("Host Only");
+      }
+    }
+    ImGui::EndTable();
+  }
+}
+
 static void InternalRender() {
   LoadCursorTextures();
 
@@ -404,6 +478,11 @@ static void InternalRender() {
 
     if (ImGui::BeginTabItem("Network")) {
       RenderNetworkTab();
+      ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Combat")) {
+      RenderCombatTab();
       ImGui::EndTabItem();
     }
 

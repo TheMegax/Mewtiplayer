@@ -75,6 +75,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::MouseMove:
       HandleMouseMove(remoteID, payload, payloadLen);
       break;
+    case PacketType::CatOwnershipSync:
+      HandleCatOwnershipSync(remoteID, payload, payloadLen);
+      break;
     default:
       Overlay::Log("Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -113,15 +116,19 @@ void NetworkManager::HandleMouseEvent(CSteamID remoteID, const void *data,
       Overlay::Log("Sync: Received mouse event %u from client, simulating "
                    "and relaying",
                    mouse->type);
-      InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
-                                ImGuiHook::GetHWND());
+      if (!IsInputBlocked(mouse->steamID)) {
+        InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
+                                  ImGuiHook::GetHWND());
+      }
       BroadcastPacket(PacketType::MouseEvent, mouse, sizeof(MouseEventData),
                       true);
     } else {
-      Overlay::Log("Sync: Received mouse event %u from host, simulating",
-                   mouse->type);
-      InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
-                                ImGuiHook::GetHWND());
+      Overlay::Log("Sync: Received mouse event %u from host (orig: %llu), simulating",
+                   mouse->type, mouse->steamID);
+      if (!IsInputBlocked(mouse->steamID)) {
+        InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
+                                  ImGuiHook::GetHWND());
+      }
     }
   }
 }
@@ -132,13 +139,17 @@ void NetworkManager::HandleKeyEvent(CSteamID remoteID, const void *data,
     KeyEventData *key = (KeyEventData *)data;
     if (IsHost()) {
       // Process the input, then broadcast to other clients
-      InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
-                                   key->mod, key->down, key->repeat);
+      if (!IsInputBlocked(key->steamID)) {
+        InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
+                                     key->mod, key->down, key->repeat);
+      }
       BroadcastPacket(PacketType::KeyEvent, key, sizeof(KeyEventData), true);
     } else {
       // Just process the input
-      InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
-                                   key->mod, key->down, key->repeat);
+      if (!IsInputBlocked(key->steamID)) {
+        InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
+                                     key->mod, key->down, key->repeat);
+      }
     }
   }
 }
@@ -155,14 +166,76 @@ void NetworkManager::HandleMouseMove(CSteamID remoteID, const void *data,
 
     // Only show the ghost cursor and name tag if it's NOT the local player
     if (actualSender != SteamUser()->GetSteamID().ConvertToUint64()) {
-      // Only simulate the move into the engine if we are NOT focused.
-      if (GetForegroundWindow() != ImGuiHook::GetHWND()) {
+      // Only simulate the move into the engine if we are NOT focused 
+      // AND it's that player's turn (or everyone can move outside combat).
+      if (GetForegroundWindow() != ImGuiHook::GetHWND() && !IsInputBlocked(actualSender)) {
         InputGhost::SimulateMouseMove(move->x, move->y, ImGuiHook::GetHWND());
       }
       Overlay::UpdateRemoteCursor(actualSender, move->x, move->y,
                                   move->cursorType);
     }
   }
+}
+
+void NetworkManager::HandleCatOwnershipSync(CSteamID remoteID, const void *data, uint32_t length) {
+  if (length == sizeof(CatOwnershipData)) {
+    CatOwnershipData *sync = (CatOwnershipData *)data;
+    m_catOwnership[sync->catUID] = sync->ownerSteamID;
+    const char* name = SteamFriends()->GetFriendPersonaName(sync->ownerSteamID);
+    Overlay::Log("Ownership Sync: Cat %lld is now owned by %s", sync->catUID, name ? name : "Unknown");
+  }
+}
+
+bool NetworkManager::IsInputBlocked(uint64_t steamID) {
+    if (!m_CurrentLobby.IsValid()) return false;
+    if (!m_combatActive) return false;
+    
+    // If no active cat, block everyone but the host as a failsafe
+    if (m_activeCatUID == -1) {
+        return steamID != GetHostID().ConvertToUint64();
+    }
+
+    auto it = m_catOwnership.find(m_activeCatUID);
+    if (it == m_catOwnership.end()) {
+        // If nobody owns this cat, only the host can move it
+        return steamID != GetHostID().ConvertToUint64();
+    }
+    
+    return steamID != it->second;
+}
+
+void NetworkManager::SyncOwnership(int64_t uid, uint64_t steamID) {
+    if (!IsHost()) return;
+    
+    CatOwnershipData data;
+    data.catUID = uid;
+    data.ownerSteamID = steamID;
+    
+    m_catOwnership[uid] = steamID;
+    BroadcastPacket(PacketType::CatOwnershipSync, &data, sizeof(data), false); // Include self to update map
+}
+
+void NetworkManager::SetActiveCat(int64_t uid) {
+    if (uid != -1) {
+        m_combatActive = true;
+    }
+    m_activeCatUID = uid;
+}
+
+void NetworkManager::RegisterCat(int64_t uid, const char* name, const char* className) {
+    if (uid == -1) return;
+    
+    CatInfo info;
+    info.uid = uid;
+    info.name = name ? name : "Unknown";
+    info.className = className ? className : "Collarless";
+    m_discoveredCats[uid] = info;
+}
+
+uint64_t NetworkManager::GetCatOwner(int64_t uid) {
+    auto it = m_catOwnership.find(uid);
+    if (it != m_catOwnership.end()) return it->second;
+    return 0;
 }
 
 void NetworkManager::HostLobby(const char *lobbyName) {
@@ -177,6 +250,10 @@ void NetworkManager::LeaveLobby() {
     Overlay::Log("Leaving lobby %llu...", m_CurrentLobby.ConvertToUint64());
     SteamMatchmaking()->LeaveLobby(m_CurrentLobby);
     m_CurrentLobby.Clear();
+    m_combatActive = false;
+    m_activeCatUID = -1;
+    m_catOwnership.clear();
+    m_discoveredCats.clear();
     RefreshLobbyList();
   }
 }
@@ -238,6 +315,11 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback,
     return;
   }
   m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
+  m_combatActive = false;
+  m_activeCatUID = -1;
+  m_catOwnership.clear();
+  m_discoveredCats.clear();
+
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "name",
                                    m_PendingLobbyName.c_str());
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "mewtiplayer",
@@ -253,6 +335,11 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, bool bIOFailure) {
     return;
   }
   m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
+  m_combatActive = false;
+  m_activeCatUID = -1;
+  m_catOwnership.clear();
+  m_discoveredCats.clear();
+  
   Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
 
   // Send handshake to host

@@ -46,7 +46,7 @@ struct SDL_Surface {
 typedef void *SDL_Cursor;
 typedef SDL_Cursor *(*SDL_CreateColorCursor_t)(SDL_Surface *surface, int hot_x,
                                                int hot_y);
-typedef bool (*SDL_SetCursor_t)(SDL_Cursor *cursor);
+typedef bool (*SDL_SetCursor_t)(SDL_Cursor cursor);
 
 namespace InputGhost {
 // Diagnostic Globals
@@ -147,6 +147,19 @@ struct alignas(8) Internal_SDL_Event {
   Uint8 data[112];
 };
 
+bool Hooked_SDL_SetCursor(SDL_Cursor cursor) {
+  if (NetworkManager::Get().IsInputBlocked(
+          SteamUser()->GetSteamID().ConvertToUint64())) {
+    for (auto const &pair : g_CursorToType) {
+      if (pair.second == 13) { // 13 is "invalid"
+        return g_Original_SDL_SetCursor ? g_Original_SDL_SetCursor(pair.first)
+                                        : false;
+      }
+    }
+  }
+  return g_Original_SDL_SetCursor ? g_Original_SDL_SetCursor(cursor) : false;
+}
+
 bool IsSimulatedEvent(void *event) {
   if (!event)
     return false;
@@ -212,12 +225,14 @@ bool Hooked_SDL_PollEvent(void *event) {
         data.down = *((uint8_t *)event + 36);
         data.repeat = *((uint8_t *)event + 37);
 
-        if (nm.IsHost()) {
-          nm.BroadcastPacket(PacketType::KeyEvent, &data, sizeof(data), true);
-        } else if (nm.GetCurrentLobby().IsValid()) {
-          nm.SendPacket(nm.GetHostID(), PacketType::KeyEvent, &data,
-                        sizeof(data));
-          return Hooked_SDL_PollEvent(event);
+        if (!nm.IsInputBlocked(SteamUser()->GetSteamID().ConvertToUint64())) {
+          if (nm.IsHost()) {
+            nm.BroadcastPacket(PacketType::KeyEvent, &data, sizeof(data), true);
+          } else if (nm.GetCurrentLobby().IsValid()) {
+            nm.SendPacket(nm.GetHostID(), PacketType::KeyEvent, &data,
+                          sizeof(data));
+            return Hooked_SDL_PollEvent(event);
+          }
         }
       }
     }
@@ -355,7 +370,7 @@ void SimulateMouseMove(float normX, float normY, HWND hWnd) {
   ApplyDynamicHook("SDL_CreateColorCursor",
                    (void *)Hooked_SDL_CreateColorCursor,
                    (void **)&g_Original_SDL_CreateColorCursor, true);
-  ApplyDynamicHook("SDL_SetCursor", (void *)Hooked_SDL_SetCursor,
+  ApplyDynamicHook("SDL_SetCursor", (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
                    (void **)&g_Original_SDL_SetCursor, true);
 
   void **pPush = ResolveTableEntry("SDL_PushEvent");
@@ -415,7 +430,7 @@ void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
   ApplyDynamicHook("SDL_CreateColorCursor",
                    (void *)Hooked_SDL_CreateColorCursor,
                    (void **)&g_Original_SDL_CreateColorCursor, true);
-  ApplyDynamicHook("SDL_SetCursor", (void *)Hooked_SDL_SetCursor,
+  ApplyDynamicHook("SDL_SetCursor", (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
                    (void **)&g_Original_SDL_SetCursor, true);
 
   void **pPush = ResolveTableEntry("SDL_PushEvent");
@@ -540,6 +555,17 @@ void Update() {
       g_LastBroadcastCursor = g_CurrentCursorType;
     }
   }
+
+  // If blocked, force invalid cursor
+  if (nm.IsInputBlocked(SteamUser()->GetSteamID().ConvertToUint64())) {
+    for (auto const &pair : g_CursorToType) {
+      if (pair.second == 13) {
+        if (g_Original_SDL_SetCursor)
+          g_Original_SDL_SetCursor(pair.first);
+        break;
+      }
+    }
+  }
 }
 
 void RenderDebug() {
@@ -563,7 +589,7 @@ void RenderDebug() {
   ApplyDynamicHook("SDL_CreateColorCursor",
                    (void *)Hooked_SDL_CreateColorCursor,
                    (void **)&g_Original_SDL_CreateColorCursor, forceHook);
-  ApplyDynamicHook("SDL_SetCursor", (void *)Hooked_SDL_SetCursor,
+  ApplyDynamicHook("SDL_SetCursor", (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
                    (void **)&g_Original_SDL_SetCursor, forceHook);
 }
 

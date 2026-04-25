@@ -84,6 +84,17 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
     }
   }
 
+  // Block input if combat is active and it's not our turn
+  // This happens AFTER broadcasting so others can still see our cursor movement.
+  if (NetworkManager::Get().IsInputBlocked(SteamUser()->GetSteamID().ConvertToUint64())) {
+    if (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
+        uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP ||
+        uMsg == WM_KEYDOWN || uMsg == WM_KEYUP || uMsg == WM_CHAR ||
+        uMsg == WM_MOUSEMOVE) {
+      return 0; // Block for local engine
+    }
+  }
+
   if (isSimulated)
     wParam &= ~0xFF00;
 
