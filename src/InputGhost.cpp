@@ -370,7 +370,8 @@ void SimulateMouseMove(float normX, float normY, HWND hWnd) {
   ApplyDynamicHook("SDL_CreateColorCursor",
                    (void *)Hooked_SDL_CreateColorCursor,
                    (void **)&g_Original_SDL_CreateColorCursor, true);
-  ApplyDynamicHook("SDL_SetCursor", (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
+  ApplyDynamicHook("SDL_SetCursor",
+                   (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
                    (void **)&g_Original_SDL_SetCursor, true);
 
   void **pPush = ResolveTableEntry("SDL_PushEvent");
@@ -430,7 +431,8 @@ void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
   ApplyDynamicHook("SDL_CreateColorCursor",
                    (void *)Hooked_SDL_CreateColorCursor,
                    (void **)&g_Original_SDL_CreateColorCursor, true);
-  ApplyDynamicHook("SDL_SetCursor", (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
+  ApplyDynamicHook("SDL_SetCursor",
+                   (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
                    (void **)&g_Original_SDL_SetCursor, true);
 
   void **pPush = ResolveTableEntry("SDL_PushEvent");
@@ -589,7 +591,8 @@ void RenderDebug() {
   ApplyDynamicHook("SDL_CreateColorCursor",
                    (void *)Hooked_SDL_CreateColorCursor,
                    (void **)&g_Original_SDL_CreateColorCursor, forceHook);
-  ApplyDynamicHook("SDL_SetCursor", (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
+  ApplyDynamicHook("SDL_SetCursor",
+                   (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
                    (void **)&g_Original_SDL_SetCursor, forceHook);
 }
 

@@ -14,7 +14,9 @@ enum class PacketType : uint8_t {
   MouseEvent,
   KeyEvent,
   MouseMove,
-  CatOwnershipSync
+  CatOwnershipSync,
+  CombatStart,
+  CombatEnd
 };
 
 #pragma pack(push, 1)
@@ -103,6 +105,8 @@ public:
   void SetActiveCat(int64_t uid);
   void RegisterCat(int64_t uid, const char *name, const char *className);
 
+  void StartCombat();
+  void EndCombat();
   bool IsCombatActive() const { return m_combatActive; }
   int64_t GetActiveCatUID() const { return m_activeCatUID; }
   uint64_t GetCatOwner(int64_t uid);

@@ -1,11 +1,11 @@
 #include "ImGuiHook.h"
+#include "InputGhost.h"
+#include "NetworkManager.h"
 #include "Overlay.h"
 #include "external/kiero/kiero.h"
 #include "imgui.h"
 #include "imgui_impl_opengl2.h"
 #include "imgui_impl_win32.h"
-#include "InputGhost.h"
-#include "NetworkManager.h"
 #include <windows.h>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
@@ -67,8 +67,6 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
       data.x = nx;
       data.y = ny;
       nm.BroadcastPacket(PacketType::MouseEvent, &data, sizeof(data));
-      Overlay::Log("Sync: Broadcast mouse event %u (%.2f, %.2f) to clients", uMsg,
-                   nx, ny);
       // Continue to process locally
     } else if (nm.GetCurrentLobby().IsValid()) {
       // Client: Send to host and discard local click
@@ -77,20 +75,20 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
       data.type = uMsg;
       data.x = nx;
       data.y = ny;
-      nm.SendPacket(nm.GetHostID(), PacketType::MouseEvent, &data, sizeof(data));
-      Overlay::Log("Sync: Sent mouse event %u (%.2f, %.2f) to host", uMsg, nx,
-                   ny);
+      nm.SendPacket(nm.GetHostID(), PacketType::MouseEvent, &data,
+                    sizeof(data));
       return 0; // Discard local click
     }
   }
 
   // Block input if combat is active and it's not our turn
-  // This happens AFTER broadcasting so others can still see our cursor movement.
-  if (NetworkManager::Get().IsInputBlocked(SteamUser()->GetSteamID().ConvertToUint64())) {
+  // This happens AFTER broadcasting so others can still see our cursor
+  // movement.
+  if (NetworkManager::Get().IsInputBlocked(
+          SteamUser()->GetSteamID().ConvertToUint64())) {
     if (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
-        uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP ||
-        uMsg == WM_KEYDOWN || uMsg == WM_KEYUP || uMsg == WM_CHAR ||
-        uMsg == WM_MOUSEMOVE) {
+        uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP || uMsg == WM_KEYDOWN ||
+        uMsg == WM_KEYUP || uMsg == WM_CHAR || uMsg == WM_MOUSEMOVE) {
       return 0; // Block for local engine
     }
   }
