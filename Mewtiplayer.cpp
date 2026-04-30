@@ -1,3 +1,4 @@
+#include "GameUtils.h"
 #include "ImGuiHook.h"
 #include "InputGhost.h"
 #include "NetworkManager.h"
@@ -23,6 +24,13 @@ static BeginTurn_t g_origBeginTurn = nullptr;
 typedef void(__fastcall *FightEnd_t)(void *combat);
 static FightEnd_t g_origFightEnd = nullptr;
 
+typedef void(__fastcall *Ability_Trigger_t)(void *ability, void *turnAction);
+static Ability_Trigger_t g_origAbilityTrigger = nullptr;
+
+// Tracking state for UI-initiated actions
+static bool g_waitingForPlayerAction = false;
+static uint64_t g_intentTimestamp = 0;
+
 static const char *GetNarrowString(void *ptr, int offset) {
   if (!ptr)
     return "N/A";
@@ -37,14 +45,8 @@ static const char *GetNarrowString(void *ptr, int offset) {
 
 static void Hook_BeginTurn(void *character, int kind) {
   if (character) {
-    // 0x290 is Name (glaiel::wstring)
-    // 0x88 is PersistentChar* (GameChar)
-    // persistent_char + 128 is UID (int64)
-    // persistent_char + 3088 is ClassName (narrow string)
-
     const wchar_t *namePtr = L"Unknown";
-    size_t capacity = *(size_t *)((uintptr_t)character + 0x290 +
-                                  24); // std::wstring capacity offset
+    size_t capacity = *(size_t *)((uintptr_t)character + 0x290 + 24);
     if (capacity < 8) {
       namePtr = (const wchar_t *)((uintptr_t)character + 0x290);
     } else {
@@ -59,20 +61,73 @@ static void Hook_BeginTurn(void *character, int kind) {
       className = GetNarrowString(persistentChar, 3088);
     }
 
-    Overlay::Log("BeginTurn: [%ls] UID:%lld Class:%s", namePtr, uniqueId,
-                 className);
+    uint8_t isPlayerCat = *(uint8_t *)((uintptr_t)character + 0x489);
+
+    Overlay::Log("BeginTurn: [%ls] UID:%lld Class:%s IsPlayerCat:%d", namePtr,
+                 uniqueId, className, isPlayerCat);
 
     if (uniqueId != -1) {
       char narrowName[128];
       size_t converted;
       wcstombs_s(&converted, narrowName, namePtr, sizeof(narrowName));
       NetworkManager::Get().RegisterCat(uniqueId, narrowName, className);
-      NetworkManager::Get().SetActiveCat(uniqueId);
+      if (isPlayerCat == 1) {
+        NetworkManager::Get().SetActiveCat(uniqueId);
+      }
     }
   }
 
   if (g_origBeginTurn)
     g_origBeginTurn(character, kind);
+}
+
+// ---------------------------------------------------------------------------
+// Hook: AbilityTrigger
+// Consumes UI intent to identify player actions directly.
+// ---------------------------------------------------------------------------
+void __fastcall Hook_AbilityTrigger(void *ability, void *turnAction) {
+  bool isSyncAction = false;
+  if (g_waitingForPlayerAction) {
+    isSyncAction = true;
+    g_waitingForPlayerAction = false; // Consume intent
+    Overlay::Log("[INTENT] Action identified via direct UI intent");
+  }
+
+  if (ability && turnAction) {
+    void *definition = *(void **)((uintptr_t)ability + 0x28);
+    std::string abilityName = "UNKNOWN";
+    if (definition) {
+      std::string *namePtr = (std::string *)((uintptr_t)definition + 0x88);
+      if (namePtr && !namePtr->empty()) {
+        abilityName = *namePtr;
+      }
+    }
+
+    int targetX = *(int *)((uintptr_t)turnAction + 0x10);
+    int targetY = *(int *)((uintptr_t)turnAction + 0x14);
+
+    void *owner = *(void **)((uintptr_t)ability + 0x10);
+    int64_t sourceUID = -1;
+    if (owner) {
+      void *persistentChar = *(void **)((uintptr_t)owner + 0x88);
+      if (persistentChar) {
+        sourceUID = *(int64_t *)((uintptr_t)persistentChar + 128);
+      }
+    }
+
+    int target2X = *(int *)((uintptr_t)turnAction + 0x18);
+    int target2Y = *(int *)((uintptr_t)turnAction + 0x1C);
+
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+             "[%s ACTION] UID:%lld | %s | T1:(%d,%d) | T2:(%d,%d)",
+             isSyncAction ? "SYNC" : "AUTO", sourceUID, abilityName.c_str(),
+             targetX, targetY, target2X, target2Y);
+    Overlay::Log(buf);
+  }
+
+  if (g_origAbilityTrigger)
+    g_origAbilityTrigger(ability, turnAction);
 }
 
 static uint64_t g_lastCombatPulse = 0;
@@ -92,6 +147,12 @@ static void Hook_UpdateCombatResolutionState(void *combat) {
     g_origFightEnd(combat);
 }
 
+static GameUtils::ButtonGroupTracker g_moveButtons;
+static GameUtils::ButtonGroupTracker g_attackButtons;
+static GameUtils::ButtonGroupTracker g_spellButtons;
+static GameUtils::ButtonGroupTracker g_itemButtons;
+static GameUtils::ButtonGroupTracker g_endTurnButtons;
+
 static void Hook_RunFrame(void *rcx, void *rdx) {
   if (rcx && !g_networkInitialized) {
     g_networkInitialized = true;
@@ -105,10 +166,53 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     InputGhost::Update();
     InputGhost::SetIsHost(NetworkManager::Get().IsHost());
 
-    // Watchdog: If no combat pulse for 200ms, assume combat ended
-    // TODO: This should only run on the host side
+    if (g_inCombatDetected) {
+      if (g_moveButtons.buttons.empty()) {
+        Scene *battle = GameUtils::GetSceneByName("Battle");
+        if (battle) {
+          g_moveButtons.Init(battle, "Combat_MoveButton");
+          g_attackButtons.Init(battle, "Combat_AttackButton");
+          g_spellButtons.Init(battle, "Combat_SpellButton");
+          g_itemButtons.Init(battle, "Combat_ItemButton");
+          g_endTurnButtons.Init(battle, "Combat_EndTurnButton");
+          Overlay::Log("[Combat] Intent monitoring active");
+        }
+      }
+
+      auto pollIntent = [](GameUtils::ButtonGroupTracker &tracker,
+                           bool isEndTurn = false) {
+        auto changes = tracker.Poll();
+        for (const auto &change : changes) {
+          if (isEndTurn &&
+              (change.oldState == GameUtils::ButtonState_Pressed &&
+               change.newState == GameUtils::ButtonState_Disabled)) {
+            g_waitingForPlayerAction = false;
+            Overlay::Log("[UI] End Turn intent detected - clearing window");
+          } else {
+            if (change.oldState == GameUtils::ButtonState_Pressed &&
+                change.newState == GameUtils::ButtonState_Hovered) {
+              g_waitingForPlayerAction = true;
+              g_intentTimestamp = GetTickCount64();
+              Overlay::Log("[UI] Action intent detected - opening window");
+            }
+          }
+        }
+      };
+
+      pollIntent(g_moveButtons);
+      pollIntent(g_attackButtons);
+      pollIntent(g_spellButtons);
+      pollIntent(g_itemButtons);
+      pollIntent(g_endTurnButtons, true);
+    }
+
     if (g_inCombatDetected && (GetTickCount64() - g_lastCombatPulse > 200)) {
       g_inCombatDetected = false;
+      g_moveButtons.Reset();
+      g_attackButtons.Reset();
+      g_spellButtons.Reset();
+      g_itemButtons.Reset();
+      g_endTurnButtons.Reset();
       if (NetworkManager::Get().IsHost()) {
         NetworkManager::Get().EndCombat();
       }
@@ -147,6 +251,22 @@ static void Initialize(void) {
                     "48 81 EC 18 01 00 00 0F 29 70 A8 0F 29 78 98 44 0F 29 40 "
                     "88 44 0F 29 88 78 FF FF FF 4C 8B F1");
 
+  uintptr_t abilityTriggerRVA =
+      ScanSignature(&mj, g_gameBase, "AbilityTrigger",
+                    "48 89 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57 48 8D "
+                    "AC 24 58 FD FF FF 48 81 EC A8 03 00 00");
+
+  uintptr_t pMewDirectorSig = ScanSignature(
+      &mj, g_gameBase, "MewDirectorSingleton",
+      "48 89 5C 24 10 48 89 4C 24 08 57 48 83 EC 40 48 8B CA 48 8B 05 ?? ?? ?? "
+      "?? 48 8B B8 A8 05 00 00");
+
+  if (pMewDirectorSig) {
+    uintptr_t pMewDirectorPtr =
+        ResolveRIP(g_gameBase + pMewDirectorSig + 18, 3, 7);
+    GameUtils::SetMewDirectorSingletonPtr((MewDirector **)pMewDirectorPtr);
+  }
+
   if (runFrameRVA) {
     mj.InstallHook(runFrameRVA, 17, (void *)Hook_RunFrame,
                    (void **)&g_origRunFrame, 10, MOD_NAME);
@@ -167,6 +287,13 @@ static void Initialize(void) {
                    (void **)&g_origFightEnd, 10, MOD_NAME);
   } else {
     Overlay::Log("Failed to find UpdateCombatResolutionState!");
+  }
+
+  if (abilityTriggerRVA) {
+    mj.InstallHook(abilityTriggerRVA, 15, (void *)Hook_AbilityTrigger,
+                   (void **)&g_origAbilityTrigger, 10, MOD_NAME);
+  } else {
+    Overlay::Log("Failed to find AbilityTrigger!");
   }
 }
 

@@ -80,6 +80,14 @@ uintptr_t ResolveCall(uintptr_t callInstruction) {
   return callInstruction + 5 + offset;
 }
 
+uintptr_t ResolveRIP(uintptr_t instruction, int offsetIndex,
+                     int instructionLength) {
+  if (!instruction)
+    return 0;
+  int32_t offset = *(int32_t *)(instruction + offsetIndex);
+  return instruction + instructionLength + offset;
+}
+
 uintptr_t ScanSignature(MewjectorAPI *mj, uintptr_t base, const char *name,
                         const char *signature) {
   uintptr_t addr = FindPattern(base, signature);

@@ -1,7 +1,215 @@
 #include "GameUtils.h"
+#include "Overlay.h"
 #include <intrin.h>
+#include <windows.h>
 
 namespace GameUtils {
+
+static MewDirector **g_pMewDirectorPtr = nullptr;
+
+void SetMewDirectorSingletonPtr(MewDirector **ptr) { g_pMewDirectorPtr = ptr; }
+
+MewDirector *GetMewDirectorSingleton() {
+  if (g_pMewDirectorPtr)
+    return *g_pMewDirectorPtr;
+  return nullptr;
+}
+
+Scene *GetSceneByName(const char *name) {
+  MewDirector *p_md = GetMewDirectorSingleton();
+  if (!p_md || !p_md->director)
+    return nullptr;
+
+  for (Scene *p_scene : p_md->director->scenes) {
+    if (!p_scene)
+      continue;
+    if (p_scene->name.as_native_string_view() == name) {
+      return p_scene;
+    }
+  }
+  return nullptr;
+}
+
+std::vector<Scene *> GetCurrentScenes() {
+  std::vector<Scene *> result;
+  MewDirector *p_md = GetMewDirectorSingleton();
+  if (!p_md || !p_md->director)
+    return result;
+
+  for (Scene *p_scene : p_md->director->scenes) {
+    if (p_scene) {
+      result.push_back(p_scene);
+    }
+  }
+  return result;
+}
+
+std::vector<Component *> GetSceneComponents(Scene *scene) {
+  std::vector<Component *> result;
+  if (!scene)
+    return result;
+  if (scene->doing_scene_destruction)
+    return result;
+  if (!scene->ComponentLists)
+    return result;
+
+  // Match the reference code exactly: dereference ComponentLists and iterate
+  // Wrap in SEH to catch any access violations safely
+  __try {
+    podvector<Component *> &list = *scene->ComponentLists;
+    for (uint32_t i = 0; i < list.size_; i++) {
+      Component *p_component = list.data_[i];
+      if (!p_component)
+        continue;
+      if (p_component->deleted)
+        continue;
+      result.push_back(p_component);
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    Overlay::Log("GetSceneComponents: Exception while iterating components");
+  }
+  return result;
+}
+
+std::vector<Component *> GetEntityComponents(Entity *entity) {
+  std::vector<Component *> result;
+  if (!entity)
+    return result;
+
+  __try {
+    podvector<Component *> &comps = entity->components;
+    for (uint32_t i = 0; i < comps.size_; i++) {
+      Component *p_component = comps.data_[i];
+      if (!p_component)
+        continue;
+      if (p_component->deleted)
+        continue;
+      result.push_back(p_component);
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    Overlay::Log("GetEntityComponents: Exception while iterating");
+  }
+  return result;
+}
+
+Component *FindComponentByTypeName(Scene *scene, const char *typeName) {
+  std::vector<Component *> components = GetSceneComponents(scene);
+  for (Component *p_component : components) {
+    MsvcReleaseModeXString name = {};
+    if (SafeGetComponentName(p_component, &name)) {
+      if (name.as_native_string_view() == typeName) {
+        return p_component;
+      }
+    }
+  }
+  return nullptr;
+}
+
+bool SafeGetComponentName(Component *p_component,
+                          MsvcReleaseModeXString *out_name) {
+  __try {
+    if (!p_component || !p_component->vtable ||
+        !p_component->vtable->GetObjectTypeSTR)
+      return false;
+    p_component->vtable->GetObjectTypeSTR(p_component, out_name);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+ButtonState GetButtonState(Component *button) {
+  if (!button)
+    return ButtonState_Invalid;
+  __try {
+    return (ButtonState) * (int32_t *)((uintptr_t)button + 0x2F0);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return ButtonState_Invalid;
+  }
+}
+
+bool GetButtonRoleName(Component *button, char *outBuf, size_t bufSize) {
+  if (!button || !outBuf || bufSize == 0)
+    return false;
+  __try {
+    auto *role = (MsvcReleaseModeXString *)((uintptr_t)button + 0x1F8);
+    if (role->_Mysize > 0 && role->_Mysize < 256) {
+      auto sv = role->as_native_string_view();
+      size_t len = sv.size() < bufSize - 1 ? sv.size() : bufSize - 1;
+      memcpy(outBuf, sv.data(), len);
+      outBuf[len] = '\0';
+      return true;
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+  outBuf[0] = '\0';
+  return false;
+}
+
+Component *FindButton(Scene *scene, const char *roleName) {
+  std::vector<Component *> components = GetSceneComponents(scene);
+  for (Component *c : components) {
+    MsvcReleaseModeXString tn = {};
+    if (!SafeGetComponentName(c, &tn))
+      continue;
+    if (tn.as_native_string_view() != "Button")
+      continue;
+    __try {
+      auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
+      if (role->_Mysize > 0 && role->_Mysize < 256 &&
+          role->as_native_string_view() == roleName) {
+        return c;
+      }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+  }
+  return nullptr;
+}
+
+std::vector<Component *> FindAllButtons(Scene *scene, const char *roleName) {
+  std::vector<Component *> result;
+  std::vector<Component *> components = GetSceneComponents(scene);
+  for (Component *c : components) {
+    MsvcReleaseModeXString tn = {};
+    if (!SafeGetComponentName(c, &tn))
+      continue;
+    if (tn.as_native_string_view() != "Button")
+      continue;
+    __try {
+      auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
+      if (role->_Mysize > 0 && role->_Mysize < 256 &&
+          role->as_native_string_view() == roleName) {
+        result.push_back(c);
+      }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+  }
+  return result;
+}
+
+void ButtonGroupTracker::Init(Scene *scene, const char *role) {
+  roleName = role;
+  buttons = FindAllButtons(scene, role);
+  lastStates.assign(buttons.size(), ButtonState_Invalid);
+}
+
+std::vector<ButtonChange> ButtonGroupTracker::Poll() {
+  std::vector<ButtonChange> changed;
+  for (size_t i = 0; i < buttons.size(); i++) {
+    ButtonState state = GetButtonState(buttons[i]);
+    if (state != lastStates[i]) {
+      changed.push_back({(int)i, lastStates[i], state});
+      lastStates[i] = state;
+    }
+  }
+  return changed;
+}
+
+void ButtonGroupTracker::Reset() {
+  roleName = nullptr;
+  buttons.clear();
+  lastStates.clear();
+}
 
 void *GetThreadLocalStoragePointer() {
   // On Windows x64, the Thread Environment Block (TEB) contains a pointer

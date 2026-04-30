@@ -27,7 +27,7 @@ echo Compiling resources...
 rc /fo build\resources.res src\resources.rc
 
 echo Compiling Mewtiplayer...
-cl /LD /O2 /GS- /W3 /D_CRT_SECURE_NO_WARNINGS ^
+cl /LD /O2 /GS- /W3 /std:c++17 /D_CRT_SECURE_NO_WARNINGS ^
   /I . /I include /I external/mewjector /I external/steam /I external/imgui /I external/kiero /I external/kiero/minhook/include ^
   Mewtiplayer.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/ImGuiHook.cpp src/GameUtils.cpp src/InputGhost.cpp ^
   external/kiero/kiero.cpp ^
