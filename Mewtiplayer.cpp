@@ -24,12 +24,14 @@ static BeginTurn_t g_origBeginTurn = nullptr;
 typedef void(__fastcall *FightEnd_t)(void *combat);
 static FightEnd_t g_origFightEnd = nullptr;
 
-typedef void(__fastcall *Ability_Trigger_t)(void *ability, void *turnAction);
-static Ability_Trigger_t g_origAbilityTrigger = nullptr;
+typedef void *(__fastcall *AbilityTrigger_t)(void *ability, void *turnAction);
+AbilityTrigger_t g_origAbilityTrigger = nullptr;
 
-// Tracking state for UI-initiated actions
+// We use this to distinguish between UI-initiated and engine-initiated actions
+// It is set in Hook_EnqueueAction and consumed in Hook_AbilityTrigger
 static bool g_waitingForPlayerAction = false;
 static uint64_t g_intentTimestamp = 0;
+bool g_isSyncActionPending = false;
 
 static const char *GetNarrowString(void *ptr, int offset) {
   if (!ptr)
@@ -86,12 +88,8 @@ static void Hook_BeginTurn(void *character, int kind) {
 // Consumes UI intent to identify player actions directly.
 // ---------------------------------------------------------------------------
 void __fastcall Hook_AbilityTrigger(void *ability, void *turnAction) {
-  bool isSyncAction = false;
-  if (g_waitingForPlayerAction) {
-    isSyncAction = true;
-    g_waitingForPlayerAction = false; // Consume intent
-    Overlay::Log("[INTENT] Action identified via direct UI intent");
-  }
+  bool isSyncAction = g_isSyncActionPending;
+  g_isSyncActionPending = false; // Consume for logging
 
   if (ability && turnAction) {
     void *definition = *(void **)((uintptr_t)ability + 0x28);
@@ -128,6 +126,47 @@ void __fastcall Hook_AbilityTrigger(void *ability, void *turnAction) {
 
   if (g_origAbilityTrigger)
     g_origAbilityTrigger(ability, turnAction);
+}
+
+// ---------------------------------------------------------------------------
+// Action Queue Interception
+// ---------------------------------------------------------------------------
+
+typedef void *(__fastcall *EnqueueAction_t)(void *queue, void *actionData);
+EnqueueAction_t g_origEnqueueAction = nullptr;
+
+static void *__fastcall Hook_EnqueueAction(void *queue, void *actionData) {
+  if (!actionData)
+    return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
+                               : nullptr;
+
+  // actionData + 0x0 is the action type (int)
+  int type = *(int *)((uintptr_t)actionData + 0x0);
+  if (type <= 1) // Actions under or equal to 1 are null actions
+    return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
+                               : nullptr;
+
+  // actionData + 0x8 is the entity pointer (Character)
+  void *character = *(void **)((uintptr_t)actionData + 0x8);
+
+  Overlay::Log("[ENQUEUE] Raw Action: Type:%d Char:%p", type, character);
+
+  if (character) {
+    if (g_waitingForPlayerAction) {
+      g_waitingForPlayerAction = false;
+      g_isSyncActionPending = true;
+      Overlay::Log("[ENQUEUE] AUTHORIZED SYNC Action for Character: %p",
+                   character);
+    } else {
+      g_isSyncActionPending = false;
+      Overlay::Log("[ENQUEUE] AUTO Action detected for Character: %p",
+                   character);
+    }
+  }
+
+  if (g_origEnqueueAction)
+    return g_origEnqueueAction(queue, actionData);
+  return nullptr;
 }
 
 static uint64_t g_lastCombatPulse = 0;
@@ -251,10 +290,17 @@ static void Initialize(void) {
                     "48 81 EC 18 01 00 00 0F 29 70 A8 0F 29 78 98 44 0F 29 40 "
                     "88 44 0F 29 88 78 FF FF FF 4C 8B F1");
 
+  // glaiel::Ability::trigger(struct glaiel::TurnAction) - RVA 0x031ed0
   uintptr_t abilityTriggerRVA =
       ScanSignature(&mj, g_gameBase, "AbilityTrigger",
                     "48 89 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57 48 8D "
                     "AC 24 58 FD FF FF 48 81 EC A8 03 00 00");
+
+  // "ActionManager::enqueueAction" - RVA 0x8D6FE0
+  uintptr_t enqueueActionRVA =
+      ScanSignature(&mj, g_gameBase, "EnqueueAction",
+                    "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 48 89 54 24 "
+                    "10 57 48 83 EC 20 48 8B FA 83 3A 01");
 
   uintptr_t pMewDirectorSig = ScanSignature(
       &mj, g_gameBase, "MewDirectorSingleton",
@@ -294,6 +340,14 @@ static void Initialize(void) {
                    (void **)&g_origAbilityTrigger, 10, MOD_NAME);
   } else {
     Overlay::Log("Failed to find AbilityTrigger!");
+  }
+
+  if (enqueueActionRVA) {
+    Overlay::Log("Found EnqueueAction at RVA: 0x%llX", enqueueActionRVA);
+    mj.InstallHook(enqueueActionRVA, 15, (void *)Hook_EnqueueAction,
+                   (void **)&g_origEnqueueAction, 10, MOD_NAME);
+  } else {
+    Overlay::Log("Failed to find EnqueueAction!");
   }
 }
 
