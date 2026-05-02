@@ -143,8 +143,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
                    actionData->character);
 
       // BROADCAST ACTION
-      uint32_t nuid =
-          NetworkManager::Get().GetNUID(actionData->character);
+      uint32_t nuid = NetworkManager::Get().GetNUID(actionData->character);
       if (nuid != 0xFFFFFFFF) {
         TurnActionPacket pkt;
         pkt.actorNUID = nuid;
