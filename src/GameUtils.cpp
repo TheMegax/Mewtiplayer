@@ -6,8 +6,16 @@
 namespace GameUtils {
 
 static MewDirector **g_pMewDirectorPtr = nullptr;
+static TurnControl **g_pTurnControlPtr = nullptr;
 
 void SetMewDirectorSingletonPtr(MewDirector **ptr) { g_pMewDirectorPtr = ptr; }
+void SetTurnControlPtr(TurnControl **ptr) { g_pTurnControlPtr = ptr; }
+
+TurnControl *GetTurnControl() {
+  if (g_pTurnControlPtr)
+    return *g_pTurnControlPtr;
+  return nullptr;
+}
 
 MewDirector *GetMewDirectorSingleton() {
   if (g_pMewDirectorPtr)
@@ -42,6 +50,74 @@ std::vector<Scene *> GetCurrentScenes() {
     }
   }
   return result;
+}
+
+std::vector<Character *> GetAllEntities() {
+  std::vector<Character *> result;
+
+  TurnControl *tc = GetTurnControl();
+  if (!tc) {
+    Overlay::Log("GetFighters: TurnControl is null");
+    return result;
+  }
+
+  if (!tc->context) {
+    Overlay::Log("GetFighters: tc->context is null");
+    return result;
+  }
+
+  CombatContext *ctx = tc->context;
+  if (!ctx->entityManager) {
+    Overlay::Log("GetFighters: ctx->entityManager is null");
+    return result;
+  }
+
+  CombatEntityManager *mgr = ctx->entityManager;
+  if (!mgr->stateBlock) {
+    Overlay::Log("GetFighters: mgr->stateBlock is null");
+    return result;
+  }
+
+  CombatStateBlock *sb = mgr->stateBlock;
+  if (!sb->fighters) {
+    Overlay::Log("GetFighters: sb->fighters is null");
+    return result;
+  }
+
+  FighterList *list = sb->fighters;
+  if (!list->data) {
+    Overlay::Log("GetFighters: list->data is null");
+    return result;
+  }
+
+  if (list->count == 0) {
+    Overlay::Log("GetFighters: list->count is 0");
+    return result;
+  }
+
+  for (uint32_t i = 0; i < list->count; i++) {
+    Character *c = list->data[i];
+    if (c) {
+      result.push_back(c);
+    }
+  }
+
+  return result;
+}
+
+std::vector<Character *> GetFighters() {
+  std::vector<Character *> all = GetAllEntities();
+  std::vector<Character *> fighters;
+
+  for (Character *c : all) {
+    if (c->isStatic || c->isSpeculativeInanimate || c->characterType == 4) {
+      continue;
+    }
+
+    fighters.push_back(c);
+  }
+
+  return fighters;
 }
 
 std::vector<Component *> GetSceneComponents(Scene *scene) {

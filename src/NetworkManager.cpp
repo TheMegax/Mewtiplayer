@@ -84,6 +84,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::CombatEnd:
       EndCombat();
       break;
+    case PacketType::TurnAction:
+      HandleTurnAction(remoteID, payload, payloadLen);
+      break;
     default:
       Overlay::Log("Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -408,4 +411,102 @@ void NetworkManager::OnP2PSessionRequest(P2PSessionRequest_t *pCallback) {
 void NetworkManager::OnGameLobbyJoinRequested(
     GameLobbyJoinRequested_t *pCallback) {
   JoinLobby(pCallback->m_steamIDLobby);
+}
+typedef void *(__fastcall *EnqueueAction_t)(void *queue, void *actionData);
+extern EnqueueAction_t g_origEnqueueAction;
+extern void *g_lastActionQueue;
+
+void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
+                                      uint32_t length) {
+  if (length != sizeof(TurnActionPacket))
+    return;
+
+  TurnActionPacket *pkt = (TurnActionPacket *)data;
+  Character *actor = GetCharacter(pkt->actorNUID);
+
+  if (!actor) {
+    Overlay::Log("[NET] Received TurnAction for unknown NUID: %d",
+                 pkt->actorNUID);
+    return;
+  }
+
+  if (!g_origEnqueueAction || !g_lastActionQueue) {
+    Overlay::Log("[NET] Cannot inject action: missing EnqueueAction pointer");
+    return;
+  }
+
+  Overlay::Log("[NET] Injecting Action: NUID:%d | Type:%d | T1:(%d,%d)",
+               pkt->actorNUID, pkt->actionType, pkt->targetX, pkt->targetY);
+
+  TurnAction action = {};
+  action.type = pkt->actionType;
+  action.character = actor;
+  action.targetX = pkt->targetX;
+  action.targetY = pkt->targetY;
+  action.target2X = pkt->target2X;
+  action.target2Y = pkt->target2Y;
+
+  // Call the original function to avoid re-broadcasting
+  g_origEnqueueAction(g_lastActionQueue, &action);
+}
+
+void NetworkManager::InitializeEntityMapping() {
+  ResetEntityMapping();
+
+  std::vector<Character *> fighters = GameUtils::GetFighters();
+  // Thanks to the magic of a very talented and very stubborn programmer
+  // (Tyler Glaiel <3), the fighter list is actually deterministic!
+  // Entities at the start of combat are loaded in *always* in the same order,
+  // allowing us to use NUIDs for networking.
+
+  Overlay::Log("NUID: Initializing mapping for %zu fighters", fighters.size());
+
+  for (Character *c : fighters) {
+    if (!c)
+      continue;
+
+    uint32_t nuid = m_nextNuid++;
+    m_charToNuid[c] = nuid;
+    m_nuidToChar[nuid] = c;
+
+    Overlay::Log("NUID: Map [%d] -> Character %p (%s)", nuid, c,
+                 c->name.to_utf8().c_str());
+  }
+}
+
+uint32_t NetworkManager::GetNUID(Character *character) {
+  auto it = m_charToNuid.find(character);
+  if (it != m_charToNuid.end()) {
+    return it->second;
+  }
+  return 0xFFFFFFFF; // Invalid
+}
+
+Character *NetworkManager::GetCharacter(uint32_t nuid) {
+  auto it = m_nuidToChar.find(nuid);
+  if (it != m_nuidToChar.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
+void NetworkManager::UpdateDynamicEntities() {
+  std::vector<Character *> all = GameUtils::GetFighters();
+  for (Character *c : all) {
+    if (!c)
+      continue;
+    if (m_charToNuid.find(c) == m_charToNuid.end()) {
+      uint32_t nuid = m_nextNuid++;
+      m_charToNuid[c] = nuid;
+      m_nuidToChar[nuid] = c;
+      Overlay::Log("NUID: Dynamic Map [%d] -> Character %p (%s)", nuid, c,
+                   c->name.to_utf8().c_str());
+    }
+  }
+}
+
+void NetworkManager::ResetEntityMapping() {
+  m_charToNuid.clear();
+  m_nuidToChar.clear();
+  m_nextNuid = 0;
 }

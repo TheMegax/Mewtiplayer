@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+struct Character;
+
 enum class PacketType : uint8_t {
   Handshake,
   Ping,
@@ -16,7 +18,8 @@ enum class PacketType : uint8_t {
   MouseMove,
   CatOwnershipSync,
   CombatStart,
-  CombatEnd
+  CombatEnd,
+  TurnAction
 };
 
 #pragma pack(push, 1)
@@ -53,6 +56,15 @@ struct CatInfo {
   int64_t uid;
   std::string name;
   std::string className;
+};
+
+struct TurnActionPacket {
+  uint32_t actorNUID;
+  int32_t actionType;
+  int32_t targetX;
+  int32_t targetY;
+  int32_t target2X;
+  int32_t target2Y;
 };
 #pragma pack(pop)
 
@@ -115,6 +127,13 @@ public:
     return m_discoveredCats;
   }
 
+  // Entity Mapping
+  void InitializeEntityMapping();
+  void UpdateDynamicEntities();
+  void ResetEntityMapping();
+  uint32_t GetNUID(Character *character);
+  Character *GetCharacter(uint32_t nuid);
+
 private:
   NetworkManager() : m_mj(nullptr) { m_CurrentLobby.Clear(); }
 
@@ -130,6 +149,11 @@ private:
   int64_t m_activeCatUID = -1;
   std::map<int64_t, uint64_t> m_catOwnership;
   std::map<int64_t, CatInfo> m_discoveredCats;
+
+  // NUID Mapping
+  std::map<Character *, uint32_t> m_charToNuid;
+  std::map<uint32_t, Character *> m_nuidToChar;
+  uint32_t m_nextNuid = 0;
 
   CCallResult<NetworkManager, LobbyCreated_t> m_LobbyCreatedCallResult;
   void OnLobbyCreated(LobbyCreated_t *pCallback, bool bIOFailure);
@@ -148,6 +172,7 @@ private:
   void HandleMouseMove(CSteamID remoteID, const void *data, uint32_t length);
   void HandleCatOwnershipSync(CSteamID remoteID, const void *data,
                               uint32_t length);
+  void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
 
   STEAM_CALLBACK(NetworkManager, OnGameLobbyJoinRequested,
                  GameLobbyJoinRequested_t);

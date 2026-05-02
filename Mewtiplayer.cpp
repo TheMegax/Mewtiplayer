@@ -20,6 +20,10 @@ static bool g_networkInitialized = false;
 
 typedef void(__fastcall *BeginTurn_t)(void *character, int kind);
 static BeginTurn_t g_origBeginTurn = nullptr;
+static TurnControl *g_currentTurnControl = nullptr;
+
+typedef void(__fastcall *TurnStart_t)(TurnControl *tc);
+static TurnStart_t g_origTurnStart = nullptr;
 
 typedef void(__fastcall *FightEnd_t)(void *combat);
 static FightEnd_t g_origFightEnd = nullptr;
@@ -33,45 +37,47 @@ static bool g_waitingForPlayerAction = false;
 static uint64_t g_intentTimestamp = 0;
 bool g_isSyncActionPending = false;
 
-static const char *GetNarrowString(void *ptr, int offset) {
-  if (!ptr)
-    return "N/A";
-  uintptr_t strPtr = (uintptr_t)ptr + offset;
-  size_t capacity = *(size_t *)(strPtr + 24);
-  if (capacity < 16) {
-    return (const char *)strPtr;
-  } else {
-    return *(const char **)strPtr;
+bool g_startedCombat = false;
+
+static void Hook_TurnStart(TurnControl *tc) {
+  if (tc) {
+    g_currentTurnControl = tc;
+    GameUtils::SetTurnControlPtr(&g_currentTurnControl);
   }
+  if (g_origTurnStart)
+    g_origTurnStart(tc);
 }
 
-static void Hook_BeginTurn(void *character, int kind) {
+// Why is there two different turn start functions? Idk don't ask me
+static void Hook_BeginTurn(Character *character, int kind) {
+  g_startedCombat = true;
+
   if (character) {
-    const wchar_t *namePtr = L"Unknown";
-    size_t capacity = *(size_t *)((uintptr_t)character + 0x290 + 24);
-    if (capacity < 8) {
-      namePtr = (const wchar_t *)((uintptr_t)character + 0x290);
+    std::wstring name = L"Unknown";
+    auto wname = (MsvcReleaseModeXString *)&character->name;
+    // Note: Layout is same, but we treat it as wchar_t*
+    if (wname->_Myres < 8) {
+      name = (const wchar_t *)&wname->_Bx._Buf[0];
     } else {
-      namePtr = *(const wchar_t **)((uintptr_t)character + 0x290);
+      name = *(const wchar_t **)&wname->_Bx._Ptr;
     }
 
     int64_t uniqueId = -1;
     const char *className = "Collarless";
-    void *persistentChar = *(void **)((uintptr_t)character + 0x88);
-    if (persistentChar) {
-      uniqueId = *(int64_t *)((uintptr_t)persistentChar + 128);
-      className = GetNarrowString(persistentChar, 3088);
+    if (character->persistentChar) {
+      uniqueId = character->persistentChar->sql_key;
+      className = character->persistentChar->className.begin();
     }
 
-    uint8_t isPlayerCat = *(uint8_t *)((uintptr_t)character + 0x489);
+    uint8_t isPlayerCat = character->isPlayerCat;
 
-    Overlay::Log("BeginTurn: [%ls] UID:%lld Class:%s IsPlayerCat:%d", namePtr,
-                 uniqueId, className, isPlayerCat);
+    Overlay::Log("BeginTurn: [%ls] UID:%lld Class:%s IsPlayerCat:%d",
+                 name.c_str(), uniqueId, className, isPlayerCat);
 
     if (uniqueId != -1) {
       char narrowName[128];
       size_t converted;
-      wcstombs_s(&converted, narrowName, namePtr, sizeof(narrowName));
+      wcstombs_s(&converted, narrowName, name.c_str(), sizeof(narrowName));
       NetworkManager::Get().RegisterCat(uniqueId, narrowName, className);
       if (isPlayerCat == 1) {
         NetworkManager::Get().SetActiveCat(uniqueId);
@@ -85,42 +91,28 @@ static void Hook_BeginTurn(void *character, int kind) {
 
 // ---------------------------------------------------------------------------
 // Hook: AbilityTrigger
-// Consumes UI intent to identify player actions directly.
 // ---------------------------------------------------------------------------
-void __fastcall Hook_AbilityTrigger(void *ability, void *turnAction) {
+void __fastcall Hook_AbilityTrigger(Ability *ability, TurnAction *turnAction) {
   bool isSyncAction = g_isSyncActionPending;
   g_isSyncActionPending = false; // Consume for logging
 
   if (ability && turnAction) {
-    void *definition = *(void **)((uintptr_t)ability + 0x28);
     std::string abilityName = "UNKNOWN";
-    if (definition) {
-      std::string *namePtr = (std::string *)((uintptr_t)definition + 0x88);
-      if (namePtr && !namePtr->empty()) {
-        abilityName = *namePtr;
-      }
+    if (ability->definition) {
+      abilityName = ability->definition->name.copy_to_native_string();
     }
 
-    int targetX = *(int *)((uintptr_t)turnAction + 0x10);
-    int targetY = *(int *)((uintptr_t)turnAction + 0x14);
-
-    void *owner = *(void **)((uintptr_t)ability + 0x10);
     int64_t sourceUID = -1;
-    if (owner) {
-      void *persistentChar = *(void **)((uintptr_t)owner + 0x88);
-      if (persistentChar) {
-        sourceUID = *(int64_t *)((uintptr_t)persistentChar + 128);
-      }
+    if (ability->owner && ability->owner->persistentChar) {
+      sourceUID = ability->owner->persistentChar->sql_key;
     }
-
-    int target2X = *(int *)((uintptr_t)turnAction + 0x18);
-    int target2Y = *(int *)((uintptr_t)turnAction + 0x1C);
 
     char buf[512];
     snprintf(buf, sizeof(buf),
              "[%s ACTION] UID:%lld | %s | T1:(%d,%d) | T2:(%d,%d)",
              isSyncAction ? "SYNC" : "AUTO", sourceUID, abilityName.c_str(),
-             targetX, targetY, target2X, target2Y);
+             turnAction->targetX, turnAction->targetY, turnAction->target2X,
+             turnAction->target2Y);
     Overlay::Log(buf);
   }
 
@@ -131,36 +123,48 @@ void __fastcall Hook_AbilityTrigger(void *ability, void *turnAction) {
 // ---------------------------------------------------------------------------
 // Action Queue Interception
 // ---------------------------------------------------------------------------
-
 typedef void *(__fastcall *EnqueueAction_t)(void *queue, void *actionData);
 EnqueueAction_t g_origEnqueueAction = nullptr;
+void *g_lastActionQueue = nullptr;
 
-static void *__fastcall Hook_EnqueueAction(void *queue, void *actionData) {
-  if (!actionData)
+static void *__fastcall Hook_EnqueueAction(void *queue,
+                                           TurnAction *actionData) {
+  g_lastActionQueue = queue;
+  if (!actionData ||
+      actionData->type <= 1) // Actions under or equal to 1 are null actions
     return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
                                : nullptr;
 
-  // actionData + 0x0 is the action type (int)
-  int type = *(int *)((uintptr_t)actionData + 0x0);
-  if (type <= 1) // Actions under or equal to 1 are null actions
-    return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
-                               : nullptr;
-
-  // actionData + 0x8 is the entity pointer (Character)
-  void *character = *(void **)((uintptr_t)actionData + 0x8);
-
-  Overlay::Log("[ENQUEUE] Raw Action: Type:%d Char:%p", type, character);
-
-  if (character) {
+  if (actionData->character) {
     if (g_waitingForPlayerAction) {
       g_waitingForPlayerAction = false;
       g_isSyncActionPending = true;
       Overlay::Log("[ENQUEUE] AUTHORIZED SYNC Action for Character: %p",
-                   character);
+                   actionData->character);
+
+      // BROADCAST ACTION
+      uint32_t nuid =
+          NetworkManager::Get().GetNUID(actionData->character);
+      if (nuid != 0xFFFFFFFF) {
+        TurnActionPacket pkt;
+        pkt.actorNUID = nuid;
+        pkt.actionType = actionData->type;
+        pkt.targetX = actionData->targetX;
+        pkt.targetY = actionData->targetY;
+        pkt.target2X = actionData->target2X;
+        pkt.target2Y = actionData->target2Y;
+
+        NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
+                                              sizeof(pkt), true);
+        Overlay::Log("[NET] Broadcast Action for NUID: %d", nuid);
+      } else {
+        Overlay::Log("[ERR] Failed to find NUID for character %p!",
+                     actionData->character);
+      }
     } else {
       g_isSyncActionPending = false;
       Overlay::Log("[ENQUEUE] AUTO Action detected for Character: %p",
-                   character);
+                   actionData->character);
     }
   }
 
@@ -173,14 +177,25 @@ static uint64_t g_lastCombatPulse = 0;
 static bool g_inCombatDetected = false;
 
 static void Hook_UpdateCombatResolutionState(void *combat) {
-  g_lastCombatPulse = GetTickCount64();
+  if (!g_startedCombat)
+    return;
 
   if (!g_inCombatDetected) {
     g_inCombatDetected = true;
     if (NetworkManager::Get().IsHost()) {
       NetworkManager::Get().StartCombat();
     }
+    NetworkManager::Get().InitializeEntityMapping();
+  } else {
+    // Combat already active, check for new entities
+    __try {
+      NetworkManager::Get().UpdateDynamicEntities();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+      // Overlay::Log("CRASH: Exception in UpdateDynamicEntities");
+    }
   }
+
+  g_lastCombatPulse = GetTickCount64();
 
   if (g_origFightEnd)
     g_origFightEnd(combat);
@@ -214,7 +229,6 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
           g_spellButtons.Init(battle, "Combat_SpellButton");
           g_itemButtons.Init(battle, "Combat_ItemButton");
           g_endTurnButtons.Init(battle, "Combat_EndTurnButton");
-          Overlay::Log("[Combat] Intent monitoring active");
         }
       }
 
@@ -226,13 +240,11 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
               (change.oldState == GameUtils::ButtonState_Pressed &&
                change.newState == GameUtils::ButtonState_Disabled)) {
             g_waitingForPlayerAction = false;
-            Overlay::Log("[UI] End Turn intent detected - clearing window");
           } else {
             if (change.oldState == GameUtils::ButtonState_Pressed &&
                 change.newState == GameUtils::ButtonState_Hovered) {
               g_waitingForPlayerAction = true;
               g_intentTimestamp = GetTickCount64();
-              Overlay::Log("[UI] Action intent detected - opening window");
             }
           }
         }
@@ -246,7 +258,9 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     }
 
     if (g_inCombatDetected && (GetTickCount64() - g_lastCombatPulse > 200)) {
+      g_startedCombat = false;
       g_inCombatDetected = false;
+      g_waitingForPlayerAction = false;
       g_moveButtons.Reset();
       g_attackButtons.Reset();
       g_spellButtons.Reset();
@@ -302,6 +316,12 @@ static void Initialize(void) {
                     "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 48 89 54 24 "
                     "10 57 48 83 EC 20 48 8B FA 83 3A 01");
 
+  // "TurnStart" - RVA 0x8D73D0
+  uintptr_t turnStartRVA = ScanSignature(
+      &mj, g_gameBase, "TurnStart",
+      "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 28 EF FF "
+      "FF B8 D8 11 00 00 E8 ? ? ? ? 48 2B E0 0F 29 B4 24 C0 11 00 00 48 8B F1");
+
   uintptr_t pMewDirectorSig = ScanSignature(
       &mj, g_gameBase, "MewDirectorSingleton",
       "48 89 5C 24 10 48 89 4C 24 08 57 48 83 EC 40 48 8B CA 48 8B 05 ?? ?? ?? "
@@ -348,6 +368,13 @@ static void Initialize(void) {
                    (void **)&g_origEnqueueAction, 10, MOD_NAME);
   } else {
     Overlay::Log("Failed to find EnqueueAction!");
+  }
+
+  if (turnStartRVA) {
+    mj.InstallHook(turnStartRVA, 14, (void *)Hook_TurnStart,
+                   (void **)&g_origTurnStart, 10, MOD_NAME);
+  } else {
+    Overlay::Log("Failed to find TurnStart!");
   }
 }
 

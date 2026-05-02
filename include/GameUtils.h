@@ -13,6 +13,10 @@ MewDirector *GetMewDirectorSingleton();
 // Scenes
 std::vector<Scene *> GetCurrentScenes();
 Scene *GetSceneByName(const char *name);
+void SetTurnControlPtr(TurnControl **ptr);
+TurnControl *GetTurnControl();
+std::vector<Character *> GetAllEntities();
+std::vector<Character *> GetFighters();
 
 // Components
 std::vector<Component *> GetSceneComponents(Scene *scene);
