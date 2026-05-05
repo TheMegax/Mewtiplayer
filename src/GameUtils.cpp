@@ -129,20 +129,14 @@ std::vector<Component *> GetSceneComponents(Scene *scene) {
   if (!scene->ComponentLists)
     return result;
 
-  // Match the reference code exactly: dereference ComponentLists and iterate
-  // Wrap in SEH to catch any access violations safely
-  __try {
-    podvector<Component *> &list = *scene->ComponentLists;
-    for (uint32_t i = 0; i < list.size_; i++) {
-      Component *p_component = list.data_[i];
-      if (!p_component)
-        continue;
-      if (p_component->deleted)
-        continue;
-      result.push_back(p_component);
-    }
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-    Overlay::Log("GetSceneComponents: Exception while iterating components");
+  podvector<Component *> &list = *scene->ComponentLists;
+  for (uint32_t i = 0; i < list.size_; i++) {
+    Component *p_component = list.data_[i];
+    if (!p_component)
+      continue;
+    if (p_component->deleted)
+      continue;
+    result.push_back(p_component);
   }
   return result;
 }
@@ -152,18 +146,14 @@ std::vector<Component *> GetEntityComponents(Entity *entity) {
   if (!entity)
     return result;
 
-  __try {
-    podvector<Component *> &comps = entity->components;
-    for (uint32_t i = 0; i < comps.size_; i++) {
-      Component *p_component = comps.data_[i];
-      if (!p_component)
-        continue;
-      if (p_component->deleted)
-        continue;
-      result.push_back(p_component);
-    }
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-    Overlay::Log("GetEntityComponents: Exception while iterating");
+  podvector<Component *> &comps = entity->components;
+  for (uint32_t i = 0; i < comps.size_; i++) {
+    Component *p_component = comps.data_[i];
+    if (!p_component)
+      continue;
+    if (p_component->deleted)
+      continue;
+    result.push_back(p_component);
   }
   return result;
 }
@@ -344,3 +334,43 @@ uint32_t CalculateCRC32(const void *data, size_t size) {
 }
 
 } // namespace GameUtils
+void *GameUtils::ResolveGridTile(int x, int y) {
+  Scene *scene = GetSceneByName("Battle");
+  if (!scene)
+    return nullptr;
+
+  std::vector<Component *> components = GetSceneComponents(scene);
+  std::vector<Component *> tiles;
+
+  for (Component *c : components) {
+    MsvcReleaseModeXString name = {};
+    if (!SafeGetComponentName(c, &name))
+      continue;
+    std::string_view nameStr = name.as_native_string_view();
+
+    // Fuzzy search for tile-like components
+    if (nameStr.find("Tile") != std::string::npos) {
+      tiles.push_back(c);
+    }
+  }
+
+  if (tiles.empty()) {
+    Overlay::Log("[GRID] [ERR] No tile-like components found in 'Battle'!");
+    return nullptr;
+  }
+
+  // Deterministic counting
+  int idx = (y * 10) + x;
+  if (idx >= 0 && idx < (int)tiles.size()) {
+    Component *tile = tiles[idx];
+    MsvcReleaseModeXString name = {};
+    SafeGetComponentName(tile, &name);
+    Overlay::Log("[GRID] Resolved (%d, %d) via Index -> %d, name: %s", x, y,
+                 idx, name.as_native_string_view().data());
+    return tiles[idx];
+  }
+
+  Overlay::Log("[GRID] [ERR] Failed to resolve (%d, %d) among %zu tiles!", x, y,
+               tiles.size());
+  return nullptr;
+}

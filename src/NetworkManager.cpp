@@ -66,12 +66,6 @@ void NetworkManager::ReceivePackets() {
     case PacketType::RNGSync:
       HandleRNGSync(remoteID, payload, payloadLen);
       break;
-    case PacketType::MouseEvent:
-      HandleMouseEvent(remoteID, payload, payloadLen);
-      break;
-    case PacketType::KeyEvent:
-      HandleKeyEvent(remoteID, payload, payloadLen);
-      break;
     case PacketType::MouseMove:
       HandleMouseMove(remoteID, payload, payloadLen);
       break;
@@ -114,47 +108,6 @@ void NetworkManager::HandleRNGSync(CSteamID remoteID, const void *data,
     Overlay::Log("RNG state synchronized with host.");
   } else {
     Overlay::Log("Received invalid RNGSync packet (length %u)", length);
-  }
-}
-
-void NetworkManager::HandleMouseEvent(CSteamID remoteID, const void *data,
-                                      uint32_t length) {
-  if (length == sizeof(MouseEventData)) {
-    MouseEventData *mouse = (MouseEventData *)data;
-    if (IsHost()) {
-      if (!IsInputBlocked(mouse->steamID)) {
-        InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
-                                  ImGuiHook::GetHWND());
-      }
-      BroadcastPacket(PacketType::MouseEvent, mouse, sizeof(MouseEventData),
-                      true);
-    } else {
-      if (!IsInputBlocked(mouse->steamID)) {
-        InputGhost::SimulateClick(mouse->type, mouse->x, mouse->y,
-                                  ImGuiHook::GetHWND());
-      }
-    }
-  }
-}
-
-void NetworkManager::HandleKeyEvent(CSteamID remoteID, const void *data,
-                                    uint32_t length) {
-  if (length == sizeof(KeyEventData)) {
-    KeyEventData *key = (KeyEventData *)data;
-    if (IsHost()) {
-      // Process the input, then broadcast to other clients
-      if (!IsInputBlocked(key->steamID)) {
-        InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
-                                     key->mod, key->down, key->repeat);
-      }
-      BroadcastPacket(PacketType::KeyEvent, key, sizeof(KeyEventData), true);
-    } else {
-      // Just process the input
-      if (!IsInputBlocked(key->steamID)) {
-        InputGhost::SimulateKeyEvent(key->type, key->keycode, key->scancode,
-                                     key->mod, key->down, key->repeat);
-      }
-    }
   }
 }
 
@@ -435,18 +388,82 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
     return;
   }
 
-  Overlay::Log("[NET] Injecting Action: NUID:%d | Type:%d | T1:(%d,%d)",
-               pkt->actorNUID, pkt->actionType, pkt->targetX, pkt->targetY);
+  // Find the ability by name
+
+  Ability *targetAbility = nullptr;
+  std::string targetName = pkt->abilityName;
+
+  auto get_ability_name = [&](Ability *a) -> std::string {
+    if (!a)
+      return "";
+    // Scan for AbilityDefinition
+    for (int i = 0; i < 64; i += 8) {
+      void *p = *(void **)((uintptr_t)a + i);
+      if (p && (uintptr_t)p > 0x10000) {
+        try {
+          AbilityDefinition *def = (AbilityDefinition *)p;
+          std::string name = def->name.copy_to_native_string();
+          if (!name.empty() && name.length() < 128) {
+            bool printable = true;
+            for (char c : name) {
+              if (c < 32 || c > 126) {
+                printable = false;
+                break;
+              }
+            }
+            if (printable) {
+              return name;
+            }
+          }
+        } catch (...) {
+        }
+      }
+    }
+    return "";
+  };
+
+  uintptr_t start = (uintptr_t)actor;
+  uintptr_t end = start + 0x4000;
+
+  for (uintptr_t p = start; p < end - 8; p += 8) {
+    uintptr_t potentialPtr = *(uintptr_t *)p;
+    if (potentialPtr > 0x10000 && (potentialPtr & 7) == 0) {
+      try {
+        if (*(Character **)(potentialPtr + 16) == actor) {
+          Ability *a = (Ability *)potentialPtr;
+          if (get_ability_name(a) == targetName) {
+            targetAbility = a;
+            break;
+          }
+        }
+      } catch (...) {
+      }
+    }
+  }
+
+  if (!targetAbility) {
+    Overlay::Log("[NET] [ERR] Could not find ability '%s' on character!",
+                 pkt->abilityName);
+    return;
+  }
 
   TurnAction action = {};
   action.type = pkt->actionType;
-  action.character = actor;
+  action.ability = targetAbility;
   action.targetX = pkt->targetX;
   action.targetY = pkt->targetY;
   action.target2X = pkt->target2X;
   action.target2Y = pkt->target2Y;
 
-  // Call the original function to avoid re-broadcasting
+  // RESOLVE LOCAL GRID NODE POINTERS
+  // These are required for engine validation. If we inject raw coordinates into
+  // these slots, the engine will discard the action.
+  action.validation1 = GameUtils::ResolveGridTile(pkt->targetX, pkt->targetY);
+  action.validation2 = GameUtils::ResolveGridTile(pkt->target2X, pkt->target2Y);
+
+  Overlay::Log("[NET] Injecting Action: Ability=%p | V1=%p | V2=%p",
+               action.ability, action.validation1, action.validation2);
+
   g_origEnqueueAction(g_lastActionQueue, &action);
 }
 

@@ -81,4 +81,8 @@ void GetRNGState(void *outSeed32);
 
 // Simple CRC32 implementation for data verification and signatures.
 uint32_t CalculateCRC32(const void *data, size_t size);
+
+// Resolves a GridNode pointer for specific coordinates by getting the
+// TacticsTile component.
+void *ResolveGridTile(int x, int y);
 } // namespace GameUtils

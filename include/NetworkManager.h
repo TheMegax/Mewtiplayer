@@ -13,8 +13,6 @@ enum class PacketType : uint8_t {
   GameStateSync,
   ChatMessage,
   RNGSync,
-  MouseEvent,
-  KeyEvent,
   MouseMove,
   CatOwnershipSync,
   CombatStart,
@@ -23,29 +21,13 @@ enum class PacketType : uint8_t {
 };
 
 #pragma pack(push, 1)
-struct KeyEventData {
-  uint64_t steamID;
-  uint32_t type;     // SDL_EVENT_KEY_DOWN / SDL_EVENT_KEY_UP
-  uint32_t keycode;  // SDL_Keycode
-  uint32_t scancode; // SDL_Scancode
-  uint16_t mod;      // SDL_Keymod
-  uint8_t repeat;
-  uint8_t down;
-};
-
-struct MouseEventData {
-  uint64_t steamID;
-  uint32_t type; // Message type (WM_LBUTTONDOWN, etc)
-  float x;       // Normalized X (0.0 to 1.0)
-  float y;       // Normalized Y (0.0 to 1.0)
-};
-
 struct MouseMoveData {
   uint64_t steamID;
   float x;
   float y;
   uint8_t cursorType;
 };
+#pragma pack(pop)
 
 struct CatOwnershipData {
   int64_t catUID;
@@ -61,12 +43,12 @@ struct CatInfo {
 struct TurnActionPacket {
   uint32_t actorNUID;
   int32_t actionType;
+  char abilityName[64];
   int32_t targetX;
   int32_t targetY;
   int32_t target2X;
   int32_t target2Y;
 };
-#pragma pack(pop)
 
 struct LobbyInfo {
   CSteamID id;
@@ -167,8 +149,6 @@ private:
   // Internal packet handlers
   void HandleHandshake(CSteamID remoteID, const void *data, uint32_t length);
   void HandleRNGSync(CSteamID remoteID, const void *data, uint32_t length);
-  void HandleMouseEvent(CSteamID remoteID, const void *data, uint32_t length);
-  void HandleKeyEvent(CSteamID remoteID, const void *data, uint32_t length);
   void HandleMouseMove(CSteamID remoteID, const void *data, uint32_t length);
   void HandleCatOwnershipSync(CSteamID remoteID, const void *data,
                               uint32_t length);

@@ -46,41 +46,6 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
   if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
     return true;
 
-  // Mouse event sync
-  bool isSimulated = (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
-                      uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP ||
-                      uMsg == WM_MOUSEMOVE) &&
-                     ((wParam & 0xFF00) == 0x8800);
-
-  if (!isSimulated && (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
-                       uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP)) {
-    float nx, ny;
-    InputGhost::NormalizeCoordinates(LOWORD(lParam), HIWORD(lParam), hWnd, nx,
-                                     ny);
-
-    auto &nm = NetworkManager::Get();
-    if (nm.IsHost()) {
-      // Host: Broadcast to all clients
-      MouseEventData data;
-      data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
-      data.type = uMsg;
-      data.x = nx;
-      data.y = ny;
-      nm.BroadcastPacket(PacketType::MouseEvent, &data, sizeof(data));
-      // Continue to process locally
-    } else if (nm.GetCurrentLobby().IsValid()) {
-      // Client: Send to host and discard local click
-      MouseEventData data;
-      data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
-      data.type = uMsg;
-      data.x = nx;
-      data.y = ny;
-      nm.SendPacket(nm.GetHostID(), PacketType::MouseEvent, &data,
-                    sizeof(data));
-      return 0; // Discard local click
-    }
-  }
-
   // Block input if combat is active and it's not our turn
   // This happens AFTER broadcasting so others can still see our cursor
   // movement.
@@ -92,6 +57,12 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam,
       return 0; // Block for local engine
     }
   }
+
+  // Mouse event sync
+  bool isSimulated = (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
+                      uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP ||
+                      uMsg == WM_MOUSEMOVE) &&
+                     ((wParam & 0xFF00) == 0x8800);
 
   if (isSimulated)
     wParam &= ~0xFF00;

@@ -141,13 +141,19 @@ void Overlay::Log(const char *fmt, ...) {
 }
 
 void Overlay::LogV(const char *fmt, va_list args) {
-  char buf[1024];
+  char buf[2048];
   vsnprintf(buf, sizeof(buf), fmt, args);
 
-  std::lock_guard<std::mutex> lock(g_logMutex);
-  g_logLines.push_back(std::string(buf));
-  while (g_logLines.size() > MAX_LOG_LINES)
-    g_logLines.pop_front();
+  {
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    g_logLines.push_back(std::string(buf));
+    while (g_logLines.size() > MAX_LOG_LINES)
+      g_logLines.pop_front();
+  }
+
+  if (g_origMjLog) {
+    g_origMjLog("Mewtiplayer", "%s", buf);
+  }
 }
 
 static void __cdecl WrappedMjLog(const char *owner, const char *fmt, ...) {
@@ -355,31 +361,6 @@ static void RenderRNGTab() {
   ImGui::TextWrapped("This displays the current 32-byte RNG state.");
 }
 
-static void RenderInputTab() {
-  ImGui::Text("Calibration Status:");
-  if (InputGhost::IsCalibrated()) {
-    ImGui::TextColored(ImVec4(0, 1, 0, 1), "READY: Calibrated and active.");
-    if (ImGui::Button("Reset Calibration")) {
-      InputGhost::ResetCalibration();
-    }
-  } else {
-    ImGui::TextColored(ImVec4(1, 0.5f, 0, 1),
-                       "WAITING: Click in the game window to calibrate.");
-  }
-
-  ImGui::Separator();
-  ImGui::Text("Test Injection:");
-  if (ImGui::Button("Trigger Test Click (Center)")) {
-    HWND hWnd = ImGuiHook::GetHWND();
-    if (hWnd) {
-      InputGhost::SimulateClick(WM_LBUTTONDOWN, 0.5f, 0.5f, hWnd);
-      InputGhost::SimulateClick(WM_LBUTTONUP, 0.5f, 0.5f, hWnd);
-    }
-  }
-  ImGui::TextWrapped("This will inject a click at the center of the screen "
-                     "to verify your current calibration.");
-}
-
 static void RenderCombatTab() {
   auto &nm = NetworkManager::Get();
   bool active = nm.IsCombatActive();
@@ -389,7 +370,8 @@ static void RenderCombatTab() {
   if (active) {
     auto &discovered = nm.GetDiscoveredCats();
     if (discovered.count(activeUID)) {
-      ImGui::Text("Active Turn: %s (UID: %lld)", discovered.at(activeUID).name.c_str(), activeUID);
+      ImGui::Text("Active Turn: %s (UID: %lld)",
+                  discovered.at(activeUID).name.c_str(), activeUID);
     } else {
       ImGui::Text("Active Turn: Unknown UID %lld", activeUID);
     }
@@ -398,7 +380,8 @@ static void RenderCombatTab() {
   ImGui::Separator();
   ImGui::Text("Cat Ownership Assignments:");
 
-  if (ImGui::BeginTable("##cats", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+  if (ImGui::BeginTable("##cats", 4,
+                        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
     ImGui::TableSetupColumn("Cat Name");
     ImGui::TableSetupColumn("Class");
     ImGui::TableSetupColumn("Owner");
@@ -409,7 +392,7 @@ static void RenderCombatTab() {
     for (const auto &pair : cats) {
       const auto &cat = pair.second;
       ImGui::TableNextRow();
-      
+
       ImGui::TableSetColumnIndex(0);
       ImGui::Text("%s", cat.name.c_str());
       if (cat.uid == activeUID) {
@@ -437,9 +420,12 @@ static void RenderCombatTab() {
           if (lobby.IsValid()) {
             int members = SteamMatchmaking()->GetNumLobbyMembers(lobby);
             for (int i = 0; i < members; i++) {
-              CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(lobby, i);
-              const char *memberName = SteamFriends()->GetFriendPersonaName(member);
-              if (ImGui::Selectable(memberName ? memberName : "Unknown Player")) {
+              CSteamID member =
+                  SteamMatchmaking()->GetLobbyMemberByIndex(lobby, i);
+              const char *memberName =
+                  SteamFriends()->GetFriendPersonaName(member);
+              if (ImGui::Selectable(memberName ? memberName
+                                               : "Unknown Player")) {
                 nm.SyncOwnership(cat.uid, member.ConvertToUint64());
               }
             }
@@ -456,8 +442,6 @@ static void RenderCombatTab() {
 
 static void InternalRender() {
   LoadCursorTextures();
-
-  InputGhost::RenderDebug();
 
   // Draw remote cursors
   RenderRemoteCursors();
@@ -488,11 +472,6 @@ static void InternalRender() {
 
     if (ImGui::BeginTabItem("RNG")) {
       RenderRNGTab();
-      ImGui::EndTabItem();
-    }
-
-    if (ImGui::BeginTabItem("Input")) {
-      RenderInputTab();
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();

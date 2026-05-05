@@ -205,36 +205,7 @@ bool Hooked_SDL_PollEvent(void *event) {
   if (res && event) {
     uint32_t type = *(uint32_t *)event;
 
-    // Ignore window focus events. Definitely temporary, just to test locally.
-    if (type == 0x203 || type == 0x205)
-      return Hooked_SDL_PollEvent(event);
-
     if (!IsSimulatedEvent(event)) {
-      auto &nm = NetworkManager::Get();
-      bool imguiKeys = false;
-      if (ImGui::GetCurrentContext())
-        imguiKeys = ImGui::GetIO().WantCaptureKeyboard;
-
-      if ((type == 0x300 || type == 0x301) && !imguiKeys) {
-        KeyEventData data;
-        data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
-        data.type = type;
-        data.scancode = *(uint32_t *)((uint8_t *)event + 24);
-        data.keycode = *(uint32_t *)((uint8_t *)event + 28);
-        data.mod = *(uint16_t *)((uint8_t *)event + 32);
-        data.down = *((uint8_t *)event + 36);
-        data.repeat = *((uint8_t *)event + 37);
-
-        if (!nm.IsInputBlocked(SteamUser()->GetSteamID().ConvertToUint64())) {
-          if (nm.IsHost()) {
-            nm.BroadcastPacket(PacketType::KeyEvent, &data, sizeof(data), true);
-          } else if (nm.GetCurrentLobby().IsValid()) {
-            nm.SendPacket(nm.GetHostID(), PacketType::KeyEvent, &data,
-                          sizeof(data));
-            return Hooked_SDL_PollEvent(event);
-          }
-        }
-      }
     }
 
     if (!g_HasObserved) {
@@ -391,96 +362,6 @@ void SimulateMouseMove(float normX, float normY, HWND hWnd) {
   }
 }
 
-void SimulateClick(UINT msg, float normX, float normY, HWND hWnd) {
-  int pixelX, pixelY;
-  DenormalizeCoordinates(normX, normY, hWnd, pixelX, pixelY);
-  g_SimX = (float)pixelX;
-  g_SimY = (float)pixelY;
-  g_LastSimX = normX;
-  g_LastSimY = normY;
-  g_LastSimTime = std::chrono::steady_clock::now();
-  g_hMainWnd = hWnd;
-
-  POINT pt;
-  if (GetCursorPos(&pt)) {
-    g_BreakMouseX = pt.x;
-    g_BreakMouseY = pt.y;
-  }
-
-  POINT spt = {pixelX, pixelY};
-  ClientToScreen(hWnd, &spt);
-  g_SimGlobalX = (float)spt.x;
-  g_SimGlobalY = (float)spt.y;
-
-  ApplyDynamicHook("SDL_GetMouseState", (void *)Hooked_SDL_GetMouseState,
-                   (void **)&g_Original_SDL_GetMouseState, true);
-  ApplyDynamicHook("SDL_GetGlobalMouseState",
-                   (void *)Hooked_SDL_GetGlobalMouseState,
-                   (void **)&g_Original_SDL_GetGlobalMouseState, true);
-  ApplyDynamicHook("SDL_GetRelativeMouseState",
-                   (void *)Hooked_SDL_GetRelativeMouseState,
-                   (void **)&g_Original_SDL_GetRelativeMouseState, true);
-  ApplyDynamicHook("SDL_GetMouseFocus", (void *)Hooked_SDL_GetMouseFocus,
-                   (void **)&g_Original_SDL_GetMouseFocus, true);
-  ApplyDynamicHook("SDL_GetKeyboardFocus", (void *)Hooked_SDL_GetKeyboardFocus,
-                   (void **)&g_Original_SDL_GetKeyboardFocus, true);
-  ApplyDynamicHook("SDL_GetWindowFlags", (void *)Hooked_SDL_GetWindowFlags,
-                   (void **)&g_Original_SDL_GetWindowFlags, true);
-  ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
-                   (void **)&g_Original_SDL_PollEvent, true);
-  ApplyDynamicHook("SDL_CreateColorCursor",
-                   (void *)Hooked_SDL_CreateColorCursor,
-                   (void **)&g_Original_SDL_CreateColorCursor, true);
-  ApplyDynamicHook("SDL_SetCursor",
-                   (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
-                   (void **)&g_Original_SDL_SetCursor, true);
-
-  void **pPush = ResolveTableEntry("SDL_PushEvent");
-  if (pPush && *pPush) {
-    SDL_PushEvent_t _SDL_PushEvent = (SDL_PushEvent_t)*pPush;
-    Internal_SDL_Event ev = {0};
-    ev.reserved = 0x88008800; // Mark as simulated
-    uint32_t baseType = g_HasObserved ? (g_ObservedType & ~1) : 0x600;
-
-    if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP) {
-      ev.type = (msg == WM_LBUTTONDOWN) ? baseType + 1 : baseType + 2;
-      ev.data[8] = 1;                               // button
-      ev.data[9] = (msg == WM_LBUTTONDOWN ? 1 : 0); // down
-      g_SimButtons = (msg == WM_LBUTTONDOWN ? 1 : 0);
-    } else if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) {
-      ev.type = (msg == WM_RBUTTONDOWN) ? baseType + 1 : baseType + 2;
-      ev.data[8] = 3;                               // button
-      ev.data[9] = (msg == WM_RBUTTONDOWN ? 1 : 0); // down
-      g_SimButtons = (msg == WM_RBUTTONDOWN ? 4 : 0);
-    }
-
-    if (ev.type != 0) {
-      *(uint32_t *)(ev.data + 0) = g_ObservedWID; // windowID
-      *(float *)(ev.data + 12) = g_SimX;          // x
-      *(float *)(ev.data + 16) = g_SimY;          // y
-      _SDL_PushEvent(&ev);
-    }
-  }
-}
-
-void SimulateKeyEvent(uint32_t type, uint32_t keycode, uint32_t scancode,
-                      uint16_t mod, uint8_t down, uint8_t repeat) {
-  void **pPush = ResolveTableEntry("SDL_PushEvent");
-  if (pPush && *pPush) {
-    SDL_PushEvent_t _SDL_PushEvent = (SDL_PushEvent_t)*pPush;
-    Internal_SDL_Event ev = {0};
-    ev.type = type;
-    ev.reserved = 0x88008800;
-    *(uint32_t *)(ev.data + 0) = g_ObservedWID;
-    *(uint32_t *)(ev.data + 8) = scancode;
-    *(uint32_t *)(ev.data + 12) = keycode;
-    *(uint16_t *)(ev.data + 16) = mod;
-    *(uint8_t *)(ev.data + 20) = down;
-    *(uint8_t *)(ev.data + 21) = repeat;
-    _SDL_PushEvent(&ev);
-  }
-}
-
 void GetViewportInfo(HWND hWnd, int &vpX, int &vpY, int &vpW, int &vpH) {
   RECT rect;
   if (!GetClientRect(hWnd, &rect)) {
@@ -568,32 +449,6 @@ void Update() {
       }
     }
   }
-}
-
-void RenderDebug() {
-  static bool forceHook = true;
-  ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
-                   (void **)&g_Original_SDL_PollEvent, forceHook);
-  ApplyDynamicHook("SDL_GetMouseState", (void *)Hooked_SDL_GetMouseState,
-                   (void **)&g_Original_SDL_GetMouseState, forceHook);
-  ApplyDynamicHook("SDL_GetGlobalMouseState",
-                   (void *)Hooked_SDL_GetGlobalMouseState,
-                   (void **)&g_Original_SDL_GetGlobalMouseState, forceHook);
-  ApplyDynamicHook("SDL_GetRelativeMouseState",
-                   (void *)Hooked_SDL_GetRelativeMouseState,
-                   (void **)&g_Original_SDL_GetRelativeMouseState, forceHook);
-  ApplyDynamicHook("SDL_GetMouseFocus", (void *)Hooked_SDL_GetMouseFocus,
-                   (void **)&g_Original_SDL_GetMouseFocus, forceHook);
-  ApplyDynamicHook("SDL_GetKeyboardFocus", (void *)Hooked_SDL_GetKeyboardFocus,
-                   (void **)&g_Original_SDL_GetKeyboardFocus, forceHook);
-  ApplyDynamicHook("SDL_GetWindowFlags", (void *)Hooked_SDL_GetWindowFlags,
-                   (void **)&g_Original_SDL_GetWindowFlags, forceHook);
-  ApplyDynamicHook("SDL_CreateColorCursor",
-                   (void *)Hooked_SDL_CreateColorCursor,
-                   (void **)&g_Original_SDL_CreateColorCursor, forceHook);
-  ApplyDynamicHook("SDL_SetCursor",
-                   (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
-                   (void **)&g_Original_SDL_SetCursor, forceHook);
 }
 
 bool IsCalibrated() { return g_HasObserved; }

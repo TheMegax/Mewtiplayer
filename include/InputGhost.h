@@ -20,16 +20,9 @@ void DenormalizeCoordinates(float normX, float normY, HWND hWnd, int &outX,
                             int &outY);
 
 /**
- * @brief Simulate a mouse click at normalized coordinates.
+ * @brief Simulate a mouse move at normalized coordinates.
  */
-void SimulateClick(UINT msg, float normX, float normY, HWND hWnd);
 void SimulateMouseMove(float normX, float normY, HWND hWnd);
-
-/**
- * @brief Simulate a key event.
- */
-void SimulateKeyEvent(uint32_t type, uint32_t keycode, uint32_t scancode,
-                      uint16_t mod, uint8_t down, uint8_t repeat);
 
 /**
  * @brief Set whether the current instance is the host.
@@ -51,11 +44,6 @@ void RegisterCursorSignature(uint32_t crc, uint8_t typeIndex);
  * recursion).
  */
 bool IsSimulated();
-
-/**
- * @brief Render debug info (e.g., a dot where the simulated mouse is).
- */
-void RenderDebug();
 
 /**
  * @brief Check if the system has observed a valid click for calibration.

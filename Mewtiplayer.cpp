@@ -89,6 +89,38 @@ static void Hook_BeginTurn(Character *character, int kind) {
     g_origBeginTurn(character, kind);
 }
 
+// Helper to find the name of an ability by scanning its memory
+static std::string GetAbilityNameFromObject(Ability *ability) {
+  if (!ability)
+    return "NULL";
+
+  // Scan the first 64 bytes for anything that looks like an AbilityDefinition
+  for (int i = 0; i < 64; i += 8) {
+    void *p = *(void **)((uintptr_t)ability + i);
+    if (p && (uintptr_t)p > 0x10000) {
+      try {
+        AbilityDefinition *def = (AbilityDefinition *)p;
+        // Basic validity check: name at +136 should be a valid string
+        std::string name = def->name.copy_to_native_string();
+        if (!name.empty() && name.length() < 128) {
+          // Check for common non-alpha characters to filter out garbage
+          bool printable = true;
+          for (char c : name) {
+            if (c < 32 || c > 126) {
+              printable = false;
+              break;
+            }
+          }
+          if (printable)
+            return name;
+        }
+      } catch (...) {
+      }
+    }
+  }
+  return "UNKNOWN";
+}
+
 // ---------------------------------------------------------------------------
 // Hook: AbilityTrigger
 // ---------------------------------------------------------------------------
@@ -97,10 +129,7 @@ void __fastcall Hook_AbilityTrigger(Ability *ability, TurnAction *turnAction) {
   g_isSyncActionPending = false; // Consume for logging
 
   if (ability && turnAction) {
-    std::string abilityName = "UNKNOWN";
-    if (ability->definition) {
-      abilityName = ability->definition->name.copy_to_native_string();
-    }
+    std::string abilityName = GetAbilityNameFromObject(ability);
 
     int64_t sourceUID = -1;
     if (ability->owner && ability->owner->persistentChar) {
@@ -135,35 +164,47 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
     return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
                                : nullptr;
 
-  if (actionData->character) {
+  if (actionData->ability) {
+    Ability *ability = actionData->ability;
+    Character *actor = ability->owner;
+    uint32_t nuid = NetworkManager::Get().GetNUID(actor);
+
     if (g_waitingForPlayerAction) {
       g_waitingForPlayerAction = false;
       g_isSyncActionPending = true;
-      Overlay::Log("[ENQUEUE] AUTHORIZED SYNC Action for Character: %p",
-                   actionData->character);
+      Overlay::Log("[ENQUEUE] SYNC Action for Character: %p", actor);
 
       // BROADCAST ACTION
-      uint32_t nuid = NetworkManager::Get().GetNUID(actionData->character);
       if (nuid != 0xFFFFFFFF) {
         TurnActionPacket pkt;
         pkt.actorNUID = nuid;
         pkt.actionType = actionData->type;
+
+        std::string name = GetAbilityNameFromObject(ability);
+        memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
+        strncpy_s(pkt.abilityName, name.c_str(), _TRUNCATE);
+
         pkt.targetX = actionData->targetX;
         pkt.targetY = actionData->targetY;
         pkt.target2X = actionData->target2X;
         pkt.target2Y = actionData->target2Y;
 
+        Overlay::Log(
+            "[ENQUEUE] SYNC Action: Ability=%p | T1=(%d,%d) | T2=(%d,%d)",
+            actionData->ability, actionData->targetX, actionData->targetY,
+            actionData->target2X, actionData->target2Y);
+        Overlay::Log("[ENQUEUE] SYNC Action Pointers: V1=%p | V2=%p",
+                     actionData->validation1, actionData->validation2);
+
         NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                              sizeof(pkt), true);
-        Overlay::Log("[NET] Broadcast Action for NUID: %d", nuid);
-      } else {
-        Overlay::Log("[ERR] Failed to find NUID for character %p!",
-                     actionData->character);
+                                              sizeof(pkt), false);
+        Overlay::Log("[NET] Broadcast Action '%s' for NUID: %d",
+                     pkt.abilityName, nuid);
       }
     } else {
       g_isSyncActionPending = false;
-      Overlay::Log("[ENQUEUE] AUTO Action detected for Character: %p",
-                   actionData->character);
+      Overlay::Log("[ENQUEUE] AUTO Action: Actor=%p | Type=%d", actor,
+                   actionData->type);
     }
   }
 
@@ -172,8 +213,13 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
   return nullptr;
 }
 
-static uint64_t g_lastCombatPulse = 0;
 static bool g_inCombatDetected = false;
+
+static GameUtils::ButtonGroupTracker g_moveButtons;
+static GameUtils::ButtonGroupTracker g_attackButtons;
+static GameUtils::ButtonGroupTracker g_spellButtons;
+static GameUtils::ButtonGroupTracker g_itemButtons;
+static GameUtils::ButtonGroupTracker g_endTurnButtons;
 
 static void Hook_UpdateCombatResolutionState(void *combat) {
   if (!g_startedCombat)
@@ -187,24 +233,32 @@ static void Hook_UpdateCombatResolutionState(void *combat) {
     NetworkManager::Get().InitializeEntityMapping();
   } else {
     // Combat already active, check for new entities
-    __try {
-      NetworkManager::Get().UpdateDynamicEntities();
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-      // Overlay::Log("CRASH: Exception in UpdateDynamicEntities");
+    NetworkManager::Get().UpdateDynamicEntities();
+
+    // Explicit end-of-fight detection (FN_FIGHT_END equivalent)
+    bool victory = *(char *)((uintptr_t)combat + 0x1AA) != 0;
+    bool defeat = *(char *)((uintptr_t)combat + 0x35) != 0;
+
+    if (victory || defeat) {
+      Overlay::Log("[COMBAT] Fight End Detected: %s",
+                   victory ? "Victory" : "Defeat");
+      g_startedCombat = false;
+      g_inCombatDetected = false;
+      g_waitingForPlayerAction = false;
+      g_moveButtons.Reset();
+      g_attackButtons.Reset();
+      g_spellButtons.Reset();
+      g_itemButtons.Reset();
+      g_endTurnButtons.Reset();
+      if (NetworkManager::Get().IsHost()) {
+        NetworkManager::Get().EndCombat();
+      }
     }
   }
-
-  g_lastCombatPulse = GetTickCount64();
 
   if (g_origFightEnd)
     g_origFightEnd(combat);
 }
-
-static GameUtils::ButtonGroupTracker g_moveButtons;
-static GameUtils::ButtonGroupTracker g_attackButtons;
-static GameUtils::ButtonGroupTracker g_spellButtons;
-static GameUtils::ButtonGroupTracker g_itemButtons;
-static GameUtils::ButtonGroupTracker g_endTurnButtons;
 
 static void Hook_RunFrame(void *rcx, void *rdx) {
   if (rcx && !g_networkInitialized) {
@@ -254,20 +308,6 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
       pollIntent(g_spellButtons);
       pollIntent(g_itemButtons);
       pollIntent(g_endTurnButtons, true);
-    }
-
-    if (g_inCombatDetected && (GetTickCount64() - g_lastCombatPulse > 200)) {
-      g_startedCombat = false;
-      g_inCombatDetected = false;
-      g_waitingForPlayerAction = false;
-      g_moveButtons.Reset();
-      g_attackButtons.Reset();
-      g_spellButtons.Reset();
-      g_itemButtons.Reset();
-      g_endTurnButtons.Reset();
-      if (NetworkManager::Get().IsHost()) {
-        NetworkManager::Get().EndCombat();
-      }
     }
   }
 
@@ -321,6 +361,7 @@ static void Initialize(void) {
       "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 28 EF FF "
       "FF B8 D8 11 00 00 E8 ? ? ? ? 48 2B E0 0F 29 B4 24 C0 11 00 00 48 8B F1");
 
+  // Mewdirector - RVA 0x9288B0
   uintptr_t pMewDirectorSig = ScanSignature(
       &mj, g_gameBase, "MewDirectorSingleton",
       "48 89 5C 24 10 48 89 4C 24 08 57 48 83 EC 40 48 8B CA 48 8B 05 ?? ?? ?? "

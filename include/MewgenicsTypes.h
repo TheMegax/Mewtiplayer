@@ -133,37 +133,37 @@ template <typename T> struct ComponentVTable {
 };
 
 struct Component {
-  const ComponentVTable<Component> *vtable;
-  uint32_t _objid;
-  uint8_t override_tags_B0;
-  uint8_t override_tags_B1;
-  bool entity_enabled;
-  bool deleted;
-  bool enabled;
-  bool started;
-  char _12[6];
-  Entity *entity;
-  Scene *scene;
-  Director *director;
-  double timescale;
+  const ComponentVTable<Component> *vtable; // 0
+  uint32_t _objid;                          // 8
+  uint8_t override_tags_B0;                 // 12
+  uint8_t override_tags_B1;                 // 13
+  bool entity_enabled;                      // 14
+  bool deleted;                             // 15
+  bool enabled;                             // 16
+  bool started;                             // 17
+  char _12[6];                              // 18
+  Entity *entity;                           // 24
+  Scene *scene;                             // 32
+  Director *director;                       // 40
+  double timescale;                         // 48
 };
 static_assert(sizeof(Component) == 56, "Component size mismatch");
 
 struct Scene {
-  Director *director;                     // 0
-  podvector<Entity *> Entities;           // 8
-  podvector<Component *> *ComponentLists; // 24
-  void *CachedActiveComponentLists;       // 32
-  char _padding_to_1200[1200 - 40];       // 40
-  bool doing_scene_destruction;           // 1200
-  char _padding_to_name[7];               // 1201
-  MsvcReleaseModeXString name;            // 1208
-  char _padding_to_petlist[1468 - 1208 - sizeof(MsvcReleaseModeXString)];
-  int32_t petListCount;             // 1468
-  PersistentCharacter **petListPtr; // 1472
-  char _padding_to_catlist2[1604 - 1472 - 8];
-  int32_t catList2Count;             // 1604
-  PersistentCharacter **catList2Ptr; // 1608
+  Director *director;                                    // 0
+  podvector<Entity *> Entities;                          // 8
+  podvector<Component *> *ComponentLists;                // 24
+  void *CachedActiveComponentLists;                      // 32
+  char _padding_1[1160];                                 // 40
+  bool doing_scene_destruction;                          // 1200
+  char _padding_2[7];                                    // 1201
+  MsvcReleaseModeXString name;                           // 1208
+  char _padding_3[260 - sizeof(MsvcReleaseModeXString)]; // 1240
+  int32_t petListCount;                                  // 1468
+  PersistentCharacter **petListPtr;                      // 1472
+  char _padding_4[124];                                  // 1480
+  int32_t catList2Count;                                 // 1604
+  PersistentCharacter **catListPtr;                      // 1608
 };
 static_assert(offsetof(Scene, doing_scene_destruction) == 1200,
               "Scene offset mismatch");
@@ -172,19 +172,19 @@ static_assert(offsetof(Scene, petListCount) == 1468, "Scene offset mismatch");
 static_assert(offsetof(Scene, catList2Count) == 1604, "Scene offset mismatch");
 
 struct Entity {
-  EntityVTable *vtable;
-  Scene *scene;
-  double timescale;
-  bool deleted;
-  bool enabled;
-  char _padding[6];
-  podvector<Component *> components;
-  podvector<void *> unknown_0;
-  char _padding_1[128 - 64];
-  int64_t catID; // 128
-  bool isActive; // 136
-  char _padding_2[232 - 136 - 1];
-  void *container; // 232
+  EntityVTable *vtable;              // 0
+  Scene *scene;                      // 8
+  double timescale;                  // 16
+  bool deleted;                      // 24
+  bool enabled;                      // 25
+  char _padding[6];                  // 26
+  podvector<Component *> components; // 32
+  podvector<void *> unknown_0;       // 48
+  char _padding_1[64];               // 64
+  int64_t catID;                     // 128
+  bool isActive;                     // 136
+  char _padding_2[95];               // 137
+  void *container;                   // 232
 };
 static_assert(offsetof(Entity, catID) == 128, "Entity offset mismatch");
 static_assert(offsetof(Entity, container) == 232, "Entity offset mismatch");
@@ -213,28 +213,28 @@ struct Director {
 };
 
 struct MewDirector {
-  char _padding_md_0[40];
-  Director *director; // 40
-  char _padding_md_1[1408 - 40 - 8];
-  int32_t currentDay; // 1408
-  char _padding_md_2[1440 - 1408 - 4];
-  void *inventoryPtr;  // 1440
-  struct House *house; // 1448
-  char _padding_md_3[1464 - 1448 - 8];
-  int32_t partyCapacity;           // 1464
-  int32_t partyCount;              // 1468
-  PersistentCharacter **partyData; // 1472
-  char _padding_md_4[1744 - 1472 - 8];
-  int32_t eventDifficulty; // 1744
-  char _padding_md_5[1752 - 1744 - 4];
-  int32_t gamePhase;    // 1752
-  int32_t chapterState; // 1756
-  int32_t chapterNum;   // 1760
-  char _padding_md_6[1768 - 1760 - 4];
+  char _padding_0[40];   // 0
+  Director *director;    // 40
+  char _padding_1[1360]; // 48 (there's definitely stuff in here like holy)
+  int32_t currentDay;    // 1408
+  char _padding_2[28];   // 1412
+  void *inventoryPtr;    // 1440
+  struct House *house;   // 1448
+  char _padding_3[8];    // 1456
+  int32_t partyCapacity; // 1464
+  int32_t partyCount;    // 1468
+  PersistentCharacter **partyData;    // 1472
+  char _padding_4[264];               // 1480 (more stuff in here)
+  int32_t eventDifficulty;            // 1744
+  char _padding_5[4];                 // 1748
+  int32_t gamePhase;                  // 1752
+  int32_t chapterState;               // 1756
+  int32_t chapterNum;                 // 1760
+  char _padding_6[4];                 // 1764
   MsvcReleaseModeXString chapterName; // 1768
-  char _padding_md_7[1812 - 1768 - sizeof(MsvcReleaseModeXString)];
-  bool inCombat;         // 1812
-  bool isProductionSave; // 1813
+  char _padding_7[12];                // 1800
+  bool inCombat;                      // 1812
+  bool isProductionSave;              // 1813
 };
 static_assert(offsetof(MewDirector, director) == 40,
               "MewDirector offset mismatch");
@@ -287,10 +287,10 @@ struct AbilityDefinition {
 };
 
 struct Ability {
-  char _padding_0[16];
-  struct Character *owner; // 16
-  char _padding_1[40 - 16 - 8];
-  AbilityDefinition *definition; // 40
+  void *vtable;                         // 0
+  struct AbilityDefinition *definition; // 8
+  struct Character *owner;              // 16
+  char _padding_1[32 - 16 - 8];         // 24
 };
 
 struct FighterList {
@@ -307,6 +307,18 @@ struct CombatStateBlock {
 struct CombatEntityManager {
   char _padding_0[32];
   CombatStateBlock *stateBlock; // 32
+};
+
+struct TacticsTile : Component {
+  char _padding_1[24 - 8];
+  int32_t x; // 24
+  int32_t y; // 28
+};
+
+struct GridPositionComponent : Component {
+  char _padding_1[72 - 8];
+  TacticsTile *currentNode; // + 72 (0x48)
+  TacticsTile *targetNode;  // + 80 (0x50)
 };
 
 struct CombatContext {
@@ -360,7 +372,18 @@ struct Character {
   int32_t buffedCon; // 1784
   int32_t buffedInt; // 1788
   int32_t buffedSpd; // 1792
-  char _padding_10[3290 - 1792 - 4];
+  char _padding_abilities[2032 - 1792 - 4];
+  Ability attack;    // 2032
+  Ability spells[4]; // 2064, 2096, 2128, 2160
+  char _padding_gap1[2320 - (2160 + sizeof(Ability))];
+  Ability passive0; // 2320
+  char _padding_gap2[2360 - (2320 + sizeof(Ability))];
+  Ability passive1; // 2360
+  char _padding_gap3[2400 - (2360 + sizeof(Ability))];
+  Ability disorder0; // 2400
+  char _padding_gap4[2440 - (2400 + sizeof(Ability))];
+  Ability disorder1; // 2440
+  char _padding_10[3290 - (2440 + sizeof(Ability))];
   bool isStatic;               // 3290
   bool isSpeculativeInanimate; // 3291
   char _padding_11[3294 - 3291 - 1];
@@ -381,15 +404,20 @@ static_assert(offsetof(Character, characterType) == 3316,
               "Character offset mismatch");
 
 struct TurnAction {
-  int32_t type; // 0
-  char _padding_0[4];
-  Character *character; // 8
-  int32_t targetX;      // 16
-  int32_t targetY;      // 20
-  int32_t target2X;     // 24
-  int32_t target2Y;     // 28
-  char _padding_1[128 - 32];
-  void (*callback)(void *context, bool arg2); // 128
-  void *callback_context;                     // 136
+  void *vtable;     // 0
+  Ability *ability; // 8
+  int32_t targetX;  // 16
+  int32_t targetY;  // 20
+  int32_t target2X; // 24
+  int32_t target2Y; // 28
+  int32_t type;     // 32
+  char _padding_1[72 - 36];
+  void *validation1; // 72 (0x48) - GridNode pointer
+  void *validation2; // 80 (0x50) - GridNode pointer
+  char _padding_2[128 - 88];
 };
-static_assert(sizeof(TurnAction) == 144, "TurnAction size mismatch");
+static_assert(sizeof(TurnAction) == 128, "TurnAction size mismatch");
+static_assert(offsetof(TurnAction, validation1) == 72,
+              "validation1 offset mismatch");
+static_assert(offsetof(TurnAction, validation2) == 80,
+              "validation2 offset mismatch");
