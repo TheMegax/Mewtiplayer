@@ -34,8 +34,8 @@ AbilityTrigger_t g_origAbilityTrigger = nullptr;
 // We use this to distinguish between UI-initiated and engine-initiated actions
 // It is set in Hook_EnqueueAction and consumed in Hook_AbilityTrigger
 static bool g_waitingForPlayerAction = false;
-static uint64_t g_intentTimestamp = 0;
 bool g_isSyncActionPending = false;
+static bool g_testingMode = false;
 
 bool g_startedCombat = false;
 
@@ -63,7 +63,7 @@ static void Hook_BeginTurn(Character *character, int kind) {
     }
 
     int64_t uniqueId = -1;
-    const char *className = "Collarless";
+    const char *className = "Classless";
     if (character->persistentChar) {
       uniqueId = character->persistentChar->sql_key;
       className = character->persistentChar->className.begin();
@@ -156,56 +156,105 @@ typedef void *(__fastcall *EnqueueAction_t)(void *queue, void *actionData);
 EnqueueAction_t g_origEnqueueAction = nullptr;
 void *g_lastActionQueue = nullptr;
 
+#include <unordered_map>
+
+std::deque<TurnAction> g_pendingInjections;
+
+// Cache to store ability pointers so loopback can find them even after they are
+// removed from character memory. Keyed by NUID for stability across reloads.
+std::unordered_map<uint32_t, std::unordered_map<std::string, Ability *>>
+    g_abilityCache;
+
+static void LogHexDump(const void *data, size_t size, const char *label) {
+  const unsigned char *p = (const unsigned char *)data;
+  Overlay::Log("--- %s Hex Dump (%zu bytes) ---", label, size);
+  char lineBuffer[128];
+  for (size_t i = 0; i < size; i += 16) {
+    int offset = snprintf(lineBuffer, sizeof(lineBuffer), "%04zX  ", i);
+    for (size_t j = 0; j < 16; ++j) {
+      if (i + j < size) {
+        offset += snprintf(lineBuffer + offset, sizeof(lineBuffer) - offset,
+                           "%02X ", p[i + j]);
+      } else {
+        offset +=
+            snprintf(lineBuffer + offset, sizeof(lineBuffer) - offset, "   ");
+      }
+    }
+    Overlay::Log("%s", lineBuffer);
+  }
+  Overlay::Log("--------------------------------");
+}
+
 static void *__fastcall Hook_EnqueueAction(void *queue,
                                            TurnAction *actionData) {
   g_lastActionQueue = queue;
+
+  if (actionData && actionData->type <= 1 && !g_pendingInjections.empty()) {
+    TurnAction pending = g_pendingInjections.front();
+    g_pendingInjections.pop_front();
+    Overlay::Log("[ENQUEUE] Injecting from queue: Type %d", pending.type);
+    memcpy(actionData, &pending, sizeof(TurnAction));
+  }
+
   if (!actionData ||
       actionData->type <= 1) // Actions under or equal to 1 are null actions
     return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
                                : nullptr;
 
-  if (actionData->ability) {
-    Ability *ability = actionData->ability;
-    Character *actor = ability->owner;
-    uint32_t nuid = NetworkManager::Get().GetNUID(actor);
-
-    if (g_waitingForPlayerAction) {
-      g_waitingForPlayerAction = false;
-      g_isSyncActionPending = true;
-      Overlay::Log("[ENQUEUE] SYNC Action for Character: %p", actor);
-
-      // BROADCAST ACTION
+  if (actionData->ability && actionData->actor) {
+    // Cache the ability pointer immediately so local loopbacks can resolve it
+    std::string name = GetAbilityNameFromObject(actionData->ability);
+    if (name != "UNKNOWN" && !name.empty()) {
+      uint32_t nuid = NetworkManager::Get().GetNUID(actionData->actor);
       if (nuid != 0xFFFFFFFF) {
-        TurnActionPacket pkt;
-        pkt.actorNUID = nuid;
-        pkt.actionType = actionData->type;
-
-        std::string name = GetAbilityNameFromObject(ability);
-        memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
-        strncpy_s(pkt.abilityName, name.c_str(), _TRUNCATE);
-
-        pkt.targetX = actionData->targetX;
-        pkt.targetY = actionData->targetY;
-        pkt.target2X = actionData->target2X;
-        pkt.target2Y = actionData->target2Y;
-
-        Overlay::Log(
-            "[ENQUEUE] SYNC Action: Ability=%p | T1=(%d,%d) | T2=(%d,%d)",
-            actionData->ability, actionData->targetX, actionData->targetY,
-            actionData->target2X, actionData->target2Y);
-        Overlay::Log("[ENQUEUE] SYNC Action Pointers: V1=%p | V2=%p",
-                     actionData->validation1, actionData->validation2);
-
-        NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                              sizeof(pkt), false);
-        Overlay::Log("[NET] Broadcast Action '%s' for NUID: %d",
-                     pkt.abilityName, nuid);
+        g_abilityCache[nuid][name] = actionData->ability;
+        Overlay::Log("[ENQUEUE] CACHED Ability '%s' for NUID %u at %p",
+                     name.c_str(), nuid, (void *)actionData->ability);
       }
-    } else {
-      g_isSyncActionPending = false;
-      Overlay::Log("[ENQUEUE] AUTO Action: Actor=%p | Type=%d", actor,
-                   actionData->type);
     }
+  }
+  // LogHexDump(actionData, sizeof(TurnAction), "NATIVE ActionData");
+  Ability *ability = actionData->ability;
+  Character *actor = ability->owner;
+  uint32_t nuid = NetworkManager::Get().GetNUID(actor);
+
+  if (g_waitingForPlayerAction) {
+    g_waitingForPlayerAction = false;
+    g_isSyncActionPending = true;
+
+    // BROADCAST ACTION
+    if (nuid != 0xFFFFFFFF) {
+      TurnActionPacket pkt;
+      pkt.actorNUID = nuid;
+      pkt.actionType = actionData->type;
+
+      std::string name = GetAbilityNameFromObject(ability);
+      memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
+      strncpy_s(pkt.abilityName, name.c_str(), _TRUNCATE);
+
+      pkt.targetX = actionData->targetX;
+      pkt.targetY = actionData->targetY;
+      pkt.target2X = actionData->target2X;
+      pkt.target2Y = actionData->target2Y;
+
+      Overlay::Log("[ENQUEUE] SYNC Action: Actor=%s | Ability=%p | "
+                   "T1=(%d,%d) | T2=(%d,%d) | Type=%d",
+                   actor->name.copy_to_native_wstring().c_str(),
+                   actionData->ability, actionData->targetX,
+                   actionData->targetY, actionData->target2X,
+                   actionData->target2Y, actionData->type);
+
+      NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
+                                            sizeof(pkt), !g_testingMode);
+      NetworkManager::Get().RecordAction(pkt);
+      Overlay::Log("[NET] Broadcast and Recorded Action '%s' for NUID: %d",
+                   pkt.abilityName, nuid);
+    }
+  } else {
+    g_isSyncActionPending = false;
+    Overlay::Log("[ENQUEUE] AUTO Action: Actor=%s | Type=%d",
+                 actor->name.copy_to_native_wstring().c_str(),
+                 actionData->type);
   }
 
   if (g_origEnqueueAction)
@@ -230,12 +279,15 @@ static void Hook_UpdateCombatResolutionState(void *combat) {
     if (NetworkManager::Get().IsHost()) {
       NetworkManager::Get().StartCombat();
     }
+    g_pendingInjections.clear();
+    g_abilityCache.clear();
+    NetworkManager::Get().ClearRecordedActions();
     NetworkManager::Get().InitializeEntityMapping();
   } else {
     // Combat already active, check for new entities
     NetworkManager::Get().UpdateDynamicEntities();
 
-    // Explicit end-of-fight detection (FN_FIGHT_END equivalent)
+    // Explicit end-of-fight detection
     bool victory = *(char *)((uintptr_t)combat + 0x1AA) != 0;
     bool defeat = *(char *)((uintptr_t)combat + 0x35) != 0;
 
@@ -266,6 +318,9 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     Overlay::Log("Captured application instance: %p", rcx);
     NetworkManager::Get().Init(&mj, MOD_NAME "-" MOD_VERSION);
     Overlay::Setup(&mj); // Initialize overlay once network is ready or at start
+    if (g_testingMode) {
+      NetworkManager::Get().HostLobby("Debug Lobby");
+    }
   }
 
   if (g_networkInitialized) {
@@ -289,15 +344,15 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
                            bool isEndTurn = false) {
         auto changes = tracker.Poll();
         for (const auto &change : changes) {
-          if (isEndTurn &&
-              (change.oldState == GameUtils::ButtonState_Pressed &&
+          if (change.oldState == GameUtils::ButtonState_Pressed &&
+              (change.newState == GameUtils::ButtonState_Hovered ||
                change.newState == GameUtils::ButtonState_Disabled)) {
-            g_waitingForPlayerAction = false;
-          } else {
-            if (change.oldState == GameUtils::ButtonState_Pressed &&
-                change.newState == GameUtils::ButtonState_Hovered) {
-              g_waitingForPlayerAction = true;
-              g_intentTimestamp = GetTickCount64();
+            Overlay::Log("[INPUT] Button '%s' clicked.", tracker.roleName);
+            g_waitingForPlayerAction = !isEndTurn;
+            if (g_testingMode) {
+              Overlay::Log("[INPUT] %s", g_waitingForPlayerAction
+                                             ? "Waiting for player action"
+                                             : "Not waiting for player action");
             }
           }
         }
@@ -322,6 +377,12 @@ static void Initialize(void) {
   if (!MJ_Resolve(&mj))
     return;
   Overlay::Log("Initializing (API v%d)...", mj.GetVersion());
+
+  const char *cmdLine = GetCommandLineA();
+  if (strstr(cmdLine, "-testing_mode")) {
+    g_testingMode = true;
+    Overlay::Log("[INIT] Testing Mode Active!");
+  }
 
   g_gameBase = mj.GetGameBase();
   Overlay::Log("Game base: %p", (void *)g_gameBase);

@@ -1,6 +1,7 @@
 #pragma once
 #include "mewjector.h"
 #include "steam_api.h"
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -115,6 +116,11 @@ public:
   void ResetEntityMapping();
   uint32_t GetNUID(Character *character);
   Character *GetCharacter(uint32_t nuid);
+  // Action Recording & Replay
+  void RecordAction(const TurnActionPacket &pkt);
+  void ClearRecordedActions();
+  const std::vector<TurnActionPacket> &GetRecordedActions() const;
+  void EnqueueReplayAction(const TurnActionPacket &pkt);
 
 private:
   NetworkManager() : m_mj(nullptr) { m_CurrentLobby.Clear(); }
@@ -136,6 +142,10 @@ private:
   std::map<Character *, uint32_t> m_charToNuid;
   std::map<uint32_t, Character *> m_nuidToChar;
   uint32_t m_nextNuid = 0;
+
+  // Action Recording & Replay
+  std::vector<TurnActionPacket> m_recordedActions;
+  std::deque<TurnActionPacket> m_pendingReplays;
 
   CCallResult<NetworkManager, LobbyCreated_t> m_LobbyCreatedCallResult;
   void OnLobbyCreated(LobbyCreated_t *pCallback, bool bIOFailure);

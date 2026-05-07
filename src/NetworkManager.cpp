@@ -389,9 +389,25 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
   }
 
   // Find the ability by name
-
   Ability *targetAbility = nullptr;
   std::string targetName = pkt->abilityName;
+
+  Overlay::Log("[NET] Searching for ability '%s' on actor %p", targetName.c_str(), (void*)actor);
+
+  extern std::unordered_map<uint32_t, std::unordered_map<std::string, Ability*>> g_abilityCache;
+  if (g_abilityCache.count(pkt->actorNUID) > 0) {
+    if (g_abilityCache[pkt->actorNUID].count(targetName) > 0) {
+      targetAbility = g_abilityCache[pkt->actorNUID][targetName];
+      Overlay::Log("[NET] Found ability '%s' in global cache at %p", targetName.c_str(), (void*)targetAbility);
+    } else {
+      Overlay::Log("[NET] Cache miss for '%s' (actor cache exists)", targetName.c_str());
+      for (const auto& pair : g_abilityCache[pkt->actorNUID]) {
+        Overlay::Log("[NET] Cache contains: '%s' -> %p", pair.first.c_str(), (void*)pair.second);
+      }
+    }
+  } else {
+    Overlay::Log("[NET] Cache miss: No cache entry for NUID %u", pkt->actorNUID);
+  }
 
   auto get_ability_name = [&](Ability *a) -> std::string {
     if (!a)
@@ -422,21 +438,38 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
     return "";
   };
 
-  uintptr_t start = (uintptr_t)actor;
-  uintptr_t end = start + 0x4000;
+  if (!targetAbility) {
 
-  for (uintptr_t p = start; p < end - 8; p += 8) {
-    uintptr_t potentialPtr = *(uintptr_t *)p;
-    if (potentialPtr > 0x10000 && (potentialPtr & 7) == 0) {
-      try {
-        if (*(Character **)(potentialPtr + 16) == actor) {
-          Ability *a = (Ability *)potentialPtr;
-          if (get_ability_name(a) == targetName) {
-            targetAbility = a;
-            break;
+  std::vector<Ability *> embeddedAbilities = {
+      &actor->attack,    &actor->spells[0], &actor->spells[1],
+      &actor->spells[2], &actor->spells[3], &actor->passive0,
+      &actor->passive1,  &actor->disorder0, &actor->disorder1};
+
+  for (Ability *a : embeddedAbilities) {
+    if (a && a->vtable && get_ability_name(a) == targetName) {
+      targetAbility = a;
+      break;
+    }
+  }
+  }
+
+  if (!targetAbility) {
+    uintptr_t start = (uintptr_t)actor;
+    uintptr_t end = start + 0x4000;
+
+    for (uintptr_t p = start; p < end - 8; p += 8) {
+      uintptr_t potentialPtr = *(uintptr_t *)p;
+      if (potentialPtr > 0x10000 && (potentialPtr & 7) == 0) {
+        try {
+          if (*(Character **)(potentialPtr + 16) == actor) {
+            Ability *a = (Ability *)potentialPtr;
+            if (get_ability_name(a) == targetName) {
+              targetAbility = a;
+              break;
+            }
           }
+        } catch (...) {
         }
-      } catch (...) {
       }
     }
   }
@@ -447,26 +480,80 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
     return;
   }
 
-  TurnAction action = {};
+  // Build the action and POST it — game thread will consume it in
+  // Hook_EnqueueAction.
+  TurnAction action;
+  memset(&action, 0, sizeof(TurnAction));
+
   action.type = pkt->actionType;
   action.ability = targetAbility;
+  action.actor = targetAbility->owner;
   action.targetX = pkt->targetX;
   action.targetY = pkt->targetY;
   action.target2X = pkt->target2X;
   action.target2Y = pkt->target2Y;
+  action.magic84 = 0x544c5541; // "AULT"
 
-  // RESOLVE LOCAL GRID NODE POINTERS
-  // These are required for engine validation. If we inject raw coordinates into
-  // these slots, the engine will discard the action.
-  action.validation1 = GameUtils::ResolveGridTile(pkt->targetX, pkt->targetY);
-  action.validation2 = GameUtils::ResolveGridTile(pkt->target2X, pkt->target2Y);
+  Overlay::Log(
+      "[NET] Posting Action: Type=%d | Ability=%p | T1=(%d,%d) | T2=(%d,%d)",
+      action.type, (void *)action.ability, action.targetX, action.targetY,
+      action.target2X, action.target2Y);
 
-  Overlay::Log("[NET] Injecting Action: Ability=%p | V1=%p | V2=%p",
-               action.ability, action.validation1, action.validation2);
-
-  g_origEnqueueAction(g_lastActionQueue, &action);
+  extern std::deque<TurnAction> g_pendingInjections;
+  g_pendingInjections.push_back(action);
 }
 
+void NetworkManager::RecordAction(const TurnActionPacket &pkt) {
+  m_recordedActions.push_back(pkt);
+}
+
+void NetworkManager::ClearRecordedActions() {
+  m_recordedActions.clear();
+}
+
+const std::vector<TurnActionPacket> &NetworkManager::GetRecordedActions() const {
+  return m_recordedActions;
+}
+
+void NetworkManager::EnqueueReplayAction(const TurnActionPacket &pkt) {
+  // Directly post the action to the engine's injection queue
+  Character *actor = GetCharacter(pkt.actorNUID);
+  if (!actor) {
+    Overlay::Log("[REPLAY] Could not resolve actor NUID: %u", pkt.actorNUID);
+    return;
+  }
+
+  Ability *targetAbility = nullptr;
+  std::string targetName(pkt.abilityName);
+
+  extern std::unordered_map<uint32_t, std::unordered_map<std::string, Ability *>> g_abilityCache;
+  if (g_abilityCache.count(pkt.actorNUID) &&
+      g_abilityCache[pkt.actorNUID].count(targetName)) {
+    targetAbility = g_abilityCache[pkt.actorNUID][targetName];
+  }
+
+  if (!targetAbility) {
+    Overlay::Log("[REPLAY] Could not resolve ability '%s'", targetName.c_str());
+    return;
+  }
+
+  TurnAction action;
+  memset(&action, 0, sizeof(TurnAction));
+
+  action.type = pkt.actionType;
+  action.ability = targetAbility;
+  action.actor = actor;
+  action.targetX = pkt.targetX;
+  action.targetY = pkt.targetY;
+  action.target2X = pkt.target2X;
+  action.target2Y = pkt.target2Y;
+  action.magic84 = 0x544c5541; // "AULT"
+
+  extern std::deque<TurnAction> g_pendingInjections;
+  g_pendingInjections.push_back(action);
+
+  Overlay::Log("[REPLAY] Queued action: %s", targetName.c_str());
+}
 void NetworkManager::InitializeEntityMapping() {
   ResetEntityMapping();
 

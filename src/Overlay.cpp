@@ -440,6 +440,67 @@ static void RenderCombatTab() {
   }
 }
 
+static char g_csvPasteBuffer[4096] = "";
+
+static void RenderActionManagerTab() {
+  ImGui::Text("Recorded Actions:");
+  ImGui::Separator();
+
+  const auto &actions = NetworkManager::Get().GetRecordedActions();
+  std::string csvData =
+      "ActorNUID,ActionType,AbilityName,TargetX,TargetY,Target2X,Target2Y\n";
+  for (const auto &act : actions) {
+    char line[256];
+    snprintf(line, sizeof(line), "%u,%d,%s,%d,%d,%d,%d\n", act.actorNUID,
+             act.actionType, act.abilityName, act.targetX, act.targetY,
+             act.target2X, act.target2Y);
+    csvData += line;
+  }
+
+  ImGui::InputTextMultiline("##csv_output", (char *)csvData.c_str(),
+                            csvData.size(),
+                            ImVec2(-1.0f, ImGui::GetTextLineHeight() * 8),
+                            ImGuiInputTextFlags_ReadOnly);
+
+  if (ImGui::Button("Copy to Clipboard")) {
+    ImGui::SetClipboardText(csvData.c_str());
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Replay Actions from CSV:");
+
+  ImGui::InputTextMultiline("##csv_input", g_csvPasteBuffer,
+                            sizeof(g_csvPasteBuffer),
+                            ImVec2(-1.0f, ImGui::GetTextLineHeight() * 8));
+
+  if (ImGui::Button("Replay CSV")) {
+    std::stringstream ss(g_csvPasteBuffer);
+    std::string line;
+    // skip header if present
+    bool firstLine = true;
+    while (std::getline(ss, line)) {
+      if (line.empty())
+        continue;
+      if (firstLine && line.find("ActorNUID") != std::string::npos) {
+        firstLine = false;
+        continue;
+      }
+      firstLine = false;
+
+      TurnActionPacket pkt = {};
+      int parsed =
+          sscanf(line.c_str(), "%u,%d,%63[^,],%d,%d,%d,%d", &pkt.actorNUID,
+                 &pkt.actionType, pkt.abilityName, &pkt.targetX, &pkt.targetY,
+                 &pkt.target2X, &pkt.target2Y);
+      if (parsed == 7) {
+        NetworkManager::Get().EnqueueReplayAction(pkt);
+      } else {
+        Overlay::Log("[REPLAY] Failed to parse CSV line: %s", line.c_str());
+      }
+    }
+  }
+}
+
 static void InternalRender() {
   LoadCursorTextures();
 
@@ -449,7 +510,7 @@ static void InternalRender() {
   if (!g_visible)
     return;
 
-  ImGui::SetNextWindowSize(ImVec2(680, 320), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(680, 420), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
   ImGui::Begin("Mewtiplayer  |  F1 to hide", &g_visible,
                ImGuiWindowFlags_NoNav);
@@ -467,6 +528,11 @@ static void InternalRender() {
 
     if (ImGui::BeginTabItem("Combat")) {
       RenderCombatTab();
+      ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Action Manager")) {
+      RenderActionManagerTab();
       ImGui::EndTabItem();
     }
 

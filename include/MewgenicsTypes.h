@@ -404,20 +404,36 @@ static_assert(offsetof(Character, characterType) == 3316,
               "Character offset mismatch");
 
 struct TurnAction {
-  void *vtable;     // 0
-  Ability *ability; // 8
-  int32_t targetX;  // 16
-  int32_t targetY;  // 20
-  int32_t target2X; // 24
-  int32_t target2Y; // 28
-  int32_t type;     // 32
-  char _padding_1[72 - 36];
-  void *validation1; // 72 (0x48) - GridNode pointer
-  void *validation2; // 80 (0x50) - GridNode pointer
-  char _padding_2[128 - 88];
+  int32_t type;                 // 0x00
+  int32_t _pad0;                // 0x04 (often 0x6C)
+  Ability *ability;             // 0x08
+  int32_t targetX;              // 0x10
+  int32_t targetY;              // 0x14
+  int32_t target2X;             // 0x18
+  int32_t target2Y;             // 0x1C
+  Character *actor;             // 0x20
+  int32_t unk_28;               // 0x28
+  int32_t unk_2C;               // 0x2C
+  uint8_t flag_30;              // 0x30
+  uint8_t flag_31;              // 0x31
+  uint8_t flag_32;              // 0x32
+  uint8_t flag_33;              // 0x33
+  uint8_t flag_34;              // 0x34
+  uint8_t flag_35;              // 0x35
+  uint8_t flag_36;              // 0x36
+  uint8_t flag_37;              // 0x37
+  int32_t _field_38;            // 0x38
+  int32_t _field_3C;            // 0x3C
+  void *staticPtr40;            // 0x40
+  void *staticPtr48;            // 0x48
+  void *dynamicPtr50;           // 0x50
+  void *dynamicPtr58;           // 0x58 (Unique heap token)
+  void *staticPtr60;            // 0x60
+  void *staticPtr68;            // 0x68
+  void *callback;               // 0x70
+  void *_field_78;              // 0x78
+  int32_t _field_80;            // 0x80
+  int32_t magic84;              // 0x84 ("AULT")
 };
-static_assert(sizeof(TurnAction) == 128, "TurnAction size mismatch");
-static_assert(offsetof(TurnAction, validation1) == 72,
-              "validation1 offset mismatch");
-static_assert(offsetof(TurnAction, validation2) == 80,
-              "validation2 offset mismatch");
+static_assert(sizeof(TurnAction) == 0x88,
+              "TurnAction size mismatch (should be 136 bytes)");
