@@ -489,7 +489,7 @@ static void RenderActionManagerTab() {
 
       TurnActionPacket pkt = {};
       int parsed =
-          sscanf(line.c_str(), "%u,%d,%63[^,],%d,%d,%d,%d", &pkt.actorNUID,
+          sscanf(line.c_str(), "%d,%d,%63[^,],%d,%d,%d,%d", &pkt.actorNUID,
                  &pkt.actionType, pkt.abilityName, &pkt.targetX, &pkt.targetY,
                  &pkt.target2X, &pkt.target2Y);
       if (parsed == 7) {

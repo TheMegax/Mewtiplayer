@@ -120,6 +120,72 @@ std::vector<Character *> GetFighters() {
   return fighters;
 }
 
+std::string GetAbilityName(Ability *ability) {
+  if (!ability)
+    return "NULL";
+
+  for (int i = 0; i < 64; i += 8) {
+    __try {
+      void *p = *(void **)((uintptr_t)ability + i);
+      if (p && (uintptr_t)p > 0x10000) {
+        AbilityDefinition *def = (AbilityDefinition *)p;
+        std::string name = def->name.copy_to_native_string();
+        if (!name.empty() && name.length() < 128) {
+          bool printable = true;
+          for (char c : name) {
+            if (c < 32 || c > 126) {
+              printable = false;
+              break;
+            }
+          }
+          if (printable) {
+            return name;
+          }
+        }
+      }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+  }
+
+  return "UNKNOWN";
+}
+
+Ability *FindCharacterAbility(Character *actor, const std::string &targetName) {
+  if (!actor)
+    return nullptr;
+
+  // Check direct ability pointers
+  Ability *directAbilities[] = {actor->defaultMove, actor->basicAttack};
+  for (Ability *directAbility : directAbilities) {
+    if (directAbility && (uintptr_t)directAbility > 0x10000) {
+      __try {
+        if (directAbility->owner == actor &&
+            GetAbilityName(directAbility) == targetName) {
+          return directAbility;
+        }
+      } __except (EXCEPTION_EXECUTE_HANDLER) {
+      }
+    }
+  }
+
+  // Iterate spells
+  if (actor->spells) {
+    for (int i = 0; i < 5; i++) {
+      __try {
+        Ability *a = actor->spells[i];
+        if (a && (uintptr_t)a > 0x10000 && (uintptr_t)a < 0x7FFFFFFFFFFF) {
+          if (a->owner == actor && GetAbilityName(a) == targetName) {
+            return a;
+          }
+        }
+      } __except (EXCEPTION_EXECUTE_HANDLER) {
+        break;
+      }
+    }
+  }
+  return nullptr;
+}
+
 std::vector<Component *> GetSceneComponents(Scene *scene) {
   std::vector<Component *> result;
   if (!scene)

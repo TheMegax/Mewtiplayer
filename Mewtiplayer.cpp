@@ -89,38 +89,6 @@ static void Hook_BeginTurn(Character *character, int kind) {
     g_origBeginTurn(character, kind);
 }
 
-// Helper to find the name of an ability by scanning its memory
-static std::string GetAbilityNameFromObject(Ability *ability) {
-  if (!ability)
-    return "NULL";
-
-  // Scan the first 64 bytes for anything that looks like an AbilityDefinition
-  for (int i = 0; i < 64; i += 8) {
-    void *p = *(void **)((uintptr_t)ability + i);
-    if (p && (uintptr_t)p > 0x10000) {
-      try {
-        AbilityDefinition *def = (AbilityDefinition *)p;
-        // Basic validity check: name at +136 should be a valid string
-        std::string name = def->name.copy_to_native_string();
-        if (!name.empty() && name.length() < 128) {
-          // Check for common non-alpha characters to filter out garbage
-          bool printable = true;
-          for (char c : name) {
-            if (c < 32 || c > 126) {
-              printable = false;
-              break;
-            }
-          }
-          if (printable)
-            return name;
-        }
-      } catch (...) {
-      }
-    }
-  }
-  return "UNKNOWN";
-}
-
 // ---------------------------------------------------------------------------
 // Hook: AbilityTrigger
 // ---------------------------------------------------------------------------
@@ -129,7 +97,7 @@ void __fastcall Hook_AbilityTrigger(Ability *ability, TurnAction *turnAction) {
   g_isSyncActionPending = false; // Consume for logging
 
   if (ability && turnAction) {
-    std::string abilityName = GetAbilityNameFromObject(ability);
+    std::string abilityName = GameUtils::GetAbilityName(ability);
 
     int64_t sourceUID = -1;
     if (ability->owner && ability->owner->persistentChar) {
@@ -156,14 +124,7 @@ typedef void *(__fastcall *EnqueueAction_t)(void *queue, void *actionData);
 EnqueueAction_t g_origEnqueueAction = nullptr;
 void *g_lastActionQueue = nullptr;
 
-#include <unordered_map>
-
-std::deque<TurnAction> g_pendingInjections;
-
-// Cache to store ability pointers so loopback can find them even after they are
-// removed from character memory. Keyed by NUID for stability across reloads.
-std::unordered_map<uint32_t, std::unordered_map<std::string, Ability *>>
-    g_abilityCache;
+std::deque<TurnActionPacket> g_pendingInjections;
 
 static void LogHexDump(const void *data, size_t size, const char *label) {
   const unsigned char *p = (const unsigned char *)data;
@@ -190,10 +151,55 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
   g_lastActionQueue = queue;
 
   if (actionData && actionData->type <= 1 && !g_pendingInjections.empty()) {
-    TurnAction pending = g_pendingInjections.front();
-    g_pendingInjections.pop_front();
-    Overlay::Log("[ENQUEUE] Injecting from queue: Type %d", pending.type);
-    memcpy(actionData, &pending, sizeof(TurnAction));
+    const TurnActionPacket &pending = g_pendingInjections.front();
+    uint32_t currentNUID = NetworkManager::Get().GetNUID(actionData->actor);
+    Character *pendingActor =
+        NetworkManager::Get().GetCharacter(pending.actorNUID);
+
+    if (pendingActor && pending.actorNUID == currentNUID) {
+      // Resolve ability lazily — actor is now guaranteed to be in the NUID map
+      std::string abilityName(pending.abilityName);
+      Ability *ability = nullptr;
+      if (abilityName != "NULL") {
+        ability = GameUtils::FindCharacterAbility(pendingActor, abilityName);
+        if (!ability) {
+          Overlay::Log(
+              "[ENQUEUE] Could not resolve ability '%s' for NUID %u - dropping",
+              pending.abilityName, pending.actorNUID);
+          g_pendingInjections.pop_front();
+          return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
+                                     : nullptr;
+        }
+      }
+
+      TurnActionPacket pktCopy = pending;
+      g_pendingInjections.pop_front();
+
+      actionData->type = pktCopy.actionType;
+      actionData->ability = ability;
+      actionData->actor = pendingActor;
+      actionData->targetX = pktCopy.targetX;
+      actionData->targetY = pktCopy.targetY;
+      actionData->target2X = pktCopy.target2X;
+      actionData->target2Y = pktCopy.target2Y;
+      actionData->magic84 = 0x544c5541; // "AULT"
+
+      Overlay::Log("[ENQUEUE] Injecting from queue: Type %d for NUID %u",
+                   pktCopy.actionType, pktCopy.actorNUID);
+      if (g_origEnqueueAction)
+        return g_origEnqueueAction(queue, actionData);
+      else
+        return nullptr;
+    }
+
+    static ULONGLONG lastLogTime = 0;
+    ULONGLONG currentTime = GetTickCount64();
+    if (g_testingMode && (currentTime - lastLogTime >= 1000)) {
+      lastLogTime = currentTime;
+      Overlay::Log(
+          "[ENQUEUE] Skipping injection: pending NUID %u != current NUID %u",
+          pending.actorNUID, currentNUID);
+    }
   }
 
   if (!actionData ||
@@ -201,22 +207,44 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
     return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
                                : nullptr;
 
-  if (actionData->ability && actionData->actor) {
-    // Cache the ability pointer immediately so local loopbacks can resolve it
-    std::string name = GetAbilityNameFromObject(actionData->ability);
-    if (name != "UNKNOWN" && !name.empty()) {
-      uint32_t nuid = NetworkManager::Get().GetNUID(actionData->actor);
-      if (nuid != 0xFFFFFFFF) {
-        g_abilityCache[nuid][name] = actionData->ability;
-        Overlay::Log("[ENQUEUE] CACHED Ability '%s' for NUID %u at %p",
-                     name.c_str(), nuid, (void *)actionData->ability);
+  // Actions of type 3 are End Turn actions
+  if (actionData->type == 3 && g_waitingForPlayerAction) {
+    g_waitingForPlayerAction = false;
+    uint32_t nuid = NetworkManager::Get().GetNUID(actionData->actor);
+    if (nuid != 0xFFFFFFFF) {
+      TurnActionPacket pkt;
+      pkt.actorNUID = nuid;
+      pkt.actionType = 3;
+      memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
+      strncpy_s(pkt.abilityName, "NULL", _TRUNCATE);
+      pkt.targetX = actionData->targetX;
+      pkt.targetY = actionData->targetY;
+      pkt.target2X = actionData->target2X;
+      pkt.target2Y = actionData->target2Y;
+
+      NetworkManager::Get().RecordAction(pkt);
+      NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
+                                            sizeof(pkt), !g_testingMode);
+      Overlay::Log("[NET] Broadcast EndTurn for NUID %u", nuid);
+      if (g_testingMode) {
+        actionData->type = 0; // Cancel this action
+        Overlay::Log(
+            "[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
+            pkt.abilityName, nuid);
+        return g_origEnqueueAction(queue, actionData);
       }
     }
+
+    return g_origEnqueueAction(queue, actionData);
   }
   // LogHexDump(actionData, sizeof(TurnAction), "NATIVE ActionData");
   Ability *ability = actionData->ability;
-  Character *actor = ability->owner;
-  uint32_t nuid = NetworkManager::Get().GetNUID(actor);
+  Character *actor = actionData->actor;
+  if (!actor && ability)
+    actor = ability->owner;
+
+  uint32_t nuid = actor ? NetworkManager::Get().GetNUID(actor) : 0xFFFFFFFF;
+  std::string actorName = actor ? actor->name.to_utf8() : "UNKNOWN";
 
   if (g_waitingForPlayerAction) {
     g_waitingForPlayerAction = false;
@@ -228,9 +256,9 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
       pkt.actorNUID = nuid;
       pkt.actionType = actionData->type;
 
-      std::string name = GetAbilityNameFromObject(ability);
+      std::string abilityName = GameUtils::GetAbilityName(ability);
       memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
-      strncpy_s(pkt.abilityName, name.c_str(), _TRUNCATE);
+      strncpy_s(pkt.abilityName, abilityName.c_str(), _TRUNCATE);
 
       pkt.targetX = actionData->targetX;
       pkt.targetY = actionData->targetY;
@@ -239,8 +267,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
 
       Overlay::Log("[ENQUEUE] SYNC Action: Actor=%s | Ability=%p | "
                    "T1=(%d,%d) | T2=(%d,%d) | Type=%d",
-                   actor->name.copy_to_native_wstring().c_str(),
-                   actionData->ability, actionData->targetX,
+                   actorName.c_str(), ability, actionData->targetX,
                    actionData->targetY, actionData->target2X,
                    actionData->target2Y, actionData->type);
 
@@ -249,11 +276,18 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
       NetworkManager::Get().RecordAction(pkt);
       Overlay::Log("[NET] Broadcast and Recorded Action '%s' for NUID: %d",
                    pkt.abilityName, nuid);
+
+      if (g_testingMode) {
+        actionData->type = 0; // Cancel this action
+        Overlay::Log(
+            "[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
+            pkt.abilityName, nuid);
+        return g_origEnqueueAction(queue, actionData);
+      }
     }
   } else {
     g_isSyncActionPending = false;
-    Overlay::Log("[ENQUEUE] AUTO Action: Actor=%s | Type=%d",
-                 actor->name.copy_to_native_wstring().c_str(),
+    Overlay::Log("[ENQUEUE] AUTO Action: Actor=%s | Type=%d", actorName.c_str(),
                  actionData->type);
   }
 
@@ -280,7 +314,6 @@ static void Hook_UpdateCombatResolutionState(void *combat) {
       NetworkManager::Get().StartCombat();
     }
     g_pendingInjections.clear();
-    g_abilityCache.clear();
     NetworkManager::Get().ClearRecordedActions();
     NetworkManager::Get().InitializeEntityMapping();
   } else {
@@ -340,20 +373,14 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
         }
       }
 
-      auto pollIntent = [](GameUtils::ButtonGroupTracker &tracker,
-                           bool isEndTurn = false) {
+      auto pollIntent = [](GameUtils::ButtonGroupTracker &tracker) {
         auto changes = tracker.Poll();
         for (const auto &change : changes) {
           if (change.oldState == GameUtils::ButtonState_Pressed &&
               (change.newState == GameUtils::ButtonState_Hovered ||
                change.newState == GameUtils::ButtonState_Disabled)) {
             Overlay::Log("[INPUT] Button '%s' clicked.", tracker.roleName);
-            g_waitingForPlayerAction = !isEndTurn;
-            if (g_testingMode) {
-              Overlay::Log("[INPUT] %s", g_waitingForPlayerAction
-                                             ? "Waiting for player action"
-                                             : "Not waiting for player action");
-            }
+            g_waitingForPlayerAction = true;
           }
         }
       };
@@ -362,7 +389,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
       pollIntent(g_attackButtons);
       pollIntent(g_spellButtons);
       pollIntent(g_itemButtons);
-      pollIntent(g_endTurnButtons, true);
+      pollIntent(g_endTurnButtons);
     }
   }
 

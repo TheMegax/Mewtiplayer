@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include <vector>
+#include <string>
 
 namespace GameUtils {
 
@@ -17,6 +18,8 @@ void SetTurnControlPtr(TurnControl **ptr);
 TurnControl *GetTurnControl();
 std::vector<Character *> GetAllEntities();
 std::vector<Character *> GetFighters();
+std::string GetAbilityName(Ability *ability);
+Ability *FindCharacterAbility(Character *actor, const std::string &targetName);
 
 // Components
 std::vector<Component *> GetSceneComponents(Scene *scene);

@@ -365,203 +365,43 @@ void NetworkManager::OnGameLobbyJoinRequested(
     GameLobbyJoinRequested_t *pCallback) {
   JoinLobby(pCallback->m_steamIDLobby);
 }
-typedef void *(__fastcall *EnqueueAction_t)(void *queue, void *actionData);
-extern EnqueueAction_t g_origEnqueueAction;
-extern void *g_lastActionQueue;
 
 void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
                                       uint32_t length) {
   if (length != sizeof(TurnActionPacket))
     return;
 
-  TurnActionPacket *pkt = (TurnActionPacket *)data;
-  Character *actor = GetCharacter(pkt->actorNUID);
+  const TurnActionPacket *pkt = (const TurnActionPacket *)data;
+  Overlay::Log("[NET] Queuing TurnAction: Type=%d NUID=%u Ability=%s",
+               pkt->actionType, pkt->actorNUID, pkt->abilityName);
 
-  if (!actor) {
-    Overlay::Log("[NET] Received TurnAction for unknown NUID: %d",
-                 pkt->actorNUID);
-    return;
-  }
-
-  if (!g_origEnqueueAction || !g_lastActionQueue) {
-    Overlay::Log("[NET] Cannot inject action: missing EnqueueAction pointer");
-    return;
-  }
-
-  // Find the ability by name
-  Ability *targetAbility = nullptr;
-  std::string targetName = pkt->abilityName;
-
-  Overlay::Log("[NET] Searching for ability '%s' on actor %p", targetName.c_str(), (void*)actor);
-
-  extern std::unordered_map<uint32_t, std::unordered_map<std::string, Ability*>> g_abilityCache;
-  if (g_abilityCache.count(pkt->actorNUID) > 0) {
-    if (g_abilityCache[pkt->actorNUID].count(targetName) > 0) {
-      targetAbility = g_abilityCache[pkt->actorNUID][targetName];
-      Overlay::Log("[NET] Found ability '%s' in global cache at %p", targetName.c_str(), (void*)targetAbility);
-    } else {
-      Overlay::Log("[NET] Cache miss for '%s' (actor cache exists)", targetName.c_str());
-      for (const auto& pair : g_abilityCache[pkt->actorNUID]) {
-        Overlay::Log("[NET] Cache contains: '%s' -> %p", pair.first.c_str(), (void*)pair.second);
-      }
-    }
-  } else {
-    Overlay::Log("[NET] Cache miss: No cache entry for NUID %u", pkt->actorNUID);
-  }
-
-  auto get_ability_name = [&](Ability *a) -> std::string {
-    if (!a)
-      return "";
-    // Scan for AbilityDefinition
-    for (int i = 0; i < 64; i += 8) {
-      void *p = *(void **)((uintptr_t)a + i);
-      if (p && (uintptr_t)p > 0x10000) {
-        try {
-          AbilityDefinition *def = (AbilityDefinition *)p;
-          std::string name = def->name.copy_to_native_string();
-          if (!name.empty() && name.length() < 128) {
-            bool printable = true;
-            for (char c : name) {
-              if (c < 32 || c > 126) {
-                printable = false;
-                break;
-              }
-            }
-            if (printable) {
-              return name;
-            }
-          }
-        } catch (...) {
-        }
-      }
-    }
-    return "";
-  };
-
-  if (!targetAbility) {
-
-  std::vector<Ability *> embeddedAbilities = {
-      &actor->attack,    &actor->spells[0], &actor->spells[1],
-      &actor->spells[2], &actor->spells[3], &actor->passive0,
-      &actor->passive1,  &actor->disorder0, &actor->disorder1};
-
-  for (Ability *a : embeddedAbilities) {
-    if (a && a->vtable && get_ability_name(a) == targetName) {
-      targetAbility = a;
-      break;
-    }
-  }
-  }
-
-  if (!targetAbility) {
-    uintptr_t start = (uintptr_t)actor;
-    uintptr_t end = start + 0x4000;
-
-    for (uintptr_t p = start; p < end - 8; p += 8) {
-      uintptr_t potentialPtr = *(uintptr_t *)p;
-      if (potentialPtr > 0x10000 && (potentialPtr & 7) == 0) {
-        try {
-          if (*(Character **)(potentialPtr + 16) == actor) {
-            Ability *a = (Ability *)potentialPtr;
-            if (get_ability_name(a) == targetName) {
-              targetAbility = a;
-              break;
-            }
-          }
-        } catch (...) {
-        }
-      }
-    }
-  }
-
-  if (!targetAbility) {
-    Overlay::Log("[NET] [ERR] Could not find ability '%s' on character!",
-                 pkt->abilityName);
-    return;
-  }
-
-  // Build the action and POST it — game thread will consume it in
-  // Hook_EnqueueAction.
-  TurnAction action;
-  memset(&action, 0, sizeof(TurnAction));
-
-  action.type = pkt->actionType;
-  action.ability = targetAbility;
-  action.actor = targetAbility->owner;
-  action.targetX = pkt->targetX;
-  action.targetY = pkt->targetY;
-  action.target2X = pkt->target2X;
-  action.target2Y = pkt->target2Y;
-  action.magic84 = 0x544c5541; // "AULT"
-
-  Overlay::Log(
-      "[NET] Posting Action: Type=%d | Ability=%p | T1=(%d,%d) | T2=(%d,%d)",
-      action.type, (void *)action.ability, action.targetX, action.targetY,
-      action.target2X, action.target2Y);
-
-  extern std::deque<TurnAction> g_pendingInjections;
-  g_pendingInjections.push_back(action);
+  extern std::deque<TurnActionPacket> g_pendingInjections;
+  g_pendingInjections.push_back(*pkt);
 }
 
 void NetworkManager::RecordAction(const TurnActionPacket &pkt) {
   m_recordedActions.push_back(pkt);
 }
 
-void NetworkManager::ClearRecordedActions() {
-  m_recordedActions.clear();
-}
+void NetworkManager::ClearRecordedActions() { m_recordedActions.clear(); }
 
-const std::vector<TurnActionPacket> &NetworkManager::GetRecordedActions() const {
+const std::vector<TurnActionPacket> &
+NetworkManager::GetRecordedActions() const {
   return m_recordedActions;
 }
 
 void NetworkManager::EnqueueReplayAction(const TurnActionPacket &pkt) {
-  // Directly post the action to the engine's injection queue
-  Character *actor = GetCharacter(pkt.actorNUID);
-  if (!actor) {
-    Overlay::Log("[REPLAY] Could not resolve actor NUID: %u", pkt.actorNUID);
-    return;
-  }
-
-  Ability *targetAbility = nullptr;
-  std::string targetName(pkt.abilityName);
-
-  extern std::unordered_map<uint32_t, std::unordered_map<std::string, Ability *>> g_abilityCache;
-  if (g_abilityCache.count(pkt.actorNUID) &&
-      g_abilityCache[pkt.actorNUID].count(targetName)) {
-    targetAbility = g_abilityCache[pkt.actorNUID][targetName];
-  }
-
-  if (!targetAbility) {
-    Overlay::Log("[REPLAY] Could not resolve ability '%s'", targetName.c_str());
-    return;
-  }
-
-  TurnAction action;
-  memset(&action, 0, sizeof(TurnAction));
-
-  action.type = pkt.actionType;
-  action.ability = targetAbility;
-  action.actor = actor;
-  action.targetX = pkt.targetX;
-  action.targetY = pkt.targetY;
-  action.target2X = pkt.target2X;
-  action.target2Y = pkt.target2Y;
-  action.magic84 = 0x544c5541; // "AULT"
-
-  extern std::deque<TurnAction> g_pendingInjections;
-  g_pendingInjections.push_back(action);
-
-  Overlay::Log("[REPLAY] Queued action: %s", targetName.c_str());
+  extern std::deque<TurnActionPacket> g_pendingInjections;
+  g_pendingInjections.push_back(pkt);
+  Overlay::Log("[REPLAY] Queued action: %s", pkt.abilityName);
 }
 void NetworkManager::InitializeEntityMapping() {
   ResetEntityMapping();
 
   std::vector<Character *> fighters = GameUtils::GetFighters();
-  // Thanks to the magic of a very talented and very stubborn programmer
-  // (Tyler Glaiel <3), the fighter list is actually deterministic!
   // Entities at the start of combat are loaded in *always* in the same order,
   // allowing us to use NUIDs for networking.
+  // Thanks Tyler <3
 
   Overlay::Log("NUID: Initializing mapping for %zu fighters", fighters.size());
 

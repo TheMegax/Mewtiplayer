@@ -337,7 +337,15 @@ struct Character {
   void *vtable; // 0
   char _padding_0[136 - 8];
   PersistentCharacter *persistentChar; // 136
-  char _padding_1[656 - 136 - 8];
+  char _padding_1[200 - 136 - 8];
+  Ability *ability0; // 200 (this one's strange. It only appears for the first
+                     // ability casted then disappears)
+  Ability *defaultMove; // 208
+  Ability *basicAttack; // 216
+  char _padding_1a[240 - 216 - 8];
+  Ability **spells; // 240
+  // TODO: Check item actions later, they may be an array too
+  char _padding_1b[656 - 240 - 8];
   MsvcReleaseModeWString name; // 656
   char _padding_2[1161 - 656 - sizeof(MsvcReleaseModeXString)];
   uint8_t isPlayerCat; // 1161
@@ -372,18 +380,7 @@ struct Character {
   int32_t buffedCon; // 1784
   int32_t buffedInt; // 1788
   int32_t buffedSpd; // 1792
-  char _padding_abilities[2032 - 1792 - 4];
-  Ability attack;    // 2032
-  Ability spells[4]; // 2064, 2096, 2128, 2160
-  char _padding_gap1[2320 - (2160 + sizeof(Ability))];
-  Ability passive0; // 2320
-  char _padding_gap2[2360 - (2320 + sizeof(Ability))];
-  Ability passive1; // 2360
-  char _padding_gap3[2400 - (2360 + sizeof(Ability))];
-  Ability disorder0; // 2400
-  char _padding_gap4[2440 - (2400 + sizeof(Ability))];
-  Ability disorder1; // 2440
-  char _padding_10[3290 - (2440 + sizeof(Ability))];
+  char _padding_abilities[3290 - 1792 - 4];
   bool isStatic;               // 3290
   bool isSpeculativeInanimate; // 3291
   char _padding_11[3294 - 3291 - 1];
@@ -404,36 +401,36 @@ static_assert(offsetof(Character, characterType) == 3316,
               "Character offset mismatch");
 
 struct TurnAction {
-  int32_t type;                 // 0x00
-  int32_t _pad0;                // 0x04 (often 0x6C)
-  Ability *ability;             // 0x08
-  int32_t targetX;              // 0x10
-  int32_t targetY;              // 0x14
-  int32_t target2X;             // 0x18
-  int32_t target2Y;             // 0x1C
-  Character *actor;             // 0x20
-  int32_t unk_28;               // 0x28
-  int32_t unk_2C;               // 0x2C
-  uint8_t flag_30;              // 0x30
-  uint8_t flag_31;              // 0x31
-  uint8_t flag_32;              // 0x32
-  uint8_t flag_33;              // 0x33
-  uint8_t flag_34;              // 0x34
-  uint8_t flag_35;              // 0x35
-  uint8_t flag_36;              // 0x36
-  uint8_t flag_37;              // 0x37
-  int32_t _field_38;            // 0x38
-  int32_t _field_3C;            // 0x3C
-  void *staticPtr40;            // 0x40
-  void *staticPtr48;            // 0x48
-  void *dynamicPtr50;           // 0x50
-  void *dynamicPtr58;           // 0x58 (Unique heap token)
-  void *staticPtr60;            // 0x60
-  void *staticPtr68;            // 0x68
-  void *callback;               // 0x70
-  void *_field_78;              // 0x78
-  int32_t _field_80;            // 0x80
-  int32_t magic84;              // 0x84 ("AULT")
+  int32_t type;       // 0x00
+  int32_t _pad0;      // 0x04 (often 0x6C)
+  Ability *ability;   // 0x08
+  int32_t targetX;    // 0x10
+  int32_t targetY;    // 0x14
+  int32_t target2X;   // 0x18
+  int32_t target2Y;   // 0x1C
+  Character *actor;   // 0x20
+  int32_t unk_28;     // 0x28
+  int32_t unk_2C;     // 0x2C
+  uint8_t flag_30;    // 0x30
+  uint8_t flag_31;    // 0x31
+  uint8_t flag_32;    // 0x32
+  uint8_t flag_33;    // 0x33
+  uint8_t flag_34;    // 0x34
+  uint8_t flag_35;    // 0x35
+  uint8_t flag_36;    // 0x36
+  uint8_t flag_37;    // 0x37
+  int32_t _field_38;  // 0x38
+  int32_t _field_3C;  // 0x3C
+  void *staticPtr40;  // 0x40
+  void *staticPtr48;  // 0x48
+  void *dynamicPtr50; // 0x50
+  void *dynamicPtr58; // 0x58 (Unique heap token)
+  void *staticPtr60;  // 0x60
+  void *staticPtr68;  // 0x68
+  void *callback;     // 0x70
+  void *_field_78;    // 0x78
+  int32_t _field_80;  // 0x80
+  int32_t magic84;    // 0x84 ("AULT")
 };
 static_assert(sizeof(TurnAction) == 0x88,
               "TurnAction size mismatch (should be 136 bytes)");
