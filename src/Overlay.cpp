@@ -1,4 +1,5 @@
 #include "Overlay.h"
+#include "SteamABICompat.h"
 #include "GameUtils.h"
 #include "ImGuiHook.h"
 #include "InputGhost.h"
@@ -57,7 +58,7 @@ void LoadCursorTextures() {
   HMODULE hModule = GetModuleHandleA("Mewtiplayer.dll");
   if (!hModule) {
     // Fallback for internal testing if DLL name changes or injected differently
-    hModule = GetModuleHandleA(NULL);
+    hModule = GetModuleHandleA(nullptr);
   }
 
   // Load hotspots from resource
@@ -66,7 +67,7 @@ void LoadCursorTextures() {
   if (hResHot) {
     DWORD size = SizeofResource(hModule, hResHot);
     HGLOBAL hGlobal = LoadResource(hModule, hResHot);
-    char *pData = (char *)LockResource(hGlobal);
+    auto pData = (char *)LockResource(hGlobal);
     if (pData) {
       std::string content(pData, size);
       std::stringstream ss(content);
@@ -92,7 +93,7 @@ void LoadCursorTextures() {
       if (pData) {
         int w, h, channels;
         unsigned char *data = stbi_load_from_memory(
-            (const unsigned char *)pData, size, &w, &h, &channels, 4);
+            static_cast<const unsigned char *>(pData), size, &w, &h, &channels, 4);
         if (data) {
           GLuint tex;
           glGenTextures(1, &tex);
@@ -103,7 +104,7 @@ void LoadCursorTextures() {
                        GL_UNSIGNED_BYTE, data);
 
           g_CursorTextures[i] = tex;
-          g_CursorSizes[i] = ImVec2((float)w, (float)h);
+          g_CursorSizes[i] = ImVec2(static_cast<float>(w), static_cast<float>(h));
           if (hotspots.count(g_CursorNames[i])) {
             g_CursorHotspots[i] = hotspots[g_CursorNames[i]];
           } else {
@@ -111,7 +112,7 @@ void LoadCursorTextures() {
           }
 
           // Register signature (CRC32 of first 4096 bytes)
-          size_t bytes = (size_t)w * h * 4;
+          size_t bytes = static_cast<size_t>(w) * h * 4;
           if (bytes > 4096)
             bytes = 4096;
           uint32_t crc = GameUtils::CalculateCRC32(data, bytes);
@@ -127,8 +128,8 @@ void LoadCursorTextures() {
   g_TexturesLoaded = true;
 }
 
-void Overlay::UpdateRemoteCursor(uint64_t steamID, float x, float y,
-                                 uint8_t type) {
+void Overlay::UpdateRemoteCursor(const uint64_t steamID, const float x, const float y,
+                                 const uint8_t type) {
   std::lock_guard<std::mutex> lock(g_cursorMutex);
   g_RemoteCursors[steamID] = {x, y, type, std::chrono::steady_clock::now()};
 }
@@ -140,7 +141,7 @@ void Overlay::Log(const char *fmt, ...) {
   va_end(args);
 }
 
-void Overlay::LogV(const char *fmt, va_list args) {
+void Overlay::LogV(const char *fmt, const va_list args) {
   char buf[2048];
   vsnprintf(buf, sizeof(buf), fmt, args);
 
@@ -175,11 +176,11 @@ void Overlay::ToggleVisible() { g_visible = !g_visible; }
 static void RenderRemoteCursors() {
   std::lock_guard<std::mutex> lock(g_cursorMutex);
   ImDrawList *drawList = ImGui::GetForegroundDrawList();
-  HWND hWnd = ImGuiHook::GetHWND();
-  auto now = std::chrono::steady_clock::now();
+  const HWND hWnd = ImGuiHook::GetHWND();
+  const auto now = std::chrono::steady_clock::now();
 
   for (auto it = g_RemoteCursors.begin(); it != g_RemoteCursors.end();) {
-    float elapsed =
+    const float elapsed =
         std::chrono::duration<float>(now - it->second.lastUpdate).count();
     if (elapsed > 3600.0f) { // 1 hour timeout
       it = g_RemoteCursors.erase(it);
@@ -193,7 +194,7 @@ static void RenderRemoteCursors() {
       InputGhost::DenormalizeCoordinates(it->second.x, it->second.y, hWnd, px,
                                          py);
 
-      float scale = ((float)vw / 1920.0f) * 0.5f;
+      const float scale = ((float)vw / 1920.0f) * 0.5f;
       ImVec2 size = g_CursorSizes[it->second.type];
       ImVec2 hotspot = g_CursorHotspots[it->second.type];
 
@@ -202,10 +203,10 @@ static void RenderRemoteCursors() {
       hotspot.x *= scale;
       hotspot.y *= scale;
 
-      ImVec2 pos = ImVec2((float)px - hotspot.x, (float)py - hotspot.y);
+      auto pos = ImVec2((float)px - hotspot.x, (float)py - hotspot.y);
 
       drawList->AddImage(
-          (ImTextureID)(uintptr_t)g_CursorTextures[it->second.type], pos,
+          g_CursorTextures[it->second.type], pos,
           ImVec2(pos.x + size.x, pos.y + size.y), ImVec2(0, 0), ImVec2(1, 1),
           IM_COL32(255, 255, 255, 128));
 
@@ -218,8 +219,8 @@ static void RenderRemoteCursors() {
         snprintf(name, sizeof(name), "Player %llu", it->first % 1000);
       }
 
-      ImVec2 textSize = ImGui::CalcTextSize(name);
-      ImVec2 textPos =
+      const ImVec2 textSize = ImGui::CalcTextSize(name);
+      auto textPos =
           ImVec2(pos.x + (size.x * 0.5f) - (textSize.x * 0.5f), pos.y - 15);
 
       // Draw Outline
@@ -244,7 +245,7 @@ static void RenderLogTab() {
   {
     std::lock_guard<std::mutex> lock(g_logMutex);
     for (const auto &line : g_logLines) {
-      ImVec4 col = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
+      auto col = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
       if (line.find("[WARN]") != std::string::npos)
         col = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
       else if (line.find("[ERR]") != std::string::npos)
@@ -260,7 +261,7 @@ static void RenderLogTab() {
 }
 
 static void RenderNetworkTab() {
-  CSteamID current = NetworkManager::Get().GetCurrentLobby();
+  const CSteamID current = NetworkManager::Get().GetCurrentLobby();
 
   if (current.IsValid()) {
     if (ImGui::Button("Leave Lobby")) {
@@ -284,7 +285,7 @@ static void RenderNetworkTab() {
   }
 
   // Modal for Lobby Creation
-  if (ImGui::BeginPopupModal("Host Lobby Modal", NULL,
+  if (ImGui::BeginPopupModal("Host Lobby Modal", nullptr,
                              ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text("Enter a name for your lobby:");
     ImGui::InputText("##name", g_lobbyNameBuffer, sizeof(g_lobbyNameBuffer));
@@ -350,7 +351,7 @@ static void RenderRNGTab() {
   ImGui::Text("s[2]: 0x%08X", state[2]);
   ImGui::Text("s[3]: 0x%08X", state[3]);
   ImGui::NextColumn();
-  uint64_t *s64 = (uint64_t *)&state[4];
+  const auto s64 = (uint64_t *)&state[4];
   ImGui::Text("s[4-5]: 0x%016llX", s64[0]);
   ImGui::Text("s[6-7]: 0x%016llX", s64[1]);
   ImGui::Columns(1);
@@ -363,17 +364,21 @@ static void RenderRNGTab() {
 
 static void RenderCombatTab() {
   auto &nm = NetworkManager::Get();
-  bool active = nm.IsCombatActive();
-  int64_t activeUID = nm.GetActiveCatUID();
+  const bool active = nm.IsCombatActive();
+  const uint32_t activeNUID = nm.GetActiveNUID();
 
   ImGui::Text("Combat Mode: %s", active ? "ACTIVE" : "INACTIVE");
   if (active) {
     auto &discovered = nm.GetDiscoveredCats();
-    if (discovered.count(activeUID)) {
-      ImGui::Text("Active Turn: %s (UID: %lld)",
-                  discovered.at(activeUID).name.c_str(), activeUID);
+    const Character *activeChar = nm.GetCharacter(activeNUID);
+    if (activeChar && activeChar->persistentChar &&
+        discovered.count(activeChar->persistentChar->sql_key)) {
+      ImGui::Text(
+          "Active Turn: %s (NUID: %u)",
+          discovered.at(activeChar->persistentChar->sql_key).name.c_str(),
+          activeNUID);
     } else {
-      ImGui::Text("Active Turn: Unknown UID %lld", activeUID);
+      ImGui::Text("Active Turn: NUID %u", activeNUID);
     }
   }
 
@@ -395,7 +400,8 @@ static void RenderCombatTab() {
 
       ImGui::TableSetColumnIndex(0);
       ImGui::Text("%s", cat.name.c_str());
-      if (cat.uid == activeUID) {
+      const Character *activeChar = nm.GetCharacter(activeNUID);
+      if (activeChar && activeChar->persistentChar && cat.uid == activeChar->persistentChar->sql_key) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0, 1, 0, 1), " (TURN)");
       }
@@ -404,7 +410,7 @@ static void RenderCombatTab() {
       ImGui::Text("%s", cat.className.c_str());
 
       ImGui::TableSetColumnIndex(2);
-      uint64_t ownerID = nm.GetCatOwner(cat.uid);
+      const uint64_t ownerID = nm.GetCatOwner(cat.uid);
       if (ownerID == 0) {
         ImGui::TextDisabled("Unassigned");
       } else {
@@ -418,7 +424,7 @@ static void RenderCombatTab() {
         if (ImGui::BeginCombo(comboLabel.c_str(), "Assign...")) {
           CSteamID lobby = nm.GetCurrentLobby();
           if (lobby.IsValid()) {
-            int members = SteamMatchmaking()->GetNumLobbyMembers(lobby);
+            const int members = SteamMatchmaking()->GetNumLobbyMembers(lobby);
             for (int i = 0; i < members; i++) {
               CSteamID member =
                   SteamMatchmaking()->GetLobbyMemberByIndex(lobby, i);
@@ -448,12 +454,21 @@ static void RenderActionManagerTab() {
 
   const auto &actions = NetworkManager::Get().GetRecordedActions();
   std::string csvData =
-      "ActorNUID,ActionType,AbilityName,TargetX,TargetY,Target2X,Target2Y\n";
+      "Type,ActorNUID,ActionType,AbilityName,TargetX,TargetY,Target2X,Target2Y,NX,NY,Anim,Force\n";
   for (const auto &act : actions) {
-    char line[256];
-    snprintf(line, sizeof(line), "%u,%d,%s,%d,%d,%d,%d\n", act.actorNUID,
-             act.actionType, act.abilityName, act.targetX, act.targetY,
-             act.target2X, act.target2Y);
+    char line[512];
+    if (act.type == PacketType::TurnAction) {
+      snprintf(line, sizeof(line), "ACTION,%u,%d,%s,%d,%d,%d,%d,0,0,0,0\n",
+               act.data.action.actorNUID, act.data.action.actionType,
+               act.data.action.abilityName, act.data.action.targetX,
+               act.data.action.targetY, act.data.action.target2X,
+               act.data.action.target2Y);
+    } else if (act.type == PacketType::TurnFacing) {
+      snprintf(line, sizeof(line), "FACING,%u,0,NULL,0,0,0,0,%d,%d,%d,%d\n",
+               act.data.facing.actorNUID, act.data.facing.nx,
+               act.data.facing.ny, act.data.facing.anim ? 1 : 0,
+               act.data.facing.force ? 1 : 0);
+    }
     csvData += line;
   }
 
@@ -487,15 +502,29 @@ static void RenderActionManagerTab() {
       }
       firstLine = false;
 
-      TurnActionPacket pkt = {};
-      int parsed =
-          sscanf(line.c_str(), "%d,%d,%63[^,],%d,%d,%d,%d", &pkt.actorNUID,
-                 &pkt.actionType, pkt.abilityName, &pkt.targetX, &pkt.targetY,
-                 &pkt.target2X, &pkt.target2Y);
-      if (parsed == 7) {
+      ActionPacket pkt = {};
+      char typeStr[32];
+      int anim, force;
+      const int parsed =
+          sscanf(line.c_str(), "%31[^,],%u,%d,%63[^,],%d,%d,%d,%d,%d,%d,%d,%d",
+                 typeStr, &pkt.data.action.actorNUID, &pkt.data.action.actionType,
+                 pkt.data.action.abilityName, &pkt.data.action.targetX,
+                 &pkt.data.action.targetY, &pkt.data.action.target2X,
+                 &pkt.data.action.target2Y, &pkt.data.facing.nx,
+                 &pkt.data.facing.ny, &anim, &force);
+
+      if (parsed == 12) {
+        if (strcmp(typeStr, "ACTION") == 0) {
+          pkt.type = PacketType::TurnAction;
+        } else if (strcmp(typeStr, "FACING") == 0) {
+          pkt.type = PacketType::TurnFacing;
+          pkt.data.facing.anim = anim != 0;
+          pkt.data.facing.force = force != 0;
+        }
         NetworkManager::Get().EnqueueReplayAction(pkt);
       } else {
-        Overlay::Log("[REPLAY] Failed to parse CSV line: %s", line.c_str());
+        Overlay::Log("[REPLAY] Failed to parse CSV line: %s (parsed %d)",
+                     line.c_str(), parsed);
       }
     }
   }

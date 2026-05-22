@@ -1,7 +1,11 @@
 #include "GameUtils.h"
 #include "Overlay.h"
-#include <intrin.h>
 #include <windows.h>
+
+#ifndef _MSC_VER
+#define __try try // NOLINT(*-reserved-identifier)
+#define __except(x) catch(...) // NOLINT(*-reserved-identifier)
+#endif
 
 namespace GameUtils {
 
@@ -40,7 +44,7 @@ Scene *GetSceneByName(const char *name) {
 
 std::vector<Scene *> GetCurrentScenes() {
   std::vector<Scene *> result;
-  MewDirector *p_md = GetMewDirectorSingleton();
+  const MewDirector *p_md = GetMewDirectorSingleton();
   if (!p_md || !p_md->director)
     return result;
 
@@ -55,7 +59,7 @@ std::vector<Scene *> GetCurrentScenes() {
 std::vector<Character *> GetAllEntities() {
   std::vector<Character *> result;
 
-  TurnControl *tc = GetTurnControl();
+  const TurnControl *tc = GetTurnControl();
   if (!tc) {
     Overlay::Log("GetFighters: TurnControl is null");
     return result;
@@ -66,25 +70,25 @@ std::vector<Character *> GetAllEntities() {
     return result;
   }
 
-  CombatContext *ctx = tc->context;
+  const CombatContext *ctx = tc->context;
   if (!ctx->entityManager) {
     Overlay::Log("GetFighters: ctx->entityManager is null");
     return result;
   }
 
-  CombatEntityManager *mgr = ctx->entityManager;
+  const CombatEntityManager *mgr = ctx->entityManager;
   if (!mgr->stateBlock) {
     Overlay::Log("GetFighters: mgr->stateBlock is null");
     return result;
   }
 
-  CombatStateBlock *sb = mgr->stateBlock;
+  const CombatStateBlock *sb = mgr->stateBlock;
   if (!sb->fighters) {
     Overlay::Log("GetFighters: sb->fighters is null");
     return result;
   }
 
-  FighterList *list = sb->fighters;
+  const FighterList *list = sb->fighters;
   if (!list->data) {
     Overlay::Log("GetFighters: list->data is null");
     return result;
@@ -96,8 +100,7 @@ std::vector<Character *> GetAllEntities() {
   }
 
   for (uint32_t i = 0; i < list->count; i++) {
-    Character *c = list->data[i];
-    if (c) {
+    if (Character *c = list->data[i]) {
       result.push_back(c);
     }
   }
@@ -106,7 +109,7 @@ std::vector<Character *> GetAllEntities() {
 }
 
 std::vector<Character *> GetFighters() {
-  std::vector<Character *> all = GetAllEntities();
+  const std::vector<Character *> all = GetAllEntities();
   std::vector<Character *> fighters;
 
   for (Character *c : all) {
@@ -121,18 +124,41 @@ std::vector<Character *> GetFighters() {
 }
 
 std::string GetAbilityName(Ability *ability) {
-  if (!ability)
+  if (!ability || (uintptr_t)ability <= 0x10000 || (uintptr_t)ability >= 0x7FFFFFFFFFFF)
     return "NULL";
 
-  for (int i = 0; i < 64; i += 8) {
+  __try {
+    if (ability->definition && (uintptr_t)ability->definition > 0x10000 && (uintptr_t)ability->definition < 0x7FFFFFFFFFFF) {
+      std::string name = ability->definition->name.copy_to_native_string();
+      if (!name.empty() && name.length() < 128) {
+        bool printable = true;
+        for (const char c : name) {
+          if (c < 32 || c > 126) {
+            printable = false;
+            break;
+          }
+        }
+        if (printable) {
+          return name;
+        }
+      }
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+
+  // Fallback: only scan safe offsets if definition lookup fails.
+  // Explicitly skip 0 (vtable) and 16 (owner pointer).
+  for (int i = 8; i < 64; i += 8) {
+    if (i == 16)
+      continue; // Skip owner pointer (Character*)
     __try {
       void *p = *(void **)((uintptr_t)ability + i);
-      if (p && (uintptr_t)p > 0x10000) {
-        AbilityDefinition *def = (AbilityDefinition *)p;
+      if (p && (uintptr_t)p > 0x10000 && (uintptr_t)p < 0x7FFFFFFFFFFF) {
+        auto *def = (AbilityDefinition *)p;
         std::string name = def->name.copy_to_native_string();
         if (!name.empty() && name.length() < 128) {
           bool printable = true;
-          for (char c : name) {
+          for (const char c : name) {
             if (c < 32 || c > 126) {
               printable = false;
               break;
@@ -150,7 +176,7 @@ std::string GetAbilityName(Ability *ability) {
   return "UNKNOWN";
 }
 
-Ability *FindCharacterAbility(Character *actor, const std::string &targetName) {
+Ability *FindCharacterAbility(const Character *actor, const std::string &targetName) {
   if (!actor)
     return nullptr;
 
@@ -169,7 +195,7 @@ Ability *FindCharacterAbility(Character *actor, const std::string &targetName) {
   }
 
   // Iterate spells
-  if (actor->spells) {
+  if (actor != nullptr && actor->spells) {
     for (int i = 0; i < 5; i++) {
       __try {
         Ability *a = actor->spells[i];
@@ -186,7 +212,7 @@ Ability *FindCharacterAbility(Character *actor, const std::string &targetName) {
   return nullptr;
 }
 
-std::vector<Component *> GetSceneComponents(Scene *scene) {
+std::vector<Component *> GetSceneComponents(const Scene *scene) {
   std::vector<Component *> result;
   if (!scene)
     return result;
@@ -195,7 +221,7 @@ std::vector<Component *> GetSceneComponents(Scene *scene) {
   if (!scene->ComponentLists)
     return result;
 
-  podvector<Component *> &list = *scene->ComponentLists;
+  const podvector<Component *> &list = *scene->ComponentLists;
   for (uint32_t i = 0; i < list.size_; i++) {
     Component *p_component = list.data_[i];
     if (!p_component)
@@ -212,7 +238,7 @@ std::vector<Component *> GetEntityComponents(Entity *entity) {
   if (!entity)
     return result;
 
-  podvector<Component *> &comps = entity->components;
+  const podvector<Component *> &comps = entity->components;
   for (uint32_t i = 0; i < comps.size_; i++) {
     Component *p_component = comps.data_[i];
     if (!p_component)
@@ -224,8 +250,8 @@ std::vector<Component *> GetEntityComponents(Entity *entity) {
   return result;
 }
 
-Component *FindComponentByTypeName(Scene *scene, const char *typeName) {
-  std::vector<Component *> components = GetSceneComponents(scene);
+Component *FindComponentByTypeName(const Scene *scene, const char *typeName) {
+  const std::vector<Component *> components = GetSceneComponents(scene);
   for (Component *p_component : components) {
     MsvcReleaseModeXString name = {};
     if (SafeGetComponentName(p_component, &name)) {
@@ -237,7 +263,7 @@ Component *FindComponentByTypeName(Scene *scene, const char *typeName) {
   return nullptr;
 }
 
-bool SafeGetComponentName(Component *p_component,
+bool SafeGetComponentName(const Component *p_component,
                           MsvcReleaseModeXString *out_name) {
   __try {
     if (!p_component || !p_component->vtable ||
@@ -260,26 +286,28 @@ ButtonState GetButtonState(Component *button) {
   }
 }
 
-bool GetButtonRoleName(Component *button, char *outBuf, size_t bufSize) {
+bool GetButtonRoleName(Component *button, char *outBuf, const size_t bufSize) {
   if (!button || !outBuf || bufSize == 0)
     return false;
   __try {
-    auto *role = (MsvcReleaseModeXString *)((uintptr_t)button + 0x1F8);
+    const auto *role = (MsvcReleaseModeXString *)((uintptr_t)button + 0x1F8);
     if (role->_Mysize > 0 && role->_Mysize < 256) {
-      auto sv = role->as_native_string_view();
-      size_t len = sv.size() < bufSize - 1 ? sv.size() : bufSize - 1;
+      const auto sv = role->as_native_string_view();
+      const size_t len = sv.size() < bufSize - 1 ? sv.size() : bufSize - 1;
       memcpy(outBuf, sv.data(), len);
       outBuf[len] = '\0';
       return true;
     }
   } __except (EXCEPTION_EXECUTE_HANDLER) {
   }
-  outBuf[0] = '\0';
+  if (outBuf != nullptr) {
+    outBuf[0] = '\0';
+  }
   return false;
 }
 
-Component *FindButton(Scene *scene, const char *roleName) {
-  std::vector<Component *> components = GetSceneComponents(scene);
+Component *FindButton(const Scene *scene, const char *roleName) {
+  const std::vector<Component *> components = GetSceneComponents(scene);
   for (Component *c : components) {
     MsvcReleaseModeXString tn = {};
     if (!SafeGetComponentName(c, &tn))
@@ -298,9 +326,9 @@ Component *FindButton(Scene *scene, const char *roleName) {
   return nullptr;
 }
 
-std::vector<Component *> FindAllButtons(Scene *scene, const char *roleName) {
+std::vector<Component *> FindAllButtons(const Scene *scene, const char *roleName) {
   std::vector<Component *> result;
-  std::vector<Component *> components = GetSceneComponents(scene);
+  const std::vector<Component *> components = GetSceneComponents(scene);
   for (Component *c : components) {
     MsvcReleaseModeXString tn = {};
     if (!SafeGetComponentName(c, &tn))
@@ -308,7 +336,7 @@ std::vector<Component *> FindAllButtons(Scene *scene, const char *roleName) {
     if (tn.as_native_string_view() != "Button")
       continue;
     __try {
-      auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
+      const auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
       if (role->_Mysize > 0 && role->_Mysize < 256 &&
           role->as_native_string_view() == roleName) {
         result.push_back(c);
@@ -319,7 +347,7 @@ std::vector<Component *> FindAllButtons(Scene *scene, const char *roleName) {
   return result;
 }
 
-void ButtonGroupTracker::Init(Scene *scene, const char *role) {
+void ButtonGroupTracker::Init(const Scene *scene, const char *role) {
   roleName = role;
   buttons = FindAllButtons(scene, role);
   lastStates.assign(buttons.size(), ButtonState_Invalid);
@@ -328,9 +356,9 @@ void ButtonGroupTracker::Init(Scene *scene, const char *role) {
 std::vector<ButtonChange> ButtonGroupTracker::Poll() {
   std::vector<ButtonChange> changed;
   for (size_t i = 0; i < buttons.size(); i++) {
-    ButtonState state = GetButtonState(buttons[i]);
+    const ButtonState state = GetButtonState(buttons[i]);
     if (state != lastStates[i]) {
-      changed.push_back({(int)i, lastStates[i], state});
+      changed.push_back({static_cast<int>(i), lastStates[i], state});
       lastStates[i] = state;
     }
   }
@@ -346,18 +374,18 @@ void ButtonGroupTracker::Reset() {
 void *GetThreadLocalStoragePointer() {
   // On Windows x64, the Thread Environment Block (TEB) contains a pointer
   // to the Thread Local Storage (TLS) array at gs:[0x58].
-  void **tlsArray = (void **)__readgsqword(0x58);
+  const auto tlsArray = (void **)__readgsqword(0x58);
   if (!tlsArray)
     return nullptr;
   return tlsArray[0];
 }
 
 void SetRNGState(const void *seed32) {
-  uint8_t *tls = (uint8_t *)GetThreadLocalStoragePointer();
+  const auto tls = (uint8_t *)GetThreadLocalStoragePointer();
   if (!tls)
     return;
 
-  const uint32_t *seed = (const uint32_t *)seed32;
+  const auto seed = (const uint32_t *)seed32;
 
   // Inject the 256-bit seed directly into the Thread Local RNG State!
   *(uint32_t *)(tls + 0x178) = seed[0];
@@ -372,11 +400,11 @@ void SetRNGState(const void *seed32) {
 }
 
 void GetRNGState(void *outSeed32) {
-  uint8_t *tls = (uint8_t *)GetThreadLocalStoragePointer();
+  const auto tls = (uint8_t *)GetThreadLocalStoragePointer();
   if (!tls)
     return;
 
-  uint32_t *out = (uint32_t *)outSeed32;
+  auto *out = (uint32_t *)outSeed32;
 
   out[0] = *(uint32_t *)(tls + 0x178);
   out[1] = *(uint32_t *)(tls + 0x17c);
@@ -390,22 +418,22 @@ void GetRNGState(void *outSeed32) {
 // Note: Doesn't work, will need to look into it further
 uint32_t CalculateCRC32(const void *data, size_t size) {
   uint32_t crc = 0xFFFFFFFF;
-  const uint8_t *p = (const uint8_t *)data;
+  auto p = (const uint8_t *)data;
   while (size--) {
     crc ^= *p++;
     for (int i = 0; i < 8; i++)
-      crc = (crc >> 1) ^ (-(int32_t)(crc & 1) & 0xEDB88320);
+      crc = crc >> 1 ^ -(int32_t)(crc & 1) & 0xEDB88320;
   }
   return ~crc;
 }
 
 } // namespace GameUtils
-void *GameUtils::ResolveGridTile(int x, int y) {
-  Scene *scene = GetSceneByName("Battle");
+void *GameUtils::ResolveGridTile(const int x, const int y) {
+  const Scene *scene = GetSceneByName("Battle");
   if (!scene)
     return nullptr;
 
-  std::vector<Component *> components = GetSceneComponents(scene);
+  const std::vector<Component *> components = GetSceneComponents(scene);
   std::vector<Component *> tiles;
 
   for (Component *c : components) {
@@ -426,9 +454,9 @@ void *GameUtils::ResolveGridTile(int x, int y) {
   }
 
   // Deterministic counting
-  int idx = (y * 10) + x;
+  const int idx = y * 10 + x;
   if (idx >= 0 && idx < (int)tiles.size()) {
-    Component *tile = tiles[idx];
+    const Component *tile = tiles[idx];
     MsvcReleaseModeXString name = {};
     SafeGetComponentName(tile, &name);
     Overlay::Log("[GRID] Resolved (%d, %d) via Index -> %d, name: %s", x, y,

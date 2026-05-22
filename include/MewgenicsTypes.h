@@ -43,7 +43,21 @@ struct MsvcReleaseModeXString {
   uint64_t _Mysize;
   uint64_t _Myres;
 
+  bool is_valid() const {
+    if (this->_Mysize >= 1024)
+      return false;
+    if (this->_Myres < this->_Mysize)
+      return false;
+    if (this->_Myres >= 16) {
+      if ((uintptr_t)this->_Bx._Ptr <= 0x10000 || (uintptr_t)this->_Bx._Ptr >= 0x7FFFFFFFFFFF)
+        return false;
+    }
+    return true;
+  }
+
   const char *begin() const {
+    if (!this->is_valid())
+      return "";
     if (this->_Myres < 16)
       return &this->_Bx._Buf[0];
     else
@@ -51,6 +65,8 @@ struct MsvcReleaseModeXString {
   }
 
   const char *end() const {
+    if (!this->is_valid())
+      return "";
     if (this->_Myres < 16)
       return &this->_Bx._Buf[this->_Mysize];
     else
@@ -58,10 +74,14 @@ struct MsvcReleaseModeXString {
   }
 
   std::string copy_to_native_string() const {
+    if (!this->is_valid())
+      return "";
     return std::string(this->begin(), this->end());
   }
 
   std::string_view as_native_string_view() const {
+    if (!this->is_valid())
+      return "";
     return std::string_view(this->begin(), this->_Mysize);
   }
 };
@@ -75,7 +95,21 @@ struct MsvcReleaseModeWString {
   uint64_t _Mysize;
   uint64_t _Myres;
 
+  bool is_valid() const {
+    if (this->_Mysize >= 1024)
+      return false;
+    if (this->_Myres < this->_Mysize)
+      return false;
+    if (this->_Myres >= 8) {
+      if ((uintptr_t)this->_Bx._Ptr <= 0x10000 || (uintptr_t)this->_Bx._Ptr >= 0x7FFFFFFFFFFF)
+        return false;
+    }
+    return true;
+  }
+
   const wchar_t *begin() const {
+    if (!this->is_valid())
+      return L"";
     if (this->_Myres < 8)
       return &this->_Bx._Buf[0];
     else
@@ -83,17 +117,22 @@ struct MsvcReleaseModeWString {
   }
 
   const wchar_t *end() const {
+    if (!this->is_valid())
+      return L"";
     if (this->_Myres < 8)
       return &this->_Bx._Buf[this->_Mysize];
-    else
-      return this->_Bx._Ptr + this->_Mysize;
+    return this->_Bx._Ptr + this->_Mysize;
   }
 
   std::wstring copy_to_native_wstring() const {
+    if (!this->is_valid())
+      return L"";
     return std::wstring(this->begin(), this->end());
   }
 
   std::string to_utf8() const {
+    if (!this->is_valid())
+      return "";
     std::wstring ws = copy_to_native_wstring();
     if (ws.empty())
       return "";

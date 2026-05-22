@@ -2,14 +2,14 @@
 #include "Overlay.h"
 #include <string.h>
 
-uintptr_t FindPattern(uintptr_t base, const char *signature) {
+uintptr_t FindPattern(const uintptr_t base, const char *signature) {
   if (!base)
     return 0;
 
-  PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)base;
-  PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)(base + dosHeader->e_lfanew);
+  const auto dosHeader = (PIMAGE_DOS_HEADER)base;
+  auto ntHeaders = (PIMAGE_NT_HEADERS)(base + dosHeader->e_lfanew);
 
-  PIMAGE_SECTION_HEADER section = IMAGE_FIRST_SECTION(ntHeaders);
+  auto section = IMAGE_FIRST_SECTION(ntHeaders);
   uintptr_t startAddress = 0;
   size_t scanSize = 0;
 
@@ -26,7 +26,7 @@ uintptr_t FindPattern(uintptr_t base, const char *signature) {
     scanSize = ntHeaders->OptionalHeader.SizeOfCode;
   }
 
-  auto hexToByte = [](char c) -> uint8_t {
+  auto hexToByte = [](const char c) -> uint8_t {
     if (c >= '0' && c <= '9')
       return c - '0';
     if (c >= 'A' && c <= 'F')
@@ -73,29 +73,29 @@ uintptr_t FindPattern(uintptr_t base, const char *signature) {
   return 0;
 }
 
-uintptr_t ResolveCall(uintptr_t callInstruction) {
+uintptr_t ResolveCall(const uintptr_t callInstruction) {
   if (!callInstruction)
     return 0;
-  int32_t offset = *(int32_t *)(callInstruction + 1);
+  const int32_t offset = *(int32_t *)(callInstruction + 1);
   return callInstruction + 5 + offset;
 }
 
-uintptr_t ResolveRIP(uintptr_t instruction, int offsetIndex,
-                     int instructionLength) {
+uintptr_t ResolveRIP(const uintptr_t instruction, const int offsetIndex,
+                     const int instructionLength) {
   if (!instruction)
     return 0;
-  int32_t offset = *(int32_t *)(instruction + offsetIndex);
+  const int32_t offset = *(int32_t *)(instruction + offsetIndex);
   return instruction + instructionLength + offset;
 }
 
-uintptr_t ScanSignature(MewjectorAPI *mj, uintptr_t base, const char *name,
+uintptr_t ScanSignature(MewjectorAPI *mj, const uintptr_t base, const char *name,
                         const char *signature) {
-  uintptr_t addr = FindPattern(base, signature);
+  const uintptr_t addr = FindPattern(base, signature);
   if (!addr) {
     Overlay::Log("FAILED to find %s signature", name);
     return 0;
   }
-  uintptr_t rva = addr - base;
+  const uintptr_t rva = addr - base;
   Overlay::Log("Found %s at RVA 0x%p", name, (void *)rva);
   return rva;
 }

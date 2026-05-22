@@ -1,6 +1,6 @@
 #pragma once
 #include "MewgenicsTypes.h"
-#include <stdint.h>
+#include <cstdint>
 
 #include <vector>
 #include <string>
@@ -19,15 +19,15 @@ TurnControl *GetTurnControl();
 std::vector<Character *> GetAllEntities();
 std::vector<Character *> GetFighters();
 std::string GetAbilityName(Ability *ability);
-Ability *FindCharacterAbility(Character *actor, const std::string &targetName);
+Ability *FindCharacterAbility(const Character *actor, const std::string &targetName);
 
 // Components
-std::vector<Component *> GetSceneComponents(Scene *scene);
+std::vector<Component *> GetSceneComponents(const Scene *scene);
 std::vector<Component *> GetEntityComponents(Entity *entity);
-Component *FindComponentByTypeName(Scene *scene, const char *typeName);
+Component *FindComponentByTypeName(const Scene *scene, const char *typeName);
 
 // Component name lookup
-bool SafeGetComponentName(Component *p_component,
+bool SafeGetComponentName(const Component *p_component,
                           MsvcReleaseModeXString *out_name);
 
 // Button interaction state at offset +0x2F0
@@ -41,10 +41,10 @@ enum ButtonState : int32_t {
 };
 
 // Find a single Button component by its role name
-Component *FindButton(Scene *scene, const char *roleName);
+Component *FindButton(const Scene *scene, const char *roleName);
 
 // Find ALL Button components sharing a role name (e.g. "Combat_SpellButton")
-std::vector<Component *> FindAllButtons(Scene *scene, const char *roleName);
+std::vector<Component *> FindAllButtons(const Scene *scene, const char *roleName);
 
 // Read the button interaction state (+0x2F0). Returns ButtonState_Invalid on
 // failure.
@@ -66,7 +66,7 @@ struct ButtonGroupTracker {
   std::vector<Component *> buttons;
   std::vector<ButtonState> lastStates;
 
-  void Init(Scene *scene, const char *role);
+  void Init(const Scene *scene, const char *role);
   // Returns details for buttons whose state changed this frame.
   std::vector<ButtonChange> Poll();
   void Reset();

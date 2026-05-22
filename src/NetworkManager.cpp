@@ -1,11 +1,16 @@
 #include "NetworkManager.h"
+#include "SteamABICompat.h"
 #include "GameUtils.h"
 #include "ImGuiHook.h"
 #include "InputGhost.h"
 #include "Overlay.h"
 #include "mewjector.h"
-#include <cstdint>
-#include <string.h>
+#include <cstring>
+
+typedef void(__fastcall *FaceDirection_t)(void *character,
+                                          uint64_t target_packed,
+                                          bool play_animation, bool force);
+extern FaceDirection_t g_origFaceDirection;
 
 void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
   m_mj = mj;
@@ -22,8 +27,8 @@ void NetworkManager::Update() {
   ReceivePackets();
 }
 
-bool NetworkManager::SendPacket(CSteamID target, PacketType type,
-                                const void *data, uint32_t size) {
+bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
+                                const void *data, const uint32_t size) {
   PacketHeader header;
   header.type = type;
   header.length = size;
@@ -43,13 +48,13 @@ void NetworkManager::ReceivePackets() {
     std::vector<uint8_t> buffer(packetSize);
     CSteamID remoteID;
     if (!SteamNetworking()->ReadP2PPacket(buffer.data(), packetSize,
-                                          &packetSize, &remoteID))
+                            &packetSize, &remoteID))
       continue;
 
     if (packetSize < sizeof(PacketHeader))
       continue;
 
-    PacketHeader *hdr = (PacketHeader *)buffer.data();
+    const auto hdr = (PacketHeader *)buffer.data();
     if (hdr->magic1 != 'M' || hdr->magic2 != 'G')
       continue;
 
@@ -81,6 +86,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::TurnAction:
       HandleTurnAction(remoteID, payload, payloadLen);
       break;
+    case PacketType::TurnFacing:
+      HandleTurnFacing(remoteID, payload, payloadLen);
+      break;
     default:
       Overlay::Log("Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -102,7 +110,7 @@ void NetworkManager::HandleHandshake(CSteamID remoteID, const void *data,
 }
 
 void NetworkManager::HandleRNGSync(CSteamID remoteID, const void *data,
-                                   uint32_t length) {
+                                   const uint32_t length) {
   if (length == 32) {
     GameUtils::SetRNGState(data);
     Overlay::Log("RNG state synchronized with host.");
@@ -112,14 +120,14 @@ void NetworkManager::HandleRNGSync(CSteamID remoteID, const void *data,
 }
 
 void NetworkManager::HandleMouseMove(CSteamID remoteID, const void *data,
-                                     uint32_t length) {
+                                     const uint32_t length) {
   if (length == sizeof(MouseMoveData)) {
-    MouseMoveData *move = (MouseMoveData *)data;
+    const MouseMoveData *move = (MouseMoveData *)data;
     if (IsHost()) {
       BroadcastPacket(PacketType::MouseMove, move, sizeof(MouseMoveData), true);
     }
 
-    uint64_t actualSender = move->steamID;
+    const uint64_t actualSender = move->steamID;
 
     // Only show the ghost cursor and name tag if it's NOT the local player
     if (actualSender != SteamUser()->GetSteamID().ConvertToUint64()) {
@@ -136,9 +144,9 @@ void NetworkManager::HandleMouseMove(CSteamID remoteID, const void *data,
 }
 
 void NetworkManager::HandleCatOwnershipSync(CSteamID remoteID, const void *data,
-                                            uint32_t length) {
+                                            const uint32_t length) {
   if (length == sizeof(CatOwnershipData)) {
-    CatOwnershipData *sync = (CatOwnershipData *)data;
+    const auto sync = (const CatOwnershipData *)data;
     m_catOwnership[sync->catUID] = sync->ownerSteamID;
     const char *name = SteamFriends()->GetFriendPersonaName(sync->ownerSteamID);
     Overlay::Log("Ownership Sync: Cat %lld is now owned by %s", sync->catUID,
@@ -146,18 +154,23 @@ void NetworkManager::HandleCatOwnershipSync(CSteamID remoteID, const void *data,
   }
 }
 
-bool NetworkManager::IsInputBlocked(uint64_t steamID) {
+bool NetworkManager::IsInputBlocked(const uint64_t steamID) {
   if (!m_CurrentLobby.IsValid())
     return false;
   if (!m_combatActive)
     return false;
 
   // If no active cat, block everyone but the host as a failsafe
-  if (m_activeCatUID == -1) {
+  if (m_activeNUID == 0xFFFFFFFF) {
     return steamID != GetHostID().ConvertToUint64();
   }
 
-  auto it = m_catOwnership.find(m_activeCatUID);
+  const Character *activeChar = GetCharacter(m_activeNUID);
+  if (!activeChar || !activeChar->persistentChar) {
+    return steamID != GetHostID().ConvertToUint64();
+  }
+
+  const auto it = m_catOwnership.find(activeChar->persistentChar->sql_key);
   if (it == m_catOwnership.end()) {
     // If nobody owns this cat, only the host can move it
     return steamID != GetHostID().ConvertToUint64();
@@ -166,11 +179,11 @@ bool NetworkManager::IsInputBlocked(uint64_t steamID) {
   return steamID != it->second;
 }
 
-void NetworkManager::SyncOwnership(int64_t uid, uint64_t steamID) {
+void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
   if (!IsHost())
     return;
 
-  CatOwnershipData data;
+  CatOwnershipData data{};
   data.catUID = uid;
   data.ownerSteamID = steamID;
 
@@ -179,14 +192,14 @@ void NetworkManager::SyncOwnership(int64_t uid, uint64_t steamID) {
                   false); // Include self to update map
 }
 
-void NetworkManager::SetActiveCat(int64_t uid) {
-  if (uid != -1) {
+void NetworkManager::SetActiveNUID(const uint32_t nuid) {
+  if (nuid != 0xFFFFFFFF) {
     m_combatActive = true;
   }
-  m_activeCatUID = uid;
+  m_activeNUID = nuid;
 }
 
-void NetworkManager::RegisterCat(int64_t uid, const char *name,
+void NetworkManager::RegisterCat(const int64_t uid, const char *name,
                                  const char *className) {
   if (uid == -1)
     return;
@@ -214,15 +227,15 @@ void NetworkManager::EndCombat() {
   if (m_combatActive) {
     Overlay::Log("Combat ended, unblocking input.");
     m_combatActive = false;
-    m_activeCatUID = -1;
+    m_activeNUID = 0xFFFFFFFF;
     if (IsHost()) {
       BroadcastPacket(PacketType::CombatEnd, nullptr, 0, true);
     }
   }
 }
 
-uint64_t NetworkManager::GetCatOwner(int64_t uid) {
-  auto it = m_catOwnership.find(uid);
+uint64_t NetworkManager::GetCatOwner(const int64_t uid) {
+  const auto it = m_catOwnership.find(uid);
   if (it != m_catOwnership.end())
     return it->second;
   return 0;
@@ -231,7 +244,7 @@ uint64_t NetworkManager::GetCatOwner(int64_t uid) {
 void NetworkManager::HostLobby(const char *lobbyName) {
   m_PendingLobbyName = lobbyName;
   Overlay::Log("Creating Steam Lobby '%s'...", lobbyName);
-  SteamAPICall_t call = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 4);
+  const SteamAPICall_t call = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 4);
   m_LobbyCreatedCallResult.Set(call, this, &NetworkManager::OnLobbyCreated);
 }
 
@@ -241,16 +254,16 @@ void NetworkManager::LeaveLobby() {
     SteamMatchmaking()->LeaveLobby(m_CurrentLobby);
     m_CurrentLobby.Clear();
     m_combatActive = false;
-    m_activeCatUID = -1;
+    m_activeNUID = 0xFFFFFFFF;
     m_catOwnership.clear();
     m_discoveredCats.clear();
     RefreshLobbyList();
   }
 }
 
-void NetworkManager::JoinLobby(CSteamID lobbyID) {
+void NetworkManager::JoinLobby(const CSteamID lobbyID) {
   Overlay::Log("Joining lobby %llu...", lobbyID.ConvertToUint64());
-  SteamAPICall_t call = SteamMatchmaking()->JoinLobby(lobbyID);
+  const SteamAPICall_t call = SteamMatchmaking()->JoinLobby(lobbyID);
   m_LobbyEnterCallResult.Set(call, this, &NetworkManager::OnLobbyEnter);
 }
 
@@ -265,7 +278,7 @@ void NetworkManager::RefreshLobbyList() {
       k_ELobbyDistanceFilterWorldwide);
   SteamMatchmaking()->AddRequestLobbyListStringFilter(
       "mewtiplayer", m_ModID.c_str(), k_ELobbyComparisonEqual);
-  SteamAPICall_t call = SteamMatchmaking()->RequestLobbyList();
+  const SteamAPICall_t call = SteamMatchmaking()->RequestLobbyList();
   m_LobbyMatchListCallResult.Set(call, this, &NetworkManager::OnLobbyMatchList);
 }
 
@@ -278,16 +291,16 @@ bool NetworkManager::IsHost() const {
 
 CSteamID NetworkManager::GetHostID() const {
   if (!m_CurrentLobby.IsValid())
-    return CSteamID();
+    return {};
   return SteamMatchmaking()->GetLobbyOwner(m_CurrentLobby);
 }
 
-void NetworkManager::BroadcastPacket(PacketType type, const void *data,
-                                     uint32_t size, bool excludeSelf) {
+void NetworkManager::BroadcastPacket(const PacketType type, const void *data,
+                                     const uint32_t size, const bool excludeSelf) {
   if (!m_CurrentLobby.IsValid())
     return;
-  int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
-  CSteamID myID = SteamUser()->GetSteamID();
+  const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  const CSteamID myID = SteamUser()->GetSteamID();
   for (int i = 0; i < numMembers; i++) {
     CSteamID member =
         SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
@@ -298,7 +311,7 @@ void NetworkManager::BroadcastPacket(PacketType type, const void *data,
 }
 
 void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback,
-                                    bool bIOFailure) {
+                                    const bool bIOFailure) {
   if (bIOFailure || pCallback->m_eResult != k_EResultOK) {
     Overlay::Log("[ERR] Failed to create lobby (Result: %d)",
                  pCallback->m_eResult);
@@ -306,7 +319,7 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback,
   }
   m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
   m_combatActive = false;
-  m_activeCatUID = -1;
+  m_activeNUID = 0xFFFFFFFF;
   m_catOwnership.clear();
   m_discoveredCats.clear();
 
@@ -317,7 +330,7 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback,
   Overlay::Log("[OK] Lobby created: %llu", m_CurrentLobby.ConvertToUint64());
 }
 
-void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, bool bIOFailure) {
+void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure) {
   if (bIOFailure ||
       pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
     Overlay::Log("[ERR] Failed to join lobby (Response: %d)",
@@ -326,7 +339,7 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, bool bIOFailure) {
   }
   m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
   m_combatActive = false;
-  m_activeCatUID = -1;
+  m_activeNUID = 0xFFFFFFFF;
   m_catOwnership.clear();
   m_discoveredCats.clear();
 
@@ -340,7 +353,7 @@ void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCallback,
                                       bool bIOFailure) {
   m_LobbyList.clear();
   for (uint32 i = 0; i < pCallback->m_nLobbiesMatching; i++) {
-    CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i);
+    const CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i);
     LobbyInfo info;
     info.id = lobbyID;
     const char *name = SteamMatchmaking()->GetLobbyData(lobbyID, "name");
@@ -349,7 +362,7 @@ void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCallback,
     info.maxMembers = SteamMatchmaking()->GetLobbyMemberLimit(lobbyID);
     m_LobbyList.push_back(info);
   }
-  Overlay::Log("Found %d lobbies.", (int)m_LobbyList.size());
+  Overlay::Log("Found %d lobbies.", static_cast<int>(m_LobbyList.size()));
 
   if (m_AutoJoinSearch && !m_LobbyList.empty()) {
     JoinLobby(m_LobbyList[0].id);
@@ -367,41 +380,79 @@ void NetworkManager::OnGameLobbyJoinRequested(
 }
 
 void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
-                                      uint32_t length) {
+                                      const uint32_t length) {
   if (length != sizeof(TurnActionPacket))
     return;
 
-  const TurnActionPacket *pkt = (const TurnActionPacket *)data;
+  const auto *pkt = (const TurnActionPacket *)data;
   Overlay::Log("[NET] Queuing TurnAction: Type=%d NUID=%u Ability=%s",
                pkt->actionType, pkt->actorNUID, pkt->abilityName);
 
-  extern std::deque<TurnActionPacket> g_pendingInjections;
-  g_pendingInjections.push_back(*pkt);
+  ActionPacket action{};
+  action.type = PacketType::TurnAction;
+  action.data.action = *pkt;
+
+  extern std::deque<ActionPacket> g_pendingInjections;
+  g_pendingInjections.push_back(action);
 }
 
-void NetworkManager::RecordAction(const TurnActionPacket &pkt) {
+void NetworkManager::HandleTurnFacing(CSteamID remoteID, const void *data,
+                                      const uint32_t length) {
+  if (length != sizeof(TurnFacingPacket))
+    return;
+
+  const auto pkt = (const TurnFacingPacket *)data;
+  Overlay::Log("[NET] Received TurnFacing: NUID=%u Target=(%d,%d)",
+               pkt->actorNUID, pkt->nx, pkt->ny);
+
+  ActionPacket action{};
+  action.type = PacketType::TurnFacing;
+  action.data.facing = *pkt;
+
+  extern std::deque<ActionPacket> g_pendingInjections; // NOLINT(*-redundant-declaration)
+  g_pendingInjections.push_back(action);
+
+  // If not replaying, apply it immediately
+  if (m_pendingReplays.empty()) {
+    if (Character *c = GetCharacter(pkt->actorNUID)) {
+      const uint64_t packed = (uint64_t)pkt->nx | (static_cast<uint64_t>(pkt->ny) << 32);
+      extern FaceDirection_t g_origFaceDirection; // NOLINT(*-redundant-declaration)
+      if (g_origFaceDirection) {
+        g_origFaceDirection(c, packed, pkt->anim, pkt->force);
+      }
+    }
+  }
+}
+
+void NetworkManager::RecordAction(const ActionPacket &pkt) {
   m_recordedActions.push_back(pkt);
 }
 
-void NetworkManager::ClearRecordedActions() { m_recordedActions.clear(); }
+void NetworkManager::ClearRecordedActions() {
+  m_recordedActions.clear();
+  m_lastFacing.clear();
+}
 
-const std::vector<TurnActionPacket> &
-NetworkManager::GetRecordedActions() const {
+const std::vector<ActionPacket> &NetworkManager::GetRecordedActions() const {
   return m_recordedActions;
 }
 
-void NetworkManager::EnqueueReplayAction(const TurnActionPacket &pkt) {
-  extern std::deque<TurnActionPacket> g_pendingInjections;
+void NetworkManager::EnqueueReplayAction(const ActionPacket &pkt) {
+  extern std::deque<ActionPacket> g_pendingInjections;
   g_pendingInjections.push_back(pkt);
-  Overlay::Log("[REPLAY] Queued action: %s", pkt.abilityName);
+  if (pkt.type == PacketType::TurnAction) {
+    Overlay::Log("[REPLAY] Queued action: %s", pkt.data.action.abilityName);
+  } else {
+    Overlay::Log("[REPLAY] Queued facing: NUID %u", pkt.data.facing.actorNUID);
+  }
 }
 void NetworkManager::InitializeEntityMapping() {
   ResetEntityMapping();
 
-  std::vector<Character *> fighters = GameUtils::GetFighters();
+  const std::vector<Character *> fighters = GameUtils::GetFighters();
   // Entities at the start of combat are loaded in *always* in the same order,
   // allowing us to use NUIDs for networking.
-  // Thanks Tyler <3
+  // Thanks, Tyler <3
 
   Overlay::Log("NUID: Initializing mapping for %zu fighters", fighters.size());
 
@@ -419,15 +470,15 @@ void NetworkManager::InitializeEntityMapping() {
 }
 
 uint32_t NetworkManager::GetNUID(Character *character) {
-  auto it = m_charToNuid.find(character);
+  const auto it = m_charToNuid.find(character);
   if (it != m_charToNuid.end()) {
     return it->second;
   }
   return 0xFFFFFFFF; // Invalid
 }
 
-Character *NetworkManager::GetCharacter(uint32_t nuid) {
-  auto it = m_nuidToChar.find(nuid);
+Character *NetworkManager::GetCharacter(const uint32_t nuid) {
+  const auto it = m_nuidToChar.find(nuid);
   if (it != m_nuidToChar.end()) {
     return it->second;
   }
@@ -435,7 +486,7 @@ Character *NetworkManager::GetCharacter(uint32_t nuid) {
 }
 
 void NetworkManager::UpdateDynamicEntities() {
-  std::vector<Character *> all = GameUtils::GetFighters();
+  const std::vector<Character *> all = GameUtils::GetFighters();
   for (Character *c : all) {
     if (!c)
       continue;

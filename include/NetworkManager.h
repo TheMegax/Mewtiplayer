@@ -18,7 +18,8 @@ enum class PacketType : uint8_t {
   CatOwnershipSync,
   CombatStart,
   CombatEnd,
-  TurnAction
+  TurnAction,
+  TurnFacing
 };
 
 #pragma pack(push, 1)
@@ -49,6 +50,23 @@ struct TurnActionPacket {
   int32_t targetY;
   int32_t target2X;
   int32_t target2Y;
+};
+
+struct TurnFacingPacket {
+  uint32_t actorNUID;
+  int32_t nx;
+  int32_t ny;
+  bool anim;
+  bool force;
+};
+
+// Generic structure for recording/replaying any action-like packet
+struct ActionPacket {
+  PacketType type;
+  union {
+    TurnActionPacket action;
+    TurnFacingPacket facing;
+  } data;
 };
 
 struct LobbyInfo {
@@ -83,7 +101,7 @@ public:
   void JoinAnyLobby();
   void RefreshLobbyList();
 
-  const std::vector<LobbyInfo> &GetLobbyList() const { return m_LobbyList; }
+  std::vector<LobbyInfo> &GetLobbyList() { return m_LobbyList; }
 
   bool SendPacket(CSteamID target, PacketType type, const void *data,
                   uint32_t size);
@@ -97,17 +115,20 @@ public:
 
   bool IsInputBlocked(uint64_t steamID);
   void SyncOwnership(int64_t uid, uint64_t steamID);
-  void SetActiveCat(int64_t uid);
+  void SetActiveNUID(uint32_t nuid);
   void RegisterCat(int64_t uid, const char *name, const char *className);
 
   void StartCombat();
   void EndCombat();
   bool IsCombatActive() const { return m_combatActive; }
-  int64_t GetActiveCatUID() const { return m_activeCatUID; }
+  uint32_t GetActiveNUID() const { return m_activeNUID; }
   uint64_t GetCatOwner(int64_t uid);
   std::map<int64_t, uint64_t> &GetOwnershipMap() { return m_catOwnership; }
   const std::map<int64_t, CatInfo> &GetDiscoveredCats() const {
     return m_discoveredCats;
+  }
+  std::map<uint32_t, std::pair<int, int>> &GetLastFacingMap() {
+    return m_lastFacing;
   }
 
   // Entity Mapping
@@ -117,13 +138,13 @@ public:
   uint32_t GetNUID(Character *character);
   Character *GetCharacter(uint32_t nuid);
   // Action Recording & Replay
-  void RecordAction(const TurnActionPacket &pkt);
+  void RecordAction(const ActionPacket &pkt);
   void ClearRecordedActions();
-  const std::vector<TurnActionPacket> &GetRecordedActions() const;
-  void EnqueueReplayAction(const TurnActionPacket &pkt);
+  const std::vector<ActionPacket> &GetRecordedActions() const;
+  void EnqueueReplayAction(const ActionPacket &pkt);
 
 private:
-  NetworkManager() : m_mj(nullptr) { m_CurrentLobby.Clear(); }
+  NetworkManager() : m_mj(nullptr), m_activeNUID(0xFFFFFFFF) { m_CurrentLobby.Clear(); }
 
   MewjectorAPI *m_mj;
   std::string m_ModID;
@@ -134,7 +155,7 @@ private:
 
   // Combat/Ownership state
   bool m_combatActive = false;
-  int64_t m_activeCatUID = -1;
+  uint32_t m_activeNUID = 0xFFFFFFFF;
   std::map<int64_t, uint64_t> m_catOwnership;
   std::map<int64_t, CatInfo> m_discoveredCats;
 
@@ -144,8 +165,11 @@ private:
   uint32_t m_nextNuid = 0;
 
   // Action Recording & Replay
-  std::vector<TurnActionPacket> m_recordedActions;
-  std::deque<TurnActionPacket> m_pendingReplays;
+  std::vector<ActionPacket> m_recordedActions;
+  std::deque<ActionPacket> m_pendingReplays;
+
+  // Rotation cache to prevent spam
+  std::map<uint32_t, std::pair<int, int>> m_lastFacing;
 
   CCallResult<NetworkManager, LobbyCreated_t> m_LobbyCreatedCallResult;
   void OnLobbyCreated(LobbyCreated_t *pCallback, bool bIOFailure);
@@ -158,11 +182,14 @@ private:
 
   // Internal packet handlers
   void HandleHandshake(CSteamID remoteID, const void *data, uint32_t length);
-  void HandleRNGSync(CSteamID remoteID, const void *data, uint32_t length);
+
+  static void HandleRNGSync(CSteamID remoteID, const void *data, uint32_t length);
   void HandleMouseMove(CSteamID remoteID, const void *data, uint32_t length);
   void HandleCatOwnershipSync(CSteamID remoteID, const void *data,
                               uint32_t length);
-  void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
+
+  static void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleTurnFacing(CSteamID remoteID, const void *data, uint32_t length);
 
   STEAM_CALLBACK(NetworkManager, OnGameLobbyJoinRequested,
                  GameLobbyJoinRequested_t);

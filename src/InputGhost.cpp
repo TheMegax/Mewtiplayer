@@ -1,16 +1,12 @@
 #include "InputGhost.h"
+#include "SteamABICompat.h"
 #include "GameUtils.h"
 #include "ImGuiHook.h"
 #include "NetworkManager.h"
-#include "Overlay.h"
-#include "external/kiero/minhook/include/MinHook.h"
 #include "imgui.h"
 #include <chrono>
-#include <cstdint>
-#include <cstring>
 #include <map>
 #include <string>
-#include <vector>
 #include <windows.h>
 
 // SDL3 Definitions for Polling Hooks and Direct Calls
@@ -94,21 +90,21 @@ static float g_LastBroadcastX = -1.0f;
 static float g_LastBroadcastY = -1.0f;
 static uint8_t g_LastBroadcastCursor = 255;
 
-void RegisterCursorSignature(uint32_t crc, uint8_t typeIndex) {
+void RegisterCursorSignature(const uint32_t crc, const uint8_t typeIndex) {
   g_SignatureToType[crc] = typeIndex;
 }
 
 void **ResolveTableEntry(const char *name) {
   if (g_ResolvedEntries.count(name))
     return g_ResolvedEntries[name];
-  HMODULE hExe = GetModuleHandleA(NULL);
-  uintptr_t stub = (uintptr_t)GetProcAddress(hExe, name);
+  HMODULE hExe = GetModuleHandleA(nullptr);
+  const auto stub = (uintptr_t)GetProcAddress(hExe, name);
   if (!stub)
     return nullptr;
-  uint8_t *code = (uint8_t *)stub;
+  const auto code = (uint8_t *)stub;
   if (code[0] == 0x48 && code[1] == 0xFF && code[2] == 0x25) {
-    int32_t rel = *(int32_t *)(code + 3);
-    void **entry = (void **)(stub + 7 + rel);
+    const int32_t rel = *(int32_t *)(code + 3);
+    const auto entry = (void **)(stub + 7 + rel);
     g_ResolvedEntries[name] = entry;
     return entry;
   }
@@ -121,13 +117,12 @@ bool IsSimActive() {
 
   // Check if hardware mouse broke the simulation
   // Only break if we are the foreground window (actively being played)
-  // TODO: Need to remove this later, as the active ghost input is then supposed
-  // to take over
+  // TODO: Need to remove this later, as the active ghost input is then suppose to take over
   if (GetForegroundWindow() == g_hMainWnd) {
     POINT pt;
     if (GetCursorPos(&pt)) {
-      int dx = pt.x - g_BreakMouseX;
-      int dy = pt.y - g_BreakMouseY;
+      const int dx = pt.x - g_BreakMouseX;
+      const int dy = pt.y - g_BreakMouseY;
       if ((dx * dx + dy * dy) > 100) { // > 10 pixels movement
         g_LastSimX = -1.0f;
         return false;
@@ -135,7 +130,7 @@ bool IsSimActive() {
     }
   }
 
-  auto now = std::chrono::steady_clock::now();
+  const auto now = std::chrono::steady_clock::now();
   // Persistent simulation as long as hardware mouse is still
   return std::chrono::duration<float>(now - g_LastSimTime).count() < 3600.0f;
 }
@@ -147,7 +142,7 @@ struct alignas(8) Internal_SDL_Event {
   Uint8 data[112];
 };
 
-bool Hooked_SDL_SetCursor(SDL_Cursor cursor) {
+bool Hooked_SDL_SetCursor(const SDL_Cursor cursor) {
   if (NetworkManager::Get().IsInputBlocked(
           SteamUser()->GetSteamID().ConvertToUint64())) {
     for (auto const &pair : g_CursorToType) {
@@ -166,8 +161,8 @@ bool IsSimulatedEvent(void *event) {
   return *(uint32_t *)((uint8_t *)event + 4) == 0x88008800;
 }
 
-SDL_Cursor *Hooked_SDL_CreateColorCursor(SDL_Surface *surface, int hot_x,
-                                         int hot_y) {
+SDL_Cursor *Hooked_SDL_CreateColorCursor(SDL_Surface *surface, const int hot_x,
+                                         const int hot_y) {
   SDL_Cursor *res =
       g_Original_SDL_CreateColorCursor
           ? g_Original_SDL_CreateColorCursor(surface, hot_x, hot_y)
@@ -176,7 +171,7 @@ SDL_Cursor *Hooked_SDL_CreateColorCursor(SDL_Surface *surface, int hot_x,
     size_t bytes = (size_t)surface->w * surface->h * 4;
     if (bytes > 4096)
       bytes = 4096;
-    uint32_t crc = GameUtils::CalculateCRC32(surface->pixels, bytes);
+    const uint32_t crc = GameUtils::CalculateCRC32(surface->pixels, bytes);
     if (g_SignatureToType.count(crc)) {
       g_CursorToType[res] = g_SignatureToType[crc];
     } else {
@@ -201,9 +196,9 @@ bool Hooked_SDL_SetCursor(SDL_Cursor *cursor) {
 bool Hooked_SDL_PollEvent(void *event) {
   if (!g_Original_SDL_PollEvent)
     return false;
-  bool res = g_Original_SDL_PollEvent(event);
+  const bool res = g_Original_SDL_PollEvent(event);
   if (res && event) {
-    uint32_t type = *(uint32_t *)event;
+    const uint32_t type = *(uint32_t *)event;
 
     if (!IsSimulatedEvent(event)) {
     }
@@ -222,7 +217,7 @@ bool Hooked_SDL_PollEvent(void *event) {
 }
 
 Uint32 Hooked_SDL_GetWindowFlags(void *window) {
-  Uint32 flags =
+  const Uint32 flags =
       g_Original_SDL_GetWindowFlags ? g_Original_SDL_GetWindowFlags(window) : 0;
   return flags | 0x100 | 0x200; // Force focus
 }
@@ -296,13 +291,13 @@ void ApplyDynamicHook(const char *name, void *hookFunc, void **originalStore,
   }
 }
 
-void SetIsHost(bool host) { g_IsHost = host; }
+void SetIsHost(const bool host) { g_IsHost = host; }
 
-void SimulateMouseMove(float normX, float normY, HWND hWnd) {
+void SimulateMouseMove(const float normX, const float normY, const HWND hWnd) {
   int pixelX, pixelY;
   DenormalizeCoordinates(normX, normY, hWnd, pixelX, pixelY);
-  float prevX = g_SimX;
-  float prevY = g_SimY;
+  const float prevX = g_SimX;
+  const float prevY = g_SimY;
   g_SimX = (float)pixelX;
   g_SimY = (float)pixelY;
   g_LastSimX = normX;
@@ -322,33 +317,38 @@ void SimulateMouseMove(float normX, float normY, HWND hWnd) {
   g_SimGlobalX = (float)spt.x;
   g_SimGlobalY = (float)spt.y;
 
-  ApplyDynamicHook("SDL_GetMouseState", (void *)Hooked_SDL_GetMouseState,
-                   (void **)&g_Original_SDL_GetMouseState, true);
+  ApplyDynamicHook("SDL_GetMouseState",
+    (void *)Hooked_SDL_GetMouseState,
+    (void **)&g_Original_SDL_GetMouseState, true);
   ApplyDynamicHook("SDL_GetGlobalMouseState",
-                   (void *)Hooked_SDL_GetGlobalMouseState,
-                   (void **)&g_Original_SDL_GetGlobalMouseState, true);
+    (void *)Hooked_SDL_GetGlobalMouseState,
+    (void **)&g_Original_SDL_GetGlobalMouseState, true);
   ApplyDynamicHook("SDL_GetRelativeMouseState",
-                   (void *)Hooked_SDL_GetRelativeMouseState,
-                   (void **)&g_Original_SDL_GetRelativeMouseState, true);
-  ApplyDynamicHook("SDL_GetMouseFocus", (void *)Hooked_SDL_GetMouseFocus,
-                   (void **)&g_Original_SDL_GetMouseFocus, true);
-  ApplyDynamicHook("SDL_GetKeyboardFocus", (void *)Hooked_SDL_GetKeyboardFocus,
-                   (void **)&g_Original_SDL_GetKeyboardFocus, true);
-  ApplyDynamicHook("SDL_GetWindowFlags", (void *)Hooked_SDL_GetWindowFlags,
-                   (void **)&g_Original_SDL_GetWindowFlags, true);
-  ApplyDynamicHook("SDL_PollEvent", (void *)Hooked_SDL_PollEvent,
-                   (void **)&g_Original_SDL_PollEvent, true);
+    (void *)Hooked_SDL_GetRelativeMouseState,
+    (void **)&g_Original_SDL_GetRelativeMouseState, true);
+  ApplyDynamicHook("SDL_GetMouseFocus",
+    (void *)Hooked_SDL_GetMouseFocus,
+    (void **)&g_Original_SDL_GetMouseFocus, true);
+  ApplyDynamicHook("SDL_GetKeyboardFocus",
+    (void *)Hooked_SDL_GetKeyboardFocus,
+    (void **)&g_Original_SDL_GetKeyboardFocus, true);
+  ApplyDynamicHook("SDL_GetWindowFlags",
+    (void *)Hooked_SDL_GetWindowFlags,
+    (void **)&g_Original_SDL_GetWindowFlags, true);
+  ApplyDynamicHook("SDL_PollEvent",
+    (void *)Hooked_SDL_PollEvent,
+    (void **)&g_Original_SDL_PollEvent, true);
   ApplyDynamicHook("SDL_CreateColorCursor",
-                   (void *)Hooked_SDL_CreateColorCursor,
-                   (void **)&g_Original_SDL_CreateColorCursor, true);
+    (void *)Hooked_SDL_CreateColorCursor,
+    (void **)&g_Original_SDL_CreateColorCursor, true);
   ApplyDynamicHook("SDL_SetCursor",
-                   (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
-                   (void **)&g_Original_SDL_SetCursor, true);
+    (void *)(SDL_SetCursor_t)Hooked_SDL_SetCursor,
+    (void **)&g_Original_SDL_SetCursor, true);
 
   void **pPush = ResolveTableEntry("SDL_PushEvent");
   if (pPush && *pPush) {
-    SDL_PushEvent_t _SDL_PushEvent = (SDL_PushEvent_t)*pPush;
-    Internal_SDL_Event ev = {0};
+    const auto SDL_PushEvent = (SDL_PushEvent_t)*pPush;
+    Internal_SDL_Event ev = {};
     ev.type = 0x400; // SDL_EVENT_MOUSE_MOTION
     ev.reserved = 0x88008800;
     *(uint32_t *)(ev.data + 0) = g_ObservedWID; // windowID
@@ -358,11 +358,11 @@ void SimulateMouseMove(float normX, float normY, HWND hWnd) {
     *(float *)(ev.data + 16) = g_SimY;          // y
     *(float *)(ev.data + 20) = g_SimX - prevX;  // xrel
     *(float *)(ev.data + 24) = g_SimY - prevY;  // yrel
-    _SDL_PushEvent(&ev);
+    SDL_PushEvent(&ev);
   }
 }
 
-void GetViewportInfo(HWND hWnd, int &vpX, int &vpY, int &vpW, int &vpH) {
+void GetViewportInfo(const HWND hWnd, int &vpX, int &vpY, int &vpW, int &vpH) {
   RECT rect;
   if (!GetClientRect(hWnd, &rect)) {
     vpX = 0;
@@ -379,7 +379,9 @@ void GetViewportInfo(HWND hWnd, int &vpX, int &vpY, int &vpW, int &vpH) {
     vpH = 1;
     return;
   }
-  float targetAspect = 16.0f / 9.0f, windowAspect = (float)w / (float)h;
+  constexpr float targetAspect = 16.0f / 9.0f;
+  const float windowAspect = (float)w / (float)h;
+
   if (windowAspect > targetAspect) {
     vpW = (int)(h * targetAspect);
     vpH = h;
@@ -393,14 +395,14 @@ void GetViewportInfo(HWND hWnd, int &vpX, int &vpY, int &vpW, int &vpH) {
   }
 }
 
-void NormalizeCoordinates(int x, int y, HWND hWnd, float &outX, float &outY) {
+void NormalizeCoordinates(const int x, const int y, const HWND hWnd, float &outX, float &outY) {
   int vX, vY, vW, vH;
   GetViewportInfo(hWnd, vX, vY, vW, vH);
   outX = (float)(x - vX) / (float)vW;
   outY = (float)(y - vY) / (float)vH;
 }
 
-void DenormalizeCoordinates(float normX, float normY, HWND hWnd, int &outX,
+void DenormalizeCoordinates(const float normX, const float normY, const HWND hWnd, int &outX,
                             int &outY) {
   int vX, vY, vW, vH;
   GetViewportInfo(hWnd, vX, vY, vW, vH);
@@ -412,7 +414,7 @@ void Update() {
   auto &nm = NetworkManager::Get();
   if (!nm.GetCurrentLobby().IsValid())
     return;
-  HWND hWnd = ImGuiHook::GetHWND();
+  const HWND hWnd = ImGuiHook::GetHWND();
   if (!hWnd)
     return;
   g_hMainWnd = hWnd;
@@ -423,7 +425,7 @@ void Update() {
     if (abs(normX - g_LastBroadcastX) > 0.001f ||
         abs(normY - g_LastBroadcastY) > 0.001f ||
         g_CurrentCursorType != g_LastBroadcastCursor) {
-      MouseMoveData data;
+      MouseMoveData data{};
       data.steamID = SteamUser()->GetSteamID().ConvertToUint64();
       data.x = normX;
       data.y = normY;

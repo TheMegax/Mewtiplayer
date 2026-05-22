@@ -2,9 +2,8 @@
 setlocal
 
 set "MODS_DIR=C:\Program Files (x86)\Steam\steamapps\common\Mewgenics\Mods"
-set "CLEANUP=1"
+set "CLEANUP=0"
 
-:: If cl.exe is not in PATH, we try to call the VS Developer Command Prompt
 where cl.exe >nul 2>nul
 if %errorlevel% neq 0 (
     echo cl.exe not found in PATH. Attempting to set up Visual Studio environment...
@@ -27,9 +26,9 @@ echo Compiling resources...
 rc /fo build\resources.res src\resources.rc
 
 echo Compiling Mewtiplayer...
-cl /LD /O2 /GS- /W3 /std:c++17 /D_CRT_SECURE_NO_WARNINGS ^
+cl /LD /O2 /Zi /GS- /W3 /std:c++17 /D_CRT_SECURE_NO_WARNINGS ^
   /I . /I include /I external/mewjector /I external/steam /I external/imgui /I external/kiero /I external/kiero/minhook/include ^
-  Mewtiplayer.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/ImGuiHook.cpp src/GameUtils.cpp src/InputGhost.cpp ^
+  Mewtiplayer.cpp src/CrashHandler.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/ImGuiHook.cpp src/GameUtils.cpp src/InputGhost.cpp ^
   external/kiero/kiero.cpp ^
   external/kiero/minhook/src/buffer.c ^
   external/kiero/minhook/src/hook.c ^
@@ -42,8 +41,9 @@ cl /LD /O2 /GS- /W3 /std:c++17 /D_CRT_SECURE_NO_WARNINGS ^
   external/imgui/imgui_impl_opengl2.cpp ^
   external/imgui/imgui_impl_win32.cpp ^
   build\resources.res ^
-  external/steam/steam_api64.lib user32.lib opengl32.lib gdi32.lib dwmapi.lib ^
-  /Fo:build\ /Fe:build\Mewtiplayer.dll
+  external/steam/steam_api64.lib user32.lib opengl32.lib gdi32.lib dwmapi.lib dbghelp.lib ^
+  /Fo:build\ /Fe:build\Mewtiplayer.dll /Fd:build\ ^
+  /link /DEBUG
 if %errorlevel% neq 0 (
     echo Compilation failed!
     exit /b %errorlevel%
