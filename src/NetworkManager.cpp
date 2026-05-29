@@ -443,7 +443,7 @@ void NetworkManager::EnqueueReplayAction(const ActionPacket &pkt) {
   if (pkt.type == PacketType::TurnAction) {
     Overlay::Log("[REPLAY] Queued action: %s", pkt.data.action.abilityName);
   } else {
-    Overlay::Log("[REPLAY] Queued facing: NUID %u", pkt.data.facing.actorNUID);
+    Overlay::Log("[REPLAY] Queued facing: (%d, %d)", pkt.data.facing.nx, pkt.data.facing.ny);
   }
 }
 void NetworkManager::InitializeEntityMapping() {

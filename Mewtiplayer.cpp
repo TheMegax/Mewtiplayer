@@ -13,14 +13,16 @@
 static MewjectorAPI mj;
 static UINT_PTR g_gameBase = 0;
 
+static bool g_networkInitialized = false;
+static bool g_testingMode = false;
+
 typedef void (*RunFrame_t)(void *rcx, void *rdx);
 static RunFrame_t g_origRunFrame = nullptr;
-static bool g_networkInitialized = false;
 
 typedef void(__fastcall *BeginTurn_t)(void *character, int kind);
 static BeginTurn_t g_origBeginTurn = nullptr;
-static TurnControl *g_currentTurnControl = nullptr;
 
+static TurnControl *g_currentTurnControl = nullptr;
 typedef void(__fastcall *TurnStart_t)(TurnControl *tc);
 static TurnStart_t g_origTurnStart = nullptr;
 
@@ -30,15 +32,14 @@ static FightEnd_t g_origFightEnd = nullptr;
 typedef void *(__fastcall *AbilityTrigger_t)(void *ability, void *turnAction);
 AbilityTrigger_t g_origAbilityTrigger = nullptr;
 
-typedef void(__fastcall *FaceDirection_t)(void *character,
-                                          uint64_t target_packed,
-                                          bool play_animation, bool force);
+typedef void(__fastcall *FaceDirection_t)(void *character, uint64_t target_packed, bool play_animation, bool force);
 FaceDirection_t g_origFaceDirection = nullptr;
-
-static bool g_testingMode = false;
 
 typedef void *(__fastcall *StevenSpawn_t)(void *rcx, void *rdx);
 static StevenSpawn_t g_origStevenSpawn = nullptr;
+
+typedef void *(__fastcall *SlotUpdateDynamicValue_t)(void *rcx, void *rdx);
+static SlotUpdateDynamicValue_t g_origSlotUpdateDynamicValue = nullptr;
 
 static void *__fastcall Hook_StevenSpawn(void *rcx, void *rdx) {
   if (g_testingMode) {
@@ -57,6 +58,9 @@ bool g_isSyncActionPending = false;
 
 bool g_startedCombat = false;
 static bool g_isQueueEmpty = false;
+static bool g_inCombatDetected = false;
+#include <deque>
+std::deque<ActionPacket> g_pendingInjections;
 
 static void Hook_TurnStart(TurnControl *tc) {
   if (tc) {
@@ -98,6 +102,17 @@ static void Hook_BeginTurn(Character *character, int kind) {
       size_t converted;
       wcstombs_s(&converted, narrowName, name.c_str(), sizeof(narrowName));
       NetworkManager::Get().RegisterCat(uniqueId, narrowName, className);
+
+      if (!g_inCombatDetected) {
+        g_inCombatDetected = true;
+        if (NetworkManager::Get().IsHost()) {
+          NetworkManager::Get().StartCombat();
+        }
+        g_pendingInjections.clear();
+        NetworkManager::Get().ClearRecordedActions();
+        NetworkManager::Get().InitializeEntityMapping();
+      }
+
       const uint32_t nuid = NetworkManager::Get().GetNUID(character);
       if (isPlayerCat == 1 && nuid != 0xFFFFFFFF) {
         NetworkManager::Get().SetActiveNUID(nuid);
@@ -144,7 +159,6 @@ typedef void *(__fastcall *EnqueueAction_t)(void *queue, void *actionData);
 EnqueueAction_t g_origEnqueueAction = nullptr;
 void *g_lastActionQueue = nullptr;
 
-std::deque<ActionPacket> g_pendingInjections;
 
 [[maybe_unused]] static void LogHexDump(const void *data, size_t size, const char *label) {
   const auto *p = static_cast<const unsigned char *>(data);
@@ -170,7 +184,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
                                            TurnAction *actionData) {
   g_lastActionQueue = queue;
 
-  g_isQueueEmpty = (actionData && actionData->type <= 1);
+  g_isQueueEmpty = actionData && actionData->type <= 1;
 
   if (actionData && actionData->type <= 1 && !g_pendingInjections.empty()) {
     // Peek for TurnAction specifically, or handle TurnFacing immediately
@@ -179,7 +193,11 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
       const TurnFacingPacket &facing = g_pendingInjections.front().data.facing;
 
       if (Character *c = NetworkManager::Get().GetCharacter(facing.actorNUID)) {
-        uint64_t packed = static_cast<uint64_t>(facing.nx) | static_cast<uint64_t>(facing.ny) << 32;
+        const auto ux = static_cast<uint32_t>(facing.nx);
+        const auto uy = static_cast<uint32_t>(facing.ny);
+        uint64_t packed = static_cast<uint64_t>(ux) | static_cast<uint64_t>(uy) << 32;
+        Overlay::Log("[ENQUEUE] Injecting facing for NUID %u | Target:(%d,%d)",
+                     facing.actorNUID, facing.nx, facing.ny);
         if (g_origFaceDirection)
           g_origFaceDirection(c, packed, facing.anim, facing.force);
       }
@@ -199,7 +217,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
         if (abilityName != "NULL") {
           ability = GameUtils::FindCharacterAbility(pendingActor, abilityName);
           if (!ability) {
-            Overlay::Log("[ENQUEUE] Could not resolve ability '%s' for NUID %u "
+            Overlay::Log("[ENQUEUE] [ERROR] Could not resolve ability '%s' for NUID %u "
                          "- dropping",
                          pending.abilityName, pending.actorNUID);
             g_pendingInjections.pop_front();
@@ -224,8 +242,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
                      pktCopy.actionType, pktCopy.actorNUID);
         if (g_origEnqueueAction)
           return g_origEnqueueAction(queue, actionData);
-        else
-          return nullptr;
+        return nullptr;
       }
     }
 
@@ -242,8 +259,9 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
     }
   }
 
-  if (!actionData ||
-      actionData->type <= 1) // Actions under or equal to 1 are null actions
+  // Actions equal to 1 are null actions (idle).
+  // I haven't seen actions with type 0 or lower, but the game ignores them anyway.
+  if (!actionData || actionData->type <= 1)
     return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
                                : nullptr;
 
@@ -343,7 +361,6 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
   return nullptr;
 }
 
-static bool g_inCombatDetected = false;
 
 static GameUtils::ButtonGroupTracker g_moveButtons;
 static GameUtils::ButtonGroupTracker g_attackButtons;
@@ -368,6 +385,7 @@ static void Hook_UpdateCombatResolutionState(void *combat) {
     NetworkManager::Get().UpdateDynamicEntities();
 
     // Explicit end-of-fight detection
+    // TODO: Hardcoded offsets, should be struct
     const bool victory = *(char *)((uintptr_t)combat + 0x1AA) != 0;
     const bool defeat = *(char *)((uintptr_t)combat + 0x35) != 0;
 
@@ -390,57 +408,6 @@ static void Hook_UpdateCombatResolutionState(void *combat) {
 
   if (g_origFightEnd)
     g_origFightEnd(combat);
-}
-
-static void Hook_RunFrame(void *rcx, void *rdx) {
-  if (rcx && !g_networkInitialized) {
-    g_networkInitialized = true;
-    Overlay::Log("Captured application instance: %p", rcx);
-    NetworkManager::Get().Init(&mj, MOD_NAME "-" MOD_VERSION);
-    Overlay::Setup(&mj); // Initialize overlay once network is ready or at start
-    if (g_testingMode) {
-      NetworkManager::Get().HostLobby("Debug Lobby");
-    }
-  }
-
-  if (g_networkInitialized) {
-    NetworkManager::Get().Update();
-    InputGhost::Update();
-    InputGhost::SetIsHost(NetworkManager::Get().IsHost());
-
-    if (g_inCombatDetected) {
-      if (g_moveButtons.buttons.empty()) {
-        if (const Scene *battle = GameUtils::GetSceneByName("Battle")) {
-          g_moveButtons.Init(battle, "Combat_MoveButton");
-          g_attackButtons.Init(battle, "Combat_AttackButton");
-          g_spellButtons.Init(battle, "Combat_SpellButton");
-          g_itemButtons.Init(battle, "Combat_ItemButton");
-          g_endTurnButtons.Init(battle, "Combat_EndTurnButton");
-        }
-      }
-
-      auto pollIntent = [](GameUtils::ButtonGroupTracker &tracker) {
-        const auto changes = tracker.Poll();
-        for (const auto &change : changes) {
-          if (change.oldState == GameUtils::ButtonState_Pressed &&
-              (change.newState == GameUtils::ButtonState_Hovered ||
-               change.newState == GameUtils::ButtonState_Disabled)) {
-            Overlay::Log("[INPUT] Button '%s' clicked.", tracker.roleName);
-            g_waitingForPlayerAction = true;
-          }
-        }
-      };
-
-      pollIntent(g_moveButtons);
-      pollIntent(g_attackButtons);
-      pollIntent(g_spellButtons);
-      pollIntent(g_itemButtons);
-      pollIntent(g_endTurnButtons);
-    }
-  }
-
-  if (g_origRunFrame)
-    g_origRunFrame(rcx, rdx);
 }
 
 static void Hook_FaceDirection(void *character, const uint64_t target_packed,
@@ -467,7 +434,7 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
       } else {
         lastFacing[nuid] = {nx, ny};
 
-        if (isLocalActiveNUID && g_isQueueEmpty) {
+        if (isLocalActiveNUID && g_isQueueEmpty && g_pendingInjections.empty()) {
           TurnFacingPacket pkt{};
           pkt.actorNUID = nuid;
           pkt.nx = nx;
@@ -483,7 +450,7 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
           NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt,
                                                 sizeof(pkt), !g_testingMode);
 
-          Overlay::Log("[FACE] Broadcast Turn for Actor:%u | Target:(%d,%d)",
+          Overlay::Log("[FACE] Broadcast TurnFacing for NUID:%u | Target:(%d,%d)",
                        nuid, nx, ny);
 
           if (g_testingMode) {
@@ -494,7 +461,7 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
             Overlay::Log("[FACE] Local Active NUID (%d), Queue not empty | "
                          "Target:(%d,%d)",
                          nuid, nx, ny);
-          } else {
+          } else if (nuid != 0xFFFFFFFF) {
             Overlay::Log(
                 "[FACE] Queue empty, NUID not local (%d) | Target:(%d,%d)",
                 nuid, nx, ny);
@@ -507,6 +474,76 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
   if (g_origFaceDirection)
     g_origFaceDirection(character, target_packed, play_animation, force);
 }
+
+static void Hook_SlotUpdateDynamicValue(void *rcx, void *rdx) {
+  // For this, we are completely disabling RNG shuffling for "N" target dynamic values.
+  // Despite the name, it does shuffle RNG in other particular cases too, possibly hardcoded in?
+  // I don't believe the game ever needs this, given the values are afaik not even show in the UI.
+  // Keeping this always enabled even without the network active for consistency’s sake...
+  // ...but I'll keep an eye out for side effects.
+  uint32_t state[8] = {};
+  GameUtils::GetRNGState(state);
+
+  if (g_origSlotUpdateDynamicValue) {
+    g_origSlotUpdateDynamicValue(rcx, rdx);
+  }
+  GameUtils::SetRNGState(state);
+}
+
+static void Hook_RunFrame(void *rcx, void *rdx) {
+  if (rcx && !g_networkInitialized) {
+    g_networkInitialized = true;
+    Overlay::Log("Captured application instance: %p", rcx);
+    NetworkManager::Get().Init(&mj, MOD_NAME "-" MOD_VERSION);
+    Overlay::Setup(&mj); // Initialize overlay once network is ready or at start
+    if (g_testingMode) {
+      NetworkManager::Get().HostLobby("Debug Lobby");
+    }
+  }
+
+  // Polling buttons.
+  // TODO: This is decent, but does not work when using keyboard shortcuts!
+  // Ideally we would hook the actual button click callbacks
+  if (g_networkInitialized) {
+    NetworkManager::Get().Update();
+    InputGhost::Update();
+    InputGhost::SetIsHost(NetworkManager::Get().IsHost());
+
+    if (g_inCombatDetected) {
+      if (g_moveButtons.buttons.empty()) {
+        if (const Scene *battle = GameUtils::GetSceneByName("Battle")) {
+          g_moveButtons.Init(battle, "Combat_MoveButton");
+          g_attackButtons.Init(battle, "Combat_AttackButton");
+          g_spellButtons.Init(battle, "Combat_SpellButton");
+          g_itemButtons.Init(battle, "Combat_ItemButton");
+          g_endTurnButtons.Init(battle, "Combat_EndTurnButton");
+        }
+      }
+
+      auto pollIntent = [](GameUtils::ButtonGroupTracker &tracker) {
+        const auto changes = tracker.Poll();
+        for (const auto &change : changes) {
+          if (change.oldState == GameUtils::ButtonState_Pressed &&
+              (change.newState == GameUtils::ButtonState_Hovered ||
+               change.newState == GameUtils::ButtonState_Disabled)) {
+            Overlay::Log("[INPUT] Button '%s' clicked.", tracker.roleName);
+            g_waitingForPlayerAction = true;
+               }
+        }
+      };
+
+      pollIntent(g_moveButtons);
+      pollIntent(g_attackButtons);
+      pollIntent(g_spellButtons);
+      pollIntent(g_itemButtons);
+      pollIntent(g_endTurnButtons);
+    }
+  }
+
+  if (g_origRunFrame)
+    g_origRunFrame(rcx, rdx);
+}
+
 
 // ---------------------------------------------------------------------------
 // Initialization
@@ -573,6 +610,12 @@ static void Initialize() {
       &mj, g_gameBase, "StevenSpawn",
       "48 8B C4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 E8 FE FF FF "
       "48 81 EC E0 01 00 00 0F 29 70 B8 0F 29 78 A8 8B F2");
+
+  // "SlotUpdateDynamicValue" - RVA 0x043f40
+  const uintptr_t slotUpdateDynamicValueRVA = ScanSignature(
+      &mj, g_gameBase, "SlotUpdateDynamicValue",
+      "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 60 48 8B D9 4C 8B 41 10");
+
 
   // Mewdirector - RVA 0x9288B0
   const uintptr_t pMewDirectorSig = ScanSignature(
@@ -650,6 +693,12 @@ static void Initialize() {
       (void **)&g_origStevenSpawn, 10, MOD_NAME);
   } else {
     Overlay::Log("Failed to find StevenSpawn!");
+  }
+
+  if (slotUpdateDynamicValueRVA) {
+    mj.InstallHook(slotUpdateDynamicValueRVA, 15,
+      (void *)Hook_SlotUpdateDynamicValue,
+      (void **)&g_origSlotUpdateDynamicValue, 10, MOD_NAME);
   }
 }
 

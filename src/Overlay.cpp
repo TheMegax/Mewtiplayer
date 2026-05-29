@@ -338,7 +338,7 @@ static void RenderNetworkTab() {
 }
 
 static void RenderRNGTab() {
-  uint32_t state[8] = {0};
+  uint32_t state[8] = {};
   GameUtils::GetRNGState(state);
 
   ImGui::Text("Xoshiro256 State (TLS +0x178):");
@@ -502,22 +502,38 @@ static void RenderActionManagerTab() {
       }
       firstLine = false;
 
-      ActionPacket pkt = {};
-      char typeStr[32];
-      int anim, force;
+      char typeStr[32] = {};
+      uint32_t actorNUID = 0;
+      int32_t actionType = 0;
+      char abilityName[64] = {};
+      int32_t targetX = 0, targetY = 0, target2X = 0, target2Y = 0;
+      int32_t nx = 0, ny = 0;
+      int anim = 0, force = 0;
+
       const int parsed =
           sscanf(line.c_str(), "%31[^,],%u,%d,%63[^,],%d,%d,%d,%d,%d,%d,%d,%d",
-                 typeStr, &pkt.data.action.actorNUID, &pkt.data.action.actionType,
-                 pkt.data.action.abilityName, &pkt.data.action.targetX,
-                 &pkt.data.action.targetY, &pkt.data.action.target2X,
-                 &pkt.data.action.target2Y, &pkt.data.facing.nx,
-                 &pkt.data.facing.ny, &anim, &force);
+                 typeStr, &actorNUID, &actionType,
+                 abilityName, &targetX,
+                 &targetY, &target2X,
+                 &target2Y, &nx,
+                 &ny, &anim, &force);
 
       if (parsed == 12) {
+        ActionPacket pkt = {};
         if (strcmp(typeStr, "ACTION") == 0) {
           pkt.type = PacketType::TurnAction;
+          pkt.data.action.actorNUID = actorNUID;
+          pkt.data.action.actionType = actionType;
+          strncpy_s(pkt.data.action.abilityName, abilityName, _TRUNCATE);
+          pkt.data.action.targetX = targetX;
+          pkt.data.action.targetY = targetY;
+          pkt.data.action.target2X = target2X;
+          pkt.data.action.target2Y = target2Y;
         } else if (strcmp(typeStr, "FACING") == 0) {
           pkt.type = PacketType::TurnFacing;
+          pkt.data.facing.actorNUID = actorNUID;
+          pkt.data.facing.nx = nx;
+          pkt.data.facing.ny = ny;
           pkt.data.facing.anim = anim != 0;
           pkt.data.facing.force = force != 0;
         }
@@ -531,8 +547,6 @@ static void RenderActionManagerTab() {
 }
 
 static void InternalRender() {
-  LoadCursorTextures();
-
   // Draw remote cursors
   RenderRemoteCursors();
 
@@ -582,7 +596,8 @@ void Overlay::Setup(MewjectorAPI *mj) {
   }
 
   if (!ImGuiHook::Load(mj, InternalRender, []() {
-        Overlay::Log("[OK] Overlay active. F1=Menu");
+        LoadCursorTextures();
+        Log("[OK] Overlay active. F1=Menu");
       })) {
     mj->Log("Overlay", "[ERR] Failed to load ImGuiHook: %s",
             ImGuiHook::GetLastError().c_str());

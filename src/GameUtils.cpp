@@ -113,7 +113,7 @@ std::vector<Character *> GetFighters() {
   std::vector<Character *> fighters;
 
   for (Character *c : all) {
-    if (c->isStatic || c->isSpeculativeInanimate || c->characterType == 4) {
+    if (c->isStatic || c->isInanimate || c->characterType == 4) {
       continue;
     }
 
@@ -124,11 +124,14 @@ std::vector<Character *> GetFighters() {
 }
 
 std::string GetAbilityName(Ability *ability) {
-  if (!ability || (uintptr_t)ability <= 0x10000 || (uintptr_t)ability >= 0x7FFFFFFFFFFF)
+  if (!ability || (uintptr_t)ability <= 0x10000 || (uintptr_t)ability >= 0x7FFFFFFFFFFF
+      || ((uintptr_t)ability & 0xF))
     return "NULL";
 
   __try {
-    if (ability->definition && (uintptr_t)ability->definition > 0x10000 && (uintptr_t)ability->definition < 0x7FFFFFFFFFFF) {
+    if (ability->definition && (uintptr_t)ability->definition > 0x10000
+        && (uintptr_t)ability->definition < 0x7FFFFFFFFFFF
+        && !((uintptr_t)ability->definition & 0xF)) {
       std::string name = ability->definition->name.copy_to_native_string();
       if (!name.empty() && name.length() < 128) {
         bool printable = true;
@@ -153,7 +156,8 @@ std::string GetAbilityName(Ability *ability) {
       continue; // Skip owner pointer (Character*)
     __try {
       void *p = *(void **)((uintptr_t)ability + i);
-      if (p && (uintptr_t)p > 0x10000 && (uintptr_t)p < 0x7FFFFFFFFFFF) {
+      if (p && (uintptr_t)p > 0x10000 && (uintptr_t)p < 0x7FFFFFFFFFFF
+          && !((uintptr_t)p & 0xF)) {
         auto *def = (AbilityDefinition *)p;
         std::string name = def->name.copy_to_native_string();
         if (!name.empty() && name.length() < 128) {
@@ -183,7 +187,8 @@ Ability *FindCharacterAbility(const Character *actor, const std::string &targetN
   // Check direct ability pointers
   Ability *directAbilities[] = {actor->defaultMove, actor->basicAttack};
   for (Ability *directAbility : directAbilities) {
-    if (directAbility && (uintptr_t)directAbility > 0x10000) {
+    if (directAbility && (uintptr_t)directAbility > 0x10000
+        && !((uintptr_t)directAbility & 0xF)) {
       __try {
         if (directAbility->owner == actor &&
             GetAbilityName(directAbility) == targetName) {
@@ -199,7 +204,8 @@ Ability *FindCharacterAbility(const Character *actor, const std::string &targetN
     for (int i = 0; i < 5; i++) {
       __try {
         Ability *a = actor->spells[i];
-        if (a && (uintptr_t)a > 0x10000 && (uintptr_t)a < 0x7FFFFFFFFFFF) {
+        if (a && (uintptr_t)a > 0x10000 && (uintptr_t)a < 0x7FFFFFFFFFFF
+            && !((uintptr_t)a & 0xF)) {
           if (a->owner == actor && GetAbilityName(a) == targetName) {
             return a;
           }
