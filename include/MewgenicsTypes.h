@@ -323,8 +323,8 @@ struct FighterList {
 };
 
 struct CombatStateBlock {
-  char _padding_0[8048]; // 0
-  FighterList *fighters; // 8048
+  char _padding_0[8080]; // 0
+  FighterList *fighters; // 8080
 };
 
 struct CombatEntityManager {

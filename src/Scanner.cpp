@@ -1,6 +1,6 @@
 #include "Scanner.h"
 #include "Overlay.h"
-#include <string.h>
+#include <cstring>
 
 uintptr_t FindPattern(const uintptr_t base, const char *signature) {
   if (!base)

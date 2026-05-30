@@ -79,10 +79,10 @@ static void Hook_BeginTurn(Character *character, int kind) {
     std::wstring name = L"Unknown";
     const auto w_name = (MsvcReleaseModeXString *)&character->name;
     // Note: Layout is same, but we treat it as wchar_t*
-    if (w_name->_Myres < 8) {
-      name = (const wchar_t *)&w_name->_Bx._Buf[0];
+    if (w_name->Myres < 8) {
+      name = (const wchar_t *)&w_name->Bx.Buf[0];
     } else {
-      name = *(const wchar_t **)&w_name->_Bx._Ptr;
+      name = *(const wchar_t **)&w_name->Bx.Ptr;
     }
 
     int64_t uniqueId = -1;
@@ -585,7 +585,7 @@ static void Initialize() {
   const uintptr_t abilityTriggerRVA =
       ScanSignature(&mj, g_gameBase, "AbilityTrigger",
                     "48 89 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57 48 8D "
-                    "AC 24 58 FD FF FF 48 81 EC A8 03 00 00");
+                    "AC 24 68 FD FF FF");
 
   // "ActionManager::enqueueAction" - RVA 0x8D6FE0
   const uintptr_t enqueueActionRVA =

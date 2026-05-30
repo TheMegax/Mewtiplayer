@@ -12,7 +12,7 @@
 #include <map>
 #include <mutex>
 #include <sstream>
-#include <stdarg.h>
+#include <cstdarg>
 #include <string>
 #include <vector>
 #include <windows.h>

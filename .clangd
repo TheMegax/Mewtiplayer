@@ -16,6 +16,17 @@ CompileFlags:
     - -Wno-unknown-pragmas
     - -x
     - c++
+    - --target=x86_64-w64-mingw32
+    - -isystem
+    - /usr/lib/gcc/x86_64-w64-mingw32/16.1.0/../../../../x86_64-w64-mingw32/include/c++/16.1.0
+    - -isystem
+    - /usr/lib/gcc/x86_64-w64-mingw32/16.1.0/../../../../x86_64-w64-mingw32/include/c++/16.1.0/x86_64-w64-mingw32
+    - -isystem
+    - /usr/lib/gcc/x86_64-w64-mingw32/16.1.0/include
+    - -isystem
+    - /usr/lib/gcc/x86_64-w64-mingw32/16.1.0/include-fixed
+    - -isystem
+    - /usr/lib/gcc/x86_64-w64-mingw32/16.1.0/../../../../x86_64-w64-mingw32/include
 
 Diagnostics:
   UnusedIncludes: None

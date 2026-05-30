@@ -297,7 +297,7 @@ bool GetButtonRoleName(Component *button, char *outBuf, const size_t bufSize) {
     return false;
   __try {
     const auto *role = (MsvcReleaseModeXString *)((uintptr_t)button + 0x1F8);
-    if (role->_Mysize > 0 && role->_Mysize < 256) {
+    if (role->Mysize > 0 && role->Mysize < 256) {
       const auto sv = role->as_native_string_view();
       const size_t len = sv.size() < bufSize - 1 ? sv.size() : bufSize - 1;
       memcpy(outBuf, sv.data(), len);
@@ -322,7 +322,7 @@ Component *FindButton(const Scene *scene, const char *roleName) {
       continue;
     __try {
       auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
-      if (role->_Mysize > 0 && role->_Mysize < 256 &&
+      if (role->Mysize > 0 && role->Mysize < 256 &&
           role->as_native_string_view() == roleName) {
         return c;
       }
@@ -343,7 +343,7 @@ std::vector<Component *> FindAllButtons(const Scene *scene, const char *roleName
       continue;
     __try {
       const auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
-      if (role->_Mysize > 0 && role->_Mysize < 256 &&
+      if (role->Mysize > 0 && role->Mysize < 256 &&
           role->as_native_string_view() == roleName) {
         result.push_back(c);
       }
