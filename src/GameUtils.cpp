@@ -123,57 +123,64 @@ std::vector<Character *> GetFighters() {
   return fighters;
 }
 
+static std::string SafeGetNativeString(const MsvcReleaseModeXString& xstr) {
+  if (xstr.Mysize >= 1024 || xstr.Myres < xstr.Mysize) return "";
+  
+  std::string result(xstr.Mysize, '\0');
+  if (xstr.Myres < 16) {
+    memcpy(&result[0], xstr.Bx.Buf, xstr.Mysize);
+  } else {
+    if ((uintptr_t)xstr.Bx.Ptr <= 0x10000 || (uintptr_t)xstr.Bx.Ptr >= 0x7FFFFFFFFFFF) return "";
+    SIZE_T bytesRead = 0;
+    if (!ReadProcessMemory(GetCurrentProcess(), xstr.Bx.Ptr, &result[0], xstr.Mysize, &bytesRead) || bytesRead != xstr.Mysize) {
+      return "";
+    }
+  }
+  return result;
+}
+
 std::string GetAbilityName(Ability *ability) {
   if (!ability || (uintptr_t)ability <= 0x10000 || (uintptr_t)ability >= 0x7FFFFFFFFFFF
       || ((uintptr_t)ability & 0xF))
     return "NULL";
 
-  __try {
-    if (ability->definition && (uintptr_t)ability->definition > 0x10000
-        && (uintptr_t)ability->definition < 0x7FFFFFFFFFFF
-        && !((uintptr_t)ability->definition & 0xF)) {
-      std::string name = ability->definition->name.copy_to_native_string();
-      if (!name.empty() && name.length() < 128) {
-        bool printable = true;
-        for (const char c : name) {
-          if (c < 32 || c > 126) {
-            printable = false;
-            break;
-          }
-        }
-        if (printable) {
-          return name;
+  auto check_definition = [](void *p) -> std::string {
+    if (!p || (uintptr_t)p <= 0x10000 || (uintptr_t)p >= 0x7FFFFFFFFFFF || ((uintptr_t)p & 0xF)) return "";
+    AbilityDefinition def;
+    SIZE_T bytesRead = 0;
+    if (!ReadProcessMemory(GetCurrentProcess(), p, &def, sizeof(AbilityDefinition), &bytesRead) || bytesRead != sizeof(AbilityDefinition)) {
+        return "";
+    }
+    std::string name = SafeGetNativeString(def.name);
+    if (!name.empty() && name.length() < 128) {
+      bool printable = true;
+      for (const char c : name) {
+        if (c < 32 || c > 126) {
+          printable = false;
+          break;
         }
       }
+      if (printable) {
+        return name;
+      }
     }
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-  }
+    return "";
+  };
+
+  std::string result = check_definition(ability->definition);
+  if (!result.empty()) return result;
 
   // Fallback: only scan safe offsets if definition lookup fails.
   // Explicitly skip 0 (vtable) and 16 (owner pointer).
   for (int i = 8; i < 64; i += 8) {
     if (i == 16)
       continue; // Skip owner pointer (Character*)
-    __try {
-      void *p = *(void **)((uintptr_t)ability + i);
-      if (p && (uintptr_t)p > 0x10000 && (uintptr_t)p < 0x7FFFFFFFFFFF
-          && !((uintptr_t)p & 0xF)) {
-        auto *def = (AbilityDefinition *)p;
-        std::string name = def->name.copy_to_native_string();
-        if (!name.empty() && name.length() < 128) {
-          bool printable = true;
-          for (const char c : name) {
-            if (c < 32 || c > 126) {
-              printable = false;
-              break;
-            }
-          }
-          if (printable) {
-            return name;
-          }
-        }
-      }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+      
+    void *p = nullptr;
+    SIZE_T bytesRead = 0;
+    if (ReadProcessMemory(GetCurrentProcess(), (void*)((uintptr_t)ability + i), &p, sizeof(void*), &bytesRead) && bytesRead == sizeof(void*)) {
+        result = check_definition(p);
+        if (!result.empty()) return result;
     }
   }
 

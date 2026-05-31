@@ -473,7 +473,7 @@ static void RenderActionManagerTab() {
   }
 
   ImGui::InputTextMultiline("##csv_output", (char *)csvData.c_str(),
-                            csvData.size(),
+                            csvData.size() + 1,
                             ImVec2(-1.0f, ImGui::GetTextLineHeight() * 8),
                             ImGuiInputTextFlags_ReadOnly);
 

@@ -88,6 +88,7 @@ static void Hook_TurnStart(TurnControl *tc) {
 // Why is there two different turn start functions? idk don't ask me
 static void Hook_BeginTurn(Character *character, int kind) {
   g_startedCombat = true;
+  g_isCombatUIProcessing = false;
 
   if (character) {
     std::wstring name = L"Unknown";
@@ -200,7 +201,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
 
   g_isQueueEmpty = actionData && actionData->type <= 1;
 
-  if (actionData && actionData->type <= 1 && !g_pendingInjections.empty()) {
+  if (actionData && actionData->type <= 1 && !g_pendingInjections.empty() && g_isCombatUIProcessing) {
     // Peek for TurnAction specifically, or handle TurnFacing immediately
     while (!g_pendingInjections.empty() &&
            g_pendingInjections.front().type == PacketType::TurnFacing) {
