@@ -6,6 +6,7 @@
 #include "Overlay.h"
 #include "Scanner.h"
 #include "mewjector.h"
+#include <unordered_set>
 
 #define MOD_NAME "Mewtiplayer"
 #define MOD_VERSION "1.0.0"
@@ -14,7 +15,11 @@ static MewjectorAPI mj;
 static UINT_PTR g_gameBase = 0;
 
 static bool g_networkInitialized = false;
-static bool g_testingMode = false;
+static bool g_packetTesting = false;
+static bool g_noSteven = false;
+static bool g_autoLobby = false;
+static bool g_talkative = false;
+static ActionPacket g_lastSentTurnPackage = {};
 
 typedef void (*RunFrame_t)(void *rcx, void *rdx);
 static RunFrame_t g_origRunFrame = nullptr;
@@ -26,7 +31,7 @@ static TurnControl *g_currentTurnControl = nullptr;
 typedef void(__fastcall *TurnStart_t)(TurnControl *tc);
 static TurnStart_t g_origTurnStart = nullptr;
 
-typedef void(__fastcall *FightEnd_t)(void *combat);
+typedef void(__fastcall *FightEnd_t)(CombatResolutionState *combat);
 static FightEnd_t g_origFightEnd = nullptr;
 
 typedef void *(__fastcall *AbilityTrigger_t)(void *ability, void *turnAction);
@@ -41,8 +46,17 @@ static StevenSpawn_t g_origStevenSpawn = nullptr;
 typedef void *(__fastcall *SlotUpdateDynamicValue_t)(void *rcx, void *rdx);
 static SlotUpdateDynamicValue_t g_origSlotUpdateDynamicValue = nullptr;
 
+typedef void *(__fastcall *ProcessCombatInput_t)(CombatUIContext *battleContext, void *outResult);
+static ProcessCombatInput_t g_origProcessCombatInput = nullptr;
+
+typedef void *(__fastcall *RouteCombatInput_t)(CombatUIContext *ctx, void *outResult, void *param3, void *param4);
+static RouteCombatInput_t g_origRouteCombatInput = nullptr;
+
+static bool g_isCombatUIProcessing = false;
+static std::unordered_set<void *> g_castableAbilities;
+
 static void *__fastcall Hook_StevenSpawn(void *rcx, void *rdx) {
-  if (g_testingMode) {
+  if (g_noSteven) {
     Overlay::Log("[STEVEN] Go away!");
     return nullptr;
   }
@@ -248,7 +262,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
 
     static ULONGLONG lastLogTime = 0;
     ULONGLONG currentTime = GetTickCount64();
-    if (g_testingMode && (currentTime - lastLogTime >= 1000) &&
+    if (g_talkative && (currentTime - lastLogTime >= 1000) &&
         !g_pendingInjections.empty()) {
       lastLogTime = currentTime;
       uint32_t currentNUID = NetworkManager::Get().GetNUID(actionData->actor);
@@ -264,6 +278,12 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
   if (!actionData || actionData->type <= 1)
     return g_origEnqueueAction ? g_origEnqueueAction(queue, actionData)
                                : nullptr;
+
+  if (g_isCombatUIProcessing) {
+    g_waitingForPlayerAction = actionData->type == 3 ||
+        (actionData->ability != nullptr &&
+         g_castableAbilities.count(reinterpret_cast<void *>(actionData->ability)) > 0);
+  }
 
   // Actions of type 3 are End Turn actions
   if (actionData->type == 3 && g_waitingForPlayerAction) {
@@ -284,11 +304,17 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
       actPkt.type = PacketType::TurnAction;
       actPkt.data.action = pkt;
 
+      // Right before sending the package, record the last direction the player faced to the queue.
+      if (g_lastSentTurnPackage.type == PacketType::TurnFacing) {
+        NetworkManager::Get().RecordAction(g_lastSentTurnPackage);
+        g_lastSentTurnPackage.type = PacketType::Ping;
+      }
+
       NetworkManager::Get().RecordAction(actPkt);
       NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                            sizeof(pkt), !g_testingMode);
+                                            sizeof(pkt), !g_packetTesting);
       Overlay::Log("[NET] Broadcast EndTurn for NUID %u", nuid);
-      if (g_testingMode) {
+      if (g_packetTesting) {
         actionData->type = 0; // Cancel this action
         Overlay::Log(
             "[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
@@ -334,7 +360,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
                    actionData->target2Y, actionData->type);
 
       NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                            sizeof(pkt), !g_testingMode);
+                                            sizeof(pkt), !g_packetTesting);
       ActionPacket actPkt{};
       actPkt.type = PacketType::TurnAction;
       actPkt.data.action = pkt;
@@ -342,7 +368,7 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
       Overlay::Log("[NET] Broadcast and Recorded Action '%s' for NUID: %d",
                    pkt.abilityName, nuid);
 
-      if (g_testingMode) {
+      if (g_packetTesting) {
         actionData->type = 0; // Cancel this action
         Overlay::Log(
             "[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
@@ -362,13 +388,9 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
 }
 
 
-static GameUtils::ButtonGroupTracker g_moveButtons;
-static GameUtils::ButtonGroupTracker g_attackButtons;
-static GameUtils::ButtonGroupTracker g_spellButtons;
-static GameUtils::ButtonGroupTracker g_itemButtons;
-static GameUtils::ButtonGroupTracker g_endTurnButtons;
 
-static void Hook_UpdateCombatResolutionState(void *combat) {
+
+static void Hook_UpdateCombatResolutionState(CombatResolutionState *combat) {
   if (!g_startedCombat)
     return;
 
@@ -381,25 +403,15 @@ static void Hook_UpdateCombatResolutionState(void *combat) {
     NetworkManager::Get().ClearRecordedActions();
     NetworkManager::Get().InitializeEntityMapping();
   } else {
-    // Combat already active, check for new entities
     NetworkManager::Get().UpdateDynamicEntities();
 
-    // Explicit end-of-fight detection
-    // TODO: Hardcoded offsets, should be struct
-    const bool victory = *(char *)((uintptr_t)combat + 0x1AA) != 0;
-    const bool defeat = *(char *)((uintptr_t)combat + 0x35) != 0;
-
-    if (victory || defeat) {
+    if (combat && (combat->victory || combat->defeat)) {
       Overlay::Log("[COMBAT] Fight End Detected: %s",
-                   victory ? "Victory" : "Defeat");
+                   combat->victory ? "Victory" : "Defeat");
       g_startedCombat = false;
       g_inCombatDetected = false;
       g_waitingForPlayerAction = false;
-      g_moveButtons.Reset();
-      g_attackButtons.Reset();
-      g_spellButtons.Reset();
-      g_itemButtons.Reset();
-      g_endTurnButtons.Reset();
+
       if (NetworkManager::Get().IsHost()) {
         NetworkManager::Get().EndCombat();
       }
@@ -446,16 +458,12 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
           actPkt.type = PacketType::TurnFacing;
           actPkt.data.facing = pkt;
 
-          NetworkManager::Get().RecordAction(actPkt);
+          g_lastSentTurnPackage = actPkt;
           NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt,
-                                                sizeof(pkt), !g_testingMode);
+                                                sizeof(pkt), !g_packetTesting);
 
           Overlay::Log("[FACE] Broadcast TurnFacing for NUID:%u | Target:(%d,%d)",
                        nuid, nx, ny);
-
-          if (g_testingMode) {
-            return;
-          }
         } else {
           if (isLocalActiveNUID) {
             Overlay::Log("[FACE] Local Active NUID (%d), Queue not empty | "
@@ -490,54 +498,41 @@ static void Hook_SlotUpdateDynamicValue(void *rcx, void *rdx) {
   GameUtils::SetRNGState(state);
 }
 
+static void *__fastcall Hook_ProcessCombatInput(CombatUIContext *ctx, void *outResult) {
+  g_isCombatUIProcessing = true;
+
+  if (ctx && ctx->entityManager) {
+    auto entities = GameUtils::GetUIAbilitySlots(ctx->entityManager);
+    for (auto *ent : entities) {
+      g_castableAbilities.insert(reinterpret_cast<void *>(ent));
+    }
+  }
+
+  return g_origProcessCombatInput(ctx, outResult);
+}
+
+static void *__fastcall Hook_RouteCombatInput(CombatUIContext *ctx, void *outResult, void *param3, void *param4) {
+  g_isCombatUIProcessing = false;
+  g_castableAbilities.clear();
+
+  return g_origRouteCombatInput(ctx, outResult, param3, param4);
+}
+
 static void Hook_RunFrame(void *rcx, void *rdx) {
   if (rcx && !g_networkInitialized) {
     g_networkInitialized = true;
     Overlay::Log("Captured application instance: %p", rcx);
     NetworkManager::Get().Init(&mj, MOD_NAME "-" MOD_VERSION);
     Overlay::Setup(&mj); // Initialize overlay once network is ready or at start
-    if (g_testingMode) {
+    if (g_autoLobby) {
       NetworkManager::Get().HostLobby("Debug Lobby");
     }
   }
 
-  // Polling buttons.
-  // TODO: This is decent, but does not work when using keyboard shortcuts!
-  // Ideally we would hook the actual button click callbacks
   if (g_networkInitialized) {
     NetworkManager::Get().Update();
     InputGhost::Update();
     InputGhost::SetIsHost(NetworkManager::Get().IsHost());
-
-    if (g_inCombatDetected) {
-      if (g_moveButtons.buttons.empty()) {
-        if (const Scene *battle = GameUtils::GetSceneByName("Battle")) {
-          g_moveButtons.Init(battle, "Combat_MoveButton");
-          g_attackButtons.Init(battle, "Combat_AttackButton");
-          g_spellButtons.Init(battle, "Combat_SpellButton");
-          g_itemButtons.Init(battle, "Combat_ItemButton");
-          g_endTurnButtons.Init(battle, "Combat_EndTurnButton");
-        }
-      }
-
-      auto pollIntent = [](GameUtils::ButtonGroupTracker &tracker) {
-        const auto changes = tracker.Poll();
-        for (const auto &change : changes) {
-          if (change.oldState == GameUtils::ButtonState_Pressed &&
-              (change.newState == GameUtils::ButtonState_Hovered ||
-               change.newState == GameUtils::ButtonState_Disabled)) {
-            Overlay::Log("[INPUT] Button '%s' clicked.", tracker.roleName);
-            g_waitingForPlayerAction = true;
-               }
-        }
-      };
-
-      pollIntent(g_moveButtons);
-      pollIntent(g_attackButtons);
-      pollIntent(g_spellButtons);
-      pollIntent(g_itemButtons);
-      pollIntent(g_endTurnButtons);
-    }
   }
 
   if (g_origRunFrame)
@@ -553,28 +548,41 @@ static void Initialize() {
     return;
   Overlay::Log("Initializing (API v%d)...", mj.GetVersion());
 
-  if (const char *cmdLine = GetCommandLineA(); strstr(cmdLine, "-testing_mode")) {
-    g_testingMode = true;
-    Overlay::Log("[INIT] Testing Mode Active!");
+  const char *cmdLine = GetCommandLineA();
+
+  if (strstr(cmdLine, "-packet_testing")) {
+    g_packetTesting = true;
+    Overlay::Log("[INIT] Packet testing Active!");
+  }
+  if (strstr(cmdLine, "-no_steven")) {
+    g_noSteven = true;
+    Overlay::Log("[INIT] No Steven Active!");
+  }
+  if (strstr(cmdLine, "-auto_lobby")) {
+    g_autoLobby = true;
+    Overlay::Log("[INIT] Auto lobby Active!");
+  }
+  if (strstr(cmdLine, "-talkative")) {
+    g_talkative = true;
+    Overlay::Log("[INIT] Talkative (verbose) logs Active!");
   }
 
   g_gameBase = mj.GetGameBase();
   Overlay::Log("Game base: %p", (void *)g_gameBase);
 
   // Signature scans //
-  // Note: RVAs are for version 1.0.20941 //
 
-  // "RunFrame" - RVA 0x9A5020
+  // "RunFrame"
   const uintptr_t runFrameRVA = ScanSignature(&mj, g_gameBase, "RunFrame",
                                         "40 53 41 56 41 57 48 83 EC 40");
 
-  // glaiel::Character::BeginTurn(TurnKind) - RVA 0x108C30
+  // glaiel::Character::BeginTurn(TurnKind)
   const uintptr_t beginTurnRVA =
       ScanSignature(&mj, g_gameBase, "BeginTurn",
                     "48 89 5C 24 08 89 54 24 10 55 56 57 41 54 41 55 41 56 41 "
                     "57 48 8D AC 24 B0 FC FF FF");
 
-  // "UpdateCombatResolutionState" - RVA 0x35F4B0
+  // "UpdateCombatResolutionState"
   const uintptr_t updateCombatResolutionStateRVA =
       ScanSignature(&mj, g_gameBase, "UpdateCombatResolutionState",
                     "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 "
@@ -587,41 +595,45 @@ static void Initialize() {
                     "48 89 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57 48 8D "
                     "AC 24 68 FD FF FF");
 
-  // "ActionManager::enqueueAction" - RVA 0x8D6FE0
+  // "ActionManager::enqueueAction"
   const uintptr_t enqueueActionRVA =
       ScanSignature(&mj, g_gameBase, "EnqueueAction",
                     "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 48 89 54 24 "
                     "10 57 48 83 EC 20 48 8B FA 83 3A 01");
 
-  // "TurnStart" - RVA 0x8D73D0
+  // "TurnStart"
   const uintptr_t turnStartRVA = ScanSignature(
       &mj, g_gameBase, "TurnStart",
       "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 28 EF FF "
       "FF B8 D8 11 00 00 E8 ? ? ? ? 48 2B E0 0F 29 B4 24 C0 11 00 00 48 8B F1");
 
-  // "FaceDirection" - RVA 0x10B0D0
+  // "FaceDirection"
   const uintptr_t faceDirectionRVA =
       ScanSignature(&mj, g_gameBase, "FaceDirection",
                     "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC "
                     "24 00 FD FF FF");
 
-  // "StevenSpawn" - RVA 0x8D4D80
+  // "StevenSpawn"
   const uintptr_t stevenSpawnRVA = ScanSignature(
       &mj, g_gameBase, "StevenSpawn",
       "48 8B C4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 E8 FE FF FF "
       "48 81 EC E0 01 00 00 0F 29 70 B8 0F 29 78 A8 8B F2");
 
-  // "SlotUpdateDynamicValue" - RVA 0x043f40
+  // "SlotUpdateDynamicValue"
   const uintptr_t slotUpdateDynamicValueRVA = ScanSignature(
       &mj, g_gameBase, "SlotUpdateDynamicValue",
       "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 60 48 8B D9 4C 8B 41 10");
 
-
-  // Mewdirector - RVA 0x9288B0
+  // Mewdirector
   const uintptr_t pMewDirectorSig = ScanSignature(
       &mj, g_gameBase, "MewDirectorSingleton",
       "48 89 5C 24 10 48 89 4C 24 08 57 48 83 EC 40 48 8B CA 48 8B 05 ?? ?? ?? "
       "?? 48 8B B8 A8 05 00 00");
+
+  // "ProcessCombatInput"
+  const uintptr_t processCombatInputRVA = ScanSignature(
+    &mj, g_gameBase, "ProcessCombatInput",
+    "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D 6C 24 B9 48 81 EC D0 00 00 00");
 
   // Resolve addresses //
   if (pMewDirectorSig) {
@@ -699,6 +711,26 @@ static void Initialize() {
     mj.InstallHook(slotUpdateDynamicValueRVA, 15,
       (void *)Hook_SlotUpdateDynamicValue,
       (void **)&g_origSlotUpdateDynamicValue, 10, MOD_NAME);
+  }
+
+  if (processCombatInputRVA) {
+    mj.InstallHook(processCombatInputRVA, 15,
+      (void *)Hook_ProcessCombatInput,
+      (void **)&g_origProcessCombatInput, 10, MOD_NAME);
+  } else {
+    Overlay::Log("Failed to find ProcessCombatInput!");
+  }
+
+  const uintptr_t routeCombatInputRVA = ScanSignature(
+      &mj, g_gameBase, "RouteCombatInput",
+      "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38");
+
+  if (routeCombatInputRVA) {
+    mj.InstallHook(routeCombatInputRVA, 15,
+      (void *)Hook_RouteCombatInput,
+      (void **)&g_origRouteCombatInput, 10, MOD_NAME);
+  } else {
+    Overlay::Log("Failed to find RouteCombatInput!");
   }
 }
 

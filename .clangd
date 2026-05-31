@@ -10,7 +10,6 @@ CompileFlags:
     - -D_CRT_SECURE_NO_WARNINGS
     - -std=c++17
     - -fms-extensions
-    - -fms-compatibility
     - -Wno-microsoft-enum-forward-reference
     - -Wno-ignored-attributes
     - -Wno-unknown-pragmas

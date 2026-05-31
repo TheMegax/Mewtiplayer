@@ -88,4 +88,6 @@ uint32_t CalculateCRC32(const void *data, size_t size);
 // Resolves a GridNode pointer for specific coordinates by getting the
 // TacticsTile component.
 void *ResolveGridTile(int x, int y);
+
+std::vector<UIAbilitySlot *> GetUIAbilitySlots(CombatUISlotManager *em);
 } // namespace GameUtils

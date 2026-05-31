@@ -154,8 +154,13 @@ struct Ability;
 struct FighterList;
 struct CombatStateBlock;
 struct CombatEntityManager;
+struct CombatUISlotManager;
 struct CombatContext;
+struct CombatUIContext;
 struct TurnControl;
+struct CombatResolutionState;
+struct UIAbilitySlotVTable;
+struct UIAbilitySlot;
 
 template <typename T> struct ComponentVTable {
   MsvcReleaseModeXString *(__cdecl *GetObjectTypeSTR)(
@@ -349,12 +354,36 @@ struct CombatContext {
   CombatEntityManager *entityManager; // 8
 };
 
+struct CombatUIContext {
+  char _padding_0[56];                 // 0
+  CombatUISlotManager *entityManager;  // 56
+  char _padding_1[640];                // 64
+  int32_t pendingActionCount;          // 704
+  char _padding_2[268];                // 708
+  bool isInputDirty;                   // 976
+  char _padding_3[2];                  // 977
+  bool isDragging;                     // 979
+};
+static_assert(offsetof(CombatUIContext, entityManager) == 56, "BattleUIContext offset mismatch");
+static_assert(offsetof(CombatUIContext, pendingActionCount) == 704, "BattleUIContext offset mismatch");
+static_assert(offsetof(CombatUIContext, isInputDirty) == 976, "BattleUIContext offset mismatch");
+static_assert(offsetof(CombatUIContext, isDragging) == 979, "BattleUIContext offset mismatch");
+
 struct TurnControl {
   char _padding_0[24];    // 0
   CombatContext *context; // 24
   char _padding_1[312];   // 32
   int32_t turnCount;      // 344
 };
+
+struct CombatResolutionState {
+  char _padding_0[53];  // 0
+  bool defeat;          // 0x35
+  char _padding_1[372]; // 0x36
+  bool victory;         // 0x1AA
+};
+static_assert(offsetof(CombatResolutionState, defeat) == 0x35, "CombatResolutionState offset mismatch");
+static_assert(offsetof(CombatResolutionState, victory) == 0x1AA, "CombatResolutionState offset mismatch");
 
 struct Character {
   void *vtable;                         // 0
@@ -416,6 +445,31 @@ static_assert(offsetof(Character, maxHP) == 1212, "Character offset mismatch");
 static_assert(offsetof(Character, strength) == 1440, "Character offset mismatch");
 static_assert(offsetof(Character, buffedStr) == 1776, "Character offset mismatch");
 static_assert(offsetof(Character, characterType) == 3316, "Character offset mismatch");
+
+struct UIAbilitySlotVTable {
+  void *unk0;
+  void *unk1;
+  uint64_t(__fastcall *IsCastable)(UIAbilitySlot *thiss, uint64_t param);
+};
+
+struct UIAbilitySlot {
+  UIAbilitySlotVTable *vtable;
+};
+
+struct CombatUISlotManager {
+  char _padding_0[208];           // 0
+  UIAbilitySlot *primaryEntity;   // 208
+  UIAbilitySlot *secondaryEntity; // 216
+  UIAbilitySlot *tertiaryEntity;  // 224
+  char _padding_1[4];             // 232
+  uint32_t extraCount;            // 236
+  UIAbilitySlot **extraArray;     // 240
+};
+static_assert(offsetof(CombatUISlotManager, primaryEntity) == 208, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, secondaryEntity) == 216, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, tertiaryEntity) == 224, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, extraCount) == 236, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, extraArray) == 240, "BattleUISlotManager offset mismatch");
 
 struct TurnAction {
   int32_t type;       // 0

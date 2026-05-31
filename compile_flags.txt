@@ -10,4 +10,3 @@ c++
 -D_CRT_SECURE_NO_WARNINGS
 -std=c++17
 -fms-extensions
--fms-compatibility

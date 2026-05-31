@@ -433,8 +433,31 @@ uint32_t CalculateCRC32(const void *data, size_t size) {
   return ~crc;
 }
 
+std::vector<UIAbilitySlot *> GetUIAbilitySlots(CombatUISlotManager *em) {
+  std::vector<UIAbilitySlot *> list;
+  if (!em) return list;
+
+  if (em->primaryEntity)
+    list.push_back(em->primaryEntity);
+  if (em->secondaryEntity)
+    list.push_back(em->secondaryEntity);
+
+  if (em->extraArray) {
+    for (uint32_t i = 0; i < em->extraCount; i++) {
+      if (em->extraArray[i])
+        list.push_back(em->extraArray[i]);
+    }
+  }
+
+  if (em->tertiaryEntity)
+    list.push_back(em->tertiaryEntity);
+
+  return list;
+}
+
 } // namespace GameUtils
 void *GameUtils::ResolveGridTile(const int x, const int y) {
+  // Unused!
   const Scene *scene = GetSceneByName("Battle");
   if (!scene)
     return nullptr;
