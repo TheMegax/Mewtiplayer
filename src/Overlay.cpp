@@ -173,6 +173,16 @@ static void __cdecl WrappedMjLog(const char *owner, const char *fmt, ...) {
 
 void Overlay::ToggleVisible() { g_visible = !g_visible; }
 
+static bool g_pendingSaveLoad = false;
+void Overlay::RequestSaveLoad() { g_pendingSaveLoad = true; }
+bool Overlay::ConsumeSaveLoad() {
+  if (g_pendingSaveLoad) {
+    g_pendingSaveLoad = false;
+    return true;
+  }
+  return false;
+}
+
 static void RenderRemoteCursors() {
   std::lock_guard<std::mutex> lock(g_cursorMutex);
   ImDrawList *drawList = ImGui::GetForegroundDrawList();
@@ -546,6 +556,18 @@ static void RenderActionManagerTab() {
   }
 }
 
+static void RenderSaveTab() {
+  ImGui::Text("Mod Save Manager");
+  ImGui::Separator();
+
+  if (ImGui::Button("Load / Create Mod Save")) {
+    Overlay::RequestSaveLoad();
+  }
+  ImGui::TextWrapped(
+      "This will load 'mewtiplayer.sav' if it exists, "
+      "or create a new save if it doesn't.");
+}
+
 static void InternalRender() {
   // Draw remote cursors
   RenderRemoteCursors();
@@ -581,6 +603,11 @@ static void InternalRender() {
 
     if (ImGui::BeginTabItem("RNG")) {
       RenderRNGTab();
+      ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Save Manager")) {
+      RenderSaveTab();
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();

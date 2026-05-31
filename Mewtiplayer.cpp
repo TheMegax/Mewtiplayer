@@ -536,6 +536,10 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     InputGhost::SetIsHost(NetworkManager::Get().IsHost());
   }
 
+  if (Overlay::ConsumeSaveLoad()) {
+    GameUtils::LoadSaveFile("mewtiplayer.sav");
+  }
+
   if (g_origRunFrame)
     g_origRunFrame(rcx, rdx);
 }
@@ -634,13 +638,31 @@ static void Initialize() {
   // "ProcessCombatInput"
   const uintptr_t processCombatInputRVA = ScanSignature(
     &mj, g_gameBase, "ProcessCombatInput",
-    "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D 6C 24 B9 48 81 EC D0 00 00 00");
+    "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D 6C 24"
+    "B9 48 81 EC D0 00 00 00");
+
+  // "RouteCombatInput"
+  const uintptr_t routeCombatInputRVA = ScanSignature(
+    &mj, g_gameBase, "RouteCombatInput",
+    "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38");
+
+  // "ExecuteLoadSave"
+  const uintptr_t executeLoadSaveRVA = ScanSignature(
+      &mj, g_gameBase, "ExecuteLoadSave",
+      "48 89 5C 24 08 48 89 54 24 10 57 48 83 EC 20 48 8B FA 48 8B D9 48 8B 41 20");
 
   // Resolve addresses //
   if (pMewDirectorSig) {
     const uintptr_t pMewDirectorPtr =
         ResolveRIP(g_gameBase + pMewDirectorSig + 18, 3, 7);
     GameUtils::SetMewDirectorSingletonPtr((MewDirector **)pMewDirectorPtr);
+  }
+
+  if (executeLoadSaveRVA) {
+    const auto fn = (GameUtils::ExecuteLoadSave_t)(g_gameBase + executeLoadSaveRVA);
+    GameUtils::SetExecuteLoadSavePtr(fn);
+  } else {
+    Overlay::Log("Failed to find ExecuteLoadSave!");
   }
 
   if (runFrameRVA) {
@@ -721,10 +743,6 @@ static void Initialize() {
   } else {
     Overlay::Log("Failed to find ProcessCombatInput!");
   }
-
-  const uintptr_t routeCombatInputRVA = ScanSignature(
-      &mj, g_gameBase, "RouteCombatInput",
-      "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38");
 
   if (routeCombatInputRVA) {
     mj.InstallHook(routeCombatInputRVA, 15,

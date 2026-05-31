@@ -252,7 +252,9 @@ struct Director {
 };
 
 struct MewDirector {
-  char _padding_0[40];                // 0
+  char _padding_0[24];                // 0
+  void* contextData;                  // 24
+  void* sceneManager;                 // 32
   Director *director;                 // 40
   char _padding_1[1360];              // 48 (there's definitely stuff in here like holy)
   int32_t currentDay;                 // 1408

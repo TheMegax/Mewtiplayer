@@ -14,4 +14,8 @@ void LogV(const char *fmt, va_list args);
 void ToggleVisible();
 // Update remote cursor info.
 void UpdateRemoteCursor(uint64_t steamID, float x, float y, uint8_t type);
+
+// Deferred save/load.
+void RequestSaveLoad();
+bool ConsumeSaveLoad();
 } // namespace Overlay

@@ -15,6 +15,9 @@ static TurnControl **g_pTurnControlPtr = nullptr;
 void SetMewDirectorSingletonPtr(MewDirector **ptr) { g_pMewDirectorPtr = ptr; }
 void SetTurnControlPtr(TurnControl **ptr) { g_pTurnControlPtr = ptr; }
 
+static ExecuteLoadSave_t g_ExecuteLoadSave = nullptr;
+void SetExecuteLoadSavePtr(ExecuteLoadSave_t fn) { g_ExecuteLoadSave = fn; }
+
 TurnControl *GetTurnControl() {
   if (g_pTurnControlPtr)
     return *g_pTurnControlPtr;
@@ -25,6 +28,39 @@ MewDirector *GetMewDirectorSingleton() {
   if (g_pMewDirectorPtr)
     return *g_pMewDirectorPtr;
   return nullptr;
+}
+
+void LoadSaveFile(const char *saveName) {
+  if (!g_ExecuteLoadSave) {
+    Overlay::Log("[SAVE] ExecuteLoadSave not resolved!");
+    return;
+  }
+  MewDirector *md = GetMewDirectorSingleton();
+  if (!md) {
+    Overlay::Log("[SAVE] MewDirector singleton is null!");
+    return;
+  }
+
+  MsvcReleaseModeXString saveStr = {};
+  size_t len = strlen(saveName);
+  if (len < 16) {
+    memcpy(saveStr.Bx.Buf, saveName, len + 1);
+    saveStr.Myres = 15;
+  } else {
+    // Heap-allocate for strings that exceed the SSO buffer
+    const auto heapBuf = (char *)malloc(len + 1);
+    memcpy(heapBuf, saveName, len + 1);
+    saveStr.Bx.Ptr = heapBuf;
+    saveStr.Myres = len;
+  }
+  saveStr.Mysize = len;
+
+  Overlay::Log("[SAVE] Loading '%s'", saveName);
+  g_ExecuteLoadSave(md, &saveStr);
+
+  if (len >= 16) {
+    free(saveStr.Bx.Ptr);
+  }
 }
 
 Scene *GetSceneByName(const char *name) {

@@ -11,6 +11,11 @@ namespace GameUtils {
 void SetMewDirectorSingletonPtr(MewDirector **ptr);
 MewDirector *GetMewDirectorSingleton();
 
+// ExecuteLoadSave
+typedef void(__fastcall *ExecuteLoadSave_t)(void *mewDirector, void *saveNameStr);
+void SetExecuteLoadSavePtr(ExecuteLoadSave_t fn);
+void LoadSaveFile(const char *saveName);
+
 // Scenes
 std::vector<Scene *> GetCurrentScenes();
 Scene *GetSceneByName(const char *name);
