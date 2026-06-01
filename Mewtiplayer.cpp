@@ -19,6 +19,7 @@ static bool g_packetTesting = false;
 static bool g_noSteven = false;
 static bool g_autoLobby = false;
 static bool g_talkative = false;
+static bool g_loadMewtiplayerSave = false;
 static ActionPacket g_lastSentTurnPackage = {};
 
 typedef void (*RunFrame_t)(void *rcx, void *rdx);
@@ -54,6 +55,31 @@ static RouteCombatInput_t g_origRouteCombatInput = nullptr;
 
 static bool g_isCombatUIProcessing = false;
 static std::unordered_set<void *> g_castableAbilities;
+
+GameUtils::LoadSaveInternal_t g_origLoadSaveInternal = nullptr;
+void* __fastcall Hook_LoadSaveInternal(void* activeScene, void* compList, MsvcReleaseModeXString* saveStr) {
+  if (g_loadMewtiplayerSave) {
+    g_loadMewtiplayerSave = false;
+    
+    MsvcReleaseModeXString customStr = {};
+    const auto saveName = "mewtiplayer.sav";
+    size_t len = strlen(saveName);
+    if (len < 16) {
+      memcpy(customStr.Bx.Buf, saveName, len + 1);
+      customStr.Myres = 15;
+    } else {
+      const auto heapBuf = (char*)malloc(len + 1);
+      memcpy(heapBuf, saveName, len + 1);
+      customStr.Bx.Ptr = heapBuf;
+      customStr.Myres = len;
+    }
+    customStr.Mysize = len;
+
+    return g_origLoadSaveInternal(activeScene, compList, &customStr);
+  }
+  
+  return g_origLoadSaveInternal(activeScene, compList, saveStr);
+}
 
 static void *__fastcall Hook_StevenSpawn(void *rcx, void *rdx) {
   if (g_noSteven) {
@@ -537,6 +563,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
   }
 
   if (Overlay::ConsumeSaveLoad()) {
+    g_loadMewtiplayerSave = true;
     GameUtils::LoadSaveFile("mewtiplayer.sav");
   }
 
@@ -646,10 +673,16 @@ static void Initialize() {
     &mj, g_gameBase, "RouteCombatInput",
     "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38");
 
-  // "ExecuteLoadSave"
-  const uintptr_t executeLoadSaveRVA = ScanSignature(
-      &mj, g_gameBase, "ExecuteLoadSave",
-      "48 89 5C 24 08 48 89 54 24 10 57 48 83 EC 20 48 8B FA 48 8B D9 48 8B 41 20");
+  // "LoadSaveInternal"
+  const uintptr_t loadSaveInternalRVA = ScanSignature(
+    &mj, g_gameBase, "LoadSaveInternal",
+    "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 83 ec 40 4d 8b f0 48 8b ea 48 8b d9 80 b9 b0 04 00 00 00"
+    " 74 07 33 c0 e9 ? ? ? ? 48 8d 0d ? ? ? ? e8 ? ? ? ? 48 8b f8 48 89 44 24 60 48 85 c0 74 1d 33 d2 41 b8 90 07 00 00");
+
+  // "ContinueFile"
+  const uintptr_t continueFileRVA = ScanSignature(
+    &mj, g_gameBase, "ContinueFile",
+    "48 89 5c 24 08 48 89 74 24 10 55 57 41 56 48 8d 6c 24 b9 48 81 ec b0 00 00 00 8b fa 48 8b f1");
 
   // Resolve addresses //
   if (pMewDirectorSig) {
@@ -658,11 +691,18 @@ static void Initialize() {
     GameUtils::SetMewDirectorSingletonPtr((MewDirector **)pMewDirectorPtr);
   }
 
-  if (executeLoadSaveRVA) {
-    const auto fn = (GameUtils::ExecuteLoadSave_t)(g_gameBase + executeLoadSaveRVA);
-    GameUtils::SetExecuteLoadSavePtr(fn);
+  if (loadSaveInternalRVA) {
+    mj.InstallHook(loadSaveInternalRVA, 18,
+                   (void *)Hook_LoadSaveInternal,
+                   (void **)&g_origLoadSaveInternal, 10, MOD_NAME);
+    GameUtils::SetLoadSaveInternalPtr((GameUtils::LoadSaveInternal_t)(g_gameBase + loadSaveInternalRVA));
   } else {
-    Overlay::Log("Failed to find ExecuteLoadSave!");
+    Overlay::Log("FAILED to find LoadSaveInternal signature!");
+  }
+  if (continueFileRVA) {
+    GameUtils::SetContinueFilePtr((GameUtils::ContinueFile_t)(g_gameBase + continueFileRVA));
+  } else {
+    Overlay::Log("FAILED to find ContinueFile signature!");
   }
 
   if (runFrameRVA) {

@@ -11,9 +11,14 @@ namespace GameUtils {
 void SetMewDirectorSingletonPtr(MewDirector **ptr);
 MewDirector *GetMewDirectorSingleton();
 
-// ExecuteLoadSave
-typedef void(__fastcall *ExecuteLoadSave_t)(void *mewDirector, void *saveNameStr);
-void SetExecuteLoadSavePtr(ExecuteLoadSave_t fn);
+typedef void* (__fastcall *LoadSaveInternal_t)(void* mewDirector, void* compList, MsvcReleaseModeXString* saveStr);
+void SetLoadSaveInternalPtr(LoadSaveInternal_t ptr);
+
+typedef void (__fastcall *ContinueFile_t)(void* saveSelection, int saveSlotIndex, bool bSkipIntro);
+void SetContinueFilePtr(ContinueFile_t ptr);
+
+
+
 void LoadSaveFile(const char *saveName);
 
 // Scenes

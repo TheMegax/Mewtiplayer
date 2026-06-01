@@ -15,9 +15,6 @@ static TurnControl **g_pTurnControlPtr = nullptr;
 void SetMewDirectorSingletonPtr(MewDirector **ptr) { g_pMewDirectorPtr = ptr; }
 void SetTurnControlPtr(TurnControl **ptr) { g_pTurnControlPtr = ptr; }
 
-static ExecuteLoadSave_t g_ExecuteLoadSave = nullptr;
-void SetExecuteLoadSavePtr(ExecuteLoadSave_t fn) { g_ExecuteLoadSave = fn; }
-
 TurnControl *GetTurnControl() {
   if (g_pTurnControlPtr)
     return *g_pTurnControlPtr;
@@ -30,41 +27,110 @@ MewDirector *GetMewDirectorSingleton() {
   return nullptr;
 }
 
+static LoadSaveInternal_t g_LoadSaveInternal = nullptr;
+void SetLoadSaveInternalPtr(LoadSaveInternal_t ptr) {
+  g_LoadSaveInternal = ptr;
+}
+
+static ContinueFile_t g_ContinueFile = nullptr;
+void SetContinueFilePtr(ContinueFile_t ptr) {
+  g_ContinueFile = ptr;
+}
+
+struct FakeSaveSelection {
+  char pad0[0x18];    // 0x00
+  Entity* entity;     // 0x18
+  Scene* scene;       // 0x20
+  Director* director; // 0x28
+  char pad3[0x8];     // 0x30
+  MsvcReleaseModeXString* saveStrings_first; // 0x38
+  MsvcReleaseModeXString* saveStrings_last;  // 0x40
+  MsvcReleaseModeXString* saveStrings_end;   // 0x48
+};
+
+static FakeSaveSelection g_fakeSaveSelection = {};
+static MsvcReleaseModeXString g_fakeSaveStrings[4] = {};
+
 void LoadSaveFile(const char *saveName) {
-  if (!g_ExecuteLoadSave) {
-    Overlay::Log("[SAVE] ExecuteLoadSave not resolved!");
-    return;
-  }
-  MewDirector *md = GetMewDirectorSingleton();
-  if (!md) {
-    Overlay::Log("[SAVE] MewDirector singleton is null!");
-    return;
-  }
+  if (g_ContinueFile) {
+    Overlay::Log("[SAVE] Triggering mod save load sequence...");
+    const MewDirector* md = GetMewDirectorSingleton();
+    if (md && md->director) {
+      std::vector<Scene*> scenes = GetCurrentScenes();
+      int baseIndex = -1;
+      int tutorialIndex = -1;
 
-  MsvcReleaseModeXString saveStr = {};
-  size_t len = strlen(saveName);
-  if (len < 16) {
-    memcpy(saveStr.Bx.Buf, saveName, len + 1);
-    saveStr.Myres = 15;
+      // Instanced scenes are loaded between Base and Tutorial
+      // All other scenes are globals and should *not* be deleted!
+      for (int i = 0; i < (int)scenes.size(); i++) {
+        if (scenes[i]) {
+          std::string name(scenes[i]->name.as_native_string_view());
+          if (name == "Base") baseIndex = i;
+          if (name == "Tutorial") tutorialIndex = i;
+        }
+      }
+      
+      if (baseIndex != -1 && tutorialIndex != -1 && tutorialIndex > baseIndex) {
+        Scene* targetScene = scenes[tutorialIndex - 1];
+        
+        // Deconstruct scenes between Base and the targetScene
+        for (int i = baseIndex + 1; i < tutorialIndex - 1; i++) {
+          if (scenes[i]) {
+            scenes[i]->doing_scene_destruction = 1;
+          }
+        }
+        
+        // Find ANY valid component to proxy the Entity/Director
+        Component* validComp = nullptr;
+        for (int i = (int)scenes.size() - 1; i >= 0; i--) {
+          std::vector<Component*> comps = GetSceneComponents(scenes[i]);
+          if (!comps.empty()) {
+            validComp = comps[0];
+            break;
+          }
+        }
+        
+        if (validComp) {
+          memset(&g_fakeSaveSelection, 0, sizeof(g_fakeSaveSelection));
+          memset(g_fakeSaveStrings, 0, sizeof(g_fakeSaveStrings));
+          
+          g_fakeSaveSelection.entity = validComp->entity;
+          g_fakeSaveSelection.scene = targetScene;
+          g_fakeSaveSelection.director = validComp->director;
+          
+          g_fakeSaveSelection.saveStrings_first = g_fakeSaveStrings;
+          g_fakeSaveSelection.saveStrings_last = g_fakeSaveStrings + 4;
+          g_fakeSaveSelection.saveStrings_end = g_fakeSaveStrings + 4;
+          
+          size_t len = strlen(saveName);
+          if (len < 16) {
+            memcpy(g_fakeSaveStrings[1].Bx.Buf, saveName, len + 1);
+            g_fakeSaveStrings[1].Myres = 15;
+          } else {
+            const auto heapBuf = (char*)malloc(len + 1);
+            memcpy(heapBuf, saveName, len + 1);
+            g_fakeSaveStrings[1].Bx.Ptr = heapBuf;
+            g_fakeSaveStrings[1].Myres = len;
+          }
+          g_fakeSaveStrings[1].Mysize = len;
+
+          g_ContinueFile(&g_fakeSaveSelection, 1, false);
+        } else { // WTF?!
+          Overlay::Log("[SAVE] Error: Could not find any valid components to proxy!");
+        }
+      } else {
+        Overlay::Log("[SAVE] Error: Could not find valid Base and Tutorial scenes!");
+      }
+    } else {
+      Overlay::Log("[SAVE] MewDirector or Director is null!");
+    }
   } else {
-    // Heap-allocate for strings that exceed the SSO buffer
-    const auto heapBuf = (char *)malloc(len + 1);
-    memcpy(heapBuf, saveName, len + 1);
-    saveStr.Bx.Ptr = heapBuf;
-    saveStr.Myres = len;
-  }
-  saveStr.Mysize = len;
-
-  Overlay::Log("[SAVE] Loading '%s'", saveName);
-  g_ExecuteLoadSave(md, &saveStr);
-
-  if (len >= 16) {
-    free(saveStr.Bx.Ptr);
+    Overlay::Log("[SAVE] ContinueFile not hooked!");
   }
 }
 
 Scene *GetSceneByName(const char *name) {
-  MewDirector *p_md = GetMewDirectorSingleton();
+  const MewDirector *p_md = GetMewDirectorSingleton();
   if (!p_md || !p_md->director)
     return nullptr;
 
