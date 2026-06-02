@@ -11,13 +11,19 @@ namespace GameUtils {
 void SetMewDirectorSingletonPtr(MewDirector **ptr);
 MewDirector *GetMewDirectorSingleton();
 
-typedef void* (__fastcall *LoadSaveInternal_t)(void* mewDirector, void* compList, MsvcReleaseModeXString* saveStr);
-void SetLoadSaveInternalPtr(LoadSaveInternal_t ptr);
-
 typedef void (__fastcall *ContinueFile_t)(void* saveSelection, int saveSlotIndex, bool bSkipIntro);
 void SetContinueFilePtr(ContinueFile_t ptr);
 
+// ExecSQL
+typedef void(__fastcall *ExecSQL_t)(void *sqlSaveFile, void *queryStr, void *stdFuncCallback);
+void SetExecSQLPtr(ExecSQL_t ptr);
+ExecSQL_t GetExecSQLPtr();
+void ExecuteSQL(const char* query);
 
+std::string SanitizeSQLString(const std::string& input);
+void SetSaveProperty(const std::string& key, int value);
+
+extern bool g_injectCustomSaveData;
 
 void LoadSaveFile(const char *saveName);
 

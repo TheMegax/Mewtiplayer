@@ -27,13 +27,62 @@ MewDirector *GetMewDirectorSingleton() {
   return nullptr;
 }
 
-static LoadSaveInternal_t g_LoadSaveInternal = nullptr;
-void SetLoadSaveInternalPtr(LoadSaveInternal_t ptr) {
-  g_LoadSaveInternal = ptr;
+static ExecSQL_t g_ExecSQL = nullptr;
+void SetExecSQLPtr(const ExecSQL_t ptr) {
+  g_ExecSQL = ptr;
+}
+ExecSQL_t GetExecSQLPtr() {
+  return g_ExecSQL;
+}
+
+void ExecuteSQL(const char* query) {
+  if (!g_ExecSQL) return;
+  MewDirector* dir = GetMewDirectorSingleton();
+  if (!dir) return;
+
+  void* sqlSaveFile = (char*)dir + 0x4a8;
+
+  MsvcReleaseModeXString queryStr;
+  size_t len = strlen(query);
+  if (len < 16) {
+    memcpy(queryStr.Bx.Buf, query, len + 1);
+    queryStr.Myres = 15;
+  } else {
+    queryStr.Bx.Ptr = (char*)malloc(len + 1);
+    memcpy(queryStr.Bx.Ptr, query, len + 1);
+    queryStr.Myres = len;
+  }
+  queryStr.Mysize = len;
+
+  void* dummyFunc[8] = {}; // Dummy std::function block (64 bytes)
+  g_ExecSQL(sqlSaveFile, &queryStr, dummyFunc);
+
+  if (len >= 16 && queryStr.Bx.Ptr) {
+    free(queryStr.Bx.Ptr);
+  }
+}
+
+std::string SanitizeSQLString(const std::string& input) {
+  std::string output;
+  for (char c : input) {
+    if (c == '\'') {
+      output += "''";
+    } else {
+      output += c;
+    }
+  }
+  return output;
+}
+
+void SetSaveProperty(const std::string& key, int value) {
+  std::string safeKey = SanitizeSQLString(key);
+  char query[512];
+  snprintf(query, sizeof(query), "INSERT OR REPLACE INTO properties VALUES ('%s', %d);", safeKey.c_str(), value);
+  ExecuteSQL(query);
 }
 
 static ContinueFile_t g_ContinueFile = nullptr;
-void SetContinueFilePtr(ContinueFile_t ptr) {
+void SetContinueFilePtr(const ContinueFile_t ptr) {
   g_ContinueFile = ptr;
 }
 
@@ -51,82 +100,92 @@ struct FakeSaveSelection {
 static FakeSaveSelection g_fakeSaveSelection = {};
 static MsvcReleaseModeXString g_fakeSaveStrings[4] = {};
 
+bool g_injectCustomSaveData = false;
+
 void LoadSaveFile(const char *saveName) {
-  if (g_ContinueFile) {
-    Overlay::Log("[SAVE] Triggering mod save load sequence...");
-    const MewDirector* md = GetMewDirectorSingleton();
-    if (md && md->director) {
-      std::vector<Scene*> scenes = GetCurrentScenes();
-      int baseIndex = -1;
-      int tutorialIndex = -1;
+  g_injectCustomSaveData = true;
+  // This will initiate a fadeout sequence. At the end of it, it will initiate the save file with the given name,
+  // creating a new mewdirector. It later takes the scene pointer from the fake save selection and destroys it,
+  // loading the new save's scenes in its place.
 
-      // Instanced scenes are loaded between Base and Tutorial
-      // All other scenes are globals and should *not* be deleted!
-      for (int i = 0; i < (int)scenes.size(); i++) {
-        if (scenes[i]) {
-          std::string name(scenes[i]->name.as_native_string_view());
-          if (name == "Base") baseIndex = i;
-          if (name == "Tutorial") tutorialIndex = i;
-        }
-      }
-      
-      if (baseIndex != -1 && tutorialIndex != -1 && tutorialIndex > baseIndex) {
-        Scene* targetScene = scenes[tutorialIndex - 1];
-        
-        // Deconstruct scenes between Base and the targetScene
-        for (int i = baseIndex + 1; i < tutorialIndex - 1; i++) {
-          if (scenes[i]) {
-            scenes[i]->doing_scene_destruction = 1;
-          }
-        }
-        
-        // Find ANY valid component to proxy the Entity/Director
-        Component* validComp = nullptr;
-        for (int i = (int)scenes.size() - 1; i >= 0; i--) {
-          std::vector<Component*> comps = GetSceneComponents(scenes[i]);
-          if (!comps.empty()) {
-            validComp = comps[0];
-            break;
-          }
-        }
-        
-        if (validComp) {
-          memset(&g_fakeSaveSelection, 0, sizeof(g_fakeSaveSelection));
-          memset(g_fakeSaveStrings, 0, sizeof(g_fakeSaveStrings));
-          
-          g_fakeSaveSelection.entity = validComp->entity;
-          g_fakeSaveSelection.scene = targetScene;
-          g_fakeSaveSelection.director = validComp->director;
-          
-          g_fakeSaveSelection.saveStrings_first = g_fakeSaveStrings;
-          g_fakeSaveSelection.saveStrings_last = g_fakeSaveStrings + 4;
-          g_fakeSaveSelection.saveStrings_end = g_fakeSaveStrings + 4;
-          
-          size_t len = strlen(saveName);
-          if (len < 16) {
-            memcpy(g_fakeSaveStrings[1].Bx.Buf, saveName, len + 1);
-            g_fakeSaveStrings[1].Myres = 15;
-          } else {
-            const auto heapBuf = (char*)malloc(len + 1);
-            memcpy(heapBuf, saveName, len + 1);
-            g_fakeSaveStrings[1].Bx.Ptr = heapBuf;
-            g_fakeSaveStrings[1].Myres = len;
-          }
-          g_fakeSaveStrings[1].Mysize = len;
-
-          g_ContinueFile(&g_fakeSaveSelection, 1, false);
-        } else { // WTF?!
-          Overlay::Log("[SAVE] Error: Could not find any valid components to proxy!");
-        }
-      } else {
-        Overlay::Log("[SAVE] Error: Could not find valid Base and Tutorial scenes!");
-      }
-    } else {
-      Overlay::Log("[SAVE] MewDirector or Director is null!");
-    }
-  } else {
+  if (!g_ContinueFile) {
     Overlay::Log("[SAVE] ContinueFile not hooked!");
+    return;
   }
+
+  Overlay::Log("[SAVE] Triggering mod save load sequence...");
+  const MewDirector* md = GetMewDirectorSingleton();
+  if (!md || !md->director) {
+    Overlay::Log("[SAVE] MewDirector or Director is null!");
+    return;
+  }
+
+  std::vector<Scene*> scenes = GetCurrentScenes();
+  int baseIndex = -1;
+  int tutorialIndex = -1;
+
+  // Instanced scenes are loaded between Base and Tutorial
+  // All other scenes are globals and should *not* be deleted!
+  for (int i = 0; i < (int)scenes.size(); i++) {
+    if (scenes[i]) {
+      std::string name(scenes[i]->name.as_native_string_view());
+      if (name == "Base") baseIndex = i;
+      if (name == "Tutorial") tutorialIndex = i;
+    }
+  }
+
+  if (baseIndex == -1 || tutorialIndex == -1 || tutorialIndex <= baseIndex) {
+    Overlay::Log("[SAVE] Error: Could not find valid Base and Tutorial scenes!");
+    return;
+  }
+  Scene* targetScene = scenes[tutorialIndex - 1];
+
+  // Deconstruct scenes between Base and the targetScene
+  for (int i = baseIndex + 1; i < tutorialIndex - 1; i++) {
+    if (scenes[i]) {
+      scenes[i]->doing_scene_destruction = 1;
+    }
+  }
+
+  // Find ANY valid component to proxy the Entity/Director
+  Component* validComp = nullptr;
+  for (int i = (int)scenes.size() - 1; i >= 0; i--) {
+    std::vector<Component*> comps = GetSceneComponents(scenes[i]);
+    if (!comps.empty()) {
+      validComp = comps[0];
+      break;
+    }
+  }
+
+  if (!validComp) { // WTF?!
+    Overlay::Log("[SAVE] Error: Could not find any valid components to proxy!");
+    return;
+  }
+
+  memset(&g_fakeSaveSelection, 0, sizeof(g_fakeSaveSelection));
+  memset(g_fakeSaveStrings, 0, sizeof(g_fakeSaveStrings));
+
+  g_fakeSaveSelection.entity = validComp->entity;
+  g_fakeSaveSelection.scene = targetScene;
+  g_fakeSaveSelection.director = validComp->director;
+
+  g_fakeSaveSelection.saveStrings_first = g_fakeSaveStrings;
+  g_fakeSaveSelection.saveStrings_last = g_fakeSaveStrings + 4;
+  g_fakeSaveSelection.saveStrings_end = g_fakeSaveStrings + 4;
+
+  size_t len = strlen(saveName);
+  if (len < 16) {
+    memcpy(g_fakeSaveStrings[1].Bx.Buf, saveName, len + 1);
+    g_fakeSaveStrings[1].Myres = 15;
+  } else {
+    const auto heapBuf = (char*)malloc(len + 1);
+    memcpy(heapBuf, saveName, len + 1);
+    g_fakeSaveStrings[1].Bx.Ptr = heapBuf;
+    g_fakeSaveStrings[1].Myres = len;
+  }
+  g_fakeSaveStrings[1].Mysize = len;
+
+  g_ContinueFile(&g_fakeSaveSelection, 1, false);
 }
 
 Scene *GetSceneByName(const char *name) {

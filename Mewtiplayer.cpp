@@ -25,6 +25,9 @@ static ActionPacket g_lastSentTurnPackage = {};
 typedef void (*RunFrame_t)(void *rcx, void *rdx);
 static RunFrame_t g_origRunFrame = nullptr;
 
+typedef void(__fastcall *InitializeSave_t)(void *gameStateMap, void *saveNameStr);
+static InitializeSave_t g_origInitializeSave = nullptr;
+
 typedef void(__fastcall *BeginTurn_t)(void *character, int kind);
 static BeginTurn_t g_origBeginTurn = nullptr;
 
@@ -56,31 +59,6 @@ static RouteCombatInput_t g_origRouteCombatInput = nullptr;
 static bool g_isCombatUIProcessing = false;
 static std::unordered_set<void *> g_castableAbilities;
 
-GameUtils::LoadSaveInternal_t g_origLoadSaveInternal = nullptr;
-void* __fastcall Hook_LoadSaveInternal(void* activeScene, void* compList, MsvcReleaseModeXString* saveStr) {
-  if (g_loadMewtiplayerSave) {
-    g_loadMewtiplayerSave = false;
-    
-    MsvcReleaseModeXString customStr = {};
-    const auto saveName = "mewtiplayer.sav";
-    size_t len = strlen(saveName);
-    if (len < 16) {
-      memcpy(customStr.Bx.Buf, saveName, len + 1);
-      customStr.Myres = 15;
-    } else {
-      const auto heapBuf = (char*)malloc(len + 1);
-      memcpy(heapBuf, saveName, len + 1);
-      customStr.Bx.Ptr = heapBuf;
-      customStr.Myres = len;
-    }
-    customStr.Mysize = len;
-
-    return g_origLoadSaveInternal(activeScene, compList, &customStr);
-  }
-  
-  return g_origLoadSaveInternal(activeScene, compList, saveStr);
-}
-
 static void *__fastcall Hook_StevenSpawn(void *rcx, void *rdx) {
   if (g_noSteven) {
     Overlay::Log("[STEVEN] Go away!");
@@ -102,6 +80,9 @@ static bool g_inCombatDetected = false;
 #include <deque>
 std::deque<ActionPacket> g_pendingInjections;
 
+// ---------------------------------------------------------------------------
+// Hook: TurnStart
+// ---------------------------------------------------------------------------
 static void Hook_TurnStart(TurnControl *tc) {
   if (tc) {
     g_currentTurnControl = tc;
@@ -111,8 +92,11 @@ static void Hook_TurnStart(TurnControl *tc) {
     g_origTurnStart(tc);
 }
 
-// Why is there two different turn start functions? idk don't ask me
+// ---------------------------------------------------------------------------
+// Hook: BeginTurn
+// ---------------------------------------------------------------------------
 static void Hook_BeginTurn(Character *character, int kind) {
+  // Why is there two different turn start functions? idk don't ask me
   g_startedCombat = true;
   g_isCombatUIProcessing = false;
 
@@ -163,6 +147,51 @@ static void Hook_BeginTurn(Character *character, int kind) {
 
   if (g_origBeginTurn)
     g_origBeginTurn(character, kind);
+}
+
+// ---------------------------------------------------------------------------
+// Hook: InitializeSave
+// ---------------------------------------------------------------------------
+void __fastcall Hook_InitializeSave(void* gameStateMap, void* saveNameStr) {
+  // First, call the original function to create/open the DB.
+  if (g_origInitializeSave) {
+    g_origInitializeSave(gameStateMap, saveNameStr);
+  }
+
+  if (!GameUtils::g_injectCustomSaveData) {
+      return; // Do not inject custom data into other saves
+  }
+  GameUtils::g_injectCustomSaveData = false;
+
+  Overlay::Log("[SAVE] Committing custom data...");
+
+  std::vector<std::string> keys = {
+    "mapflag_BoneyardUnlocked",
+    "mapflag_BothObelisksUnlocked",
+    "mapflag_BunkerUnlocked",
+    "mapflag_CavesUnlocked",
+    "mapflag_CoreObeliskUnlocked",
+    "mapflag_CoreUnlocked",
+    "mapflag_CraterUnlocked",
+    "mapflag_DesertUnlocked",
+    "mapflag_DimensionXUnlocked",
+    "mapflag_HardPathUnlocked",
+    "mapflag_JunkyardUnlocked",
+    "mapflag_LabUnlocked",
+    "mapflag_MeatWorldUnlocked",
+    "mapflag_MeatWorldUnlockedFull",
+    "mapflag_MoonObeliskUnlocked",
+    "mapflag_MoonUnlocked",
+    "mapflag_SewersUnlocked",
+    "mapflag_ThrobbingArteryDone",
+    "mapflag_WallOfFleshDone"
+  };
+
+  for (const auto& key : keys) {
+    GameUtils::SetSaveProperty(key, 1);
+  }
+
+  Overlay::Log("[SAVE] Custom SQL executed successfully!");
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +250,9 @@ void *g_lastActionQueue = nullptr;
   Overlay::Log("--------------------------------");
 }
 
+// ---------------------------------------------------------------------------
+// Hook: EnqueueAction
+// ---------------------------------------------------------------------------
 static void *__fastcall Hook_EnqueueAction(void *queue,
                                            TurnAction *actionData) {
   g_lastActionQueue = queue;
@@ -414,9 +446,9 @@ static void *__fastcall Hook_EnqueueAction(void *queue,
   return nullptr;
 }
 
-
-
-
+// ---------------------------------------------------------------------------
+// Hook: UpdateCombatResolutionState
+// ---------------------------------------------------------------------------
 static void Hook_UpdateCombatResolutionState(CombatResolutionState *combat) {
   if (!g_startedCombat)
     return;
@@ -449,6 +481,9 @@ static void Hook_UpdateCombatResolutionState(CombatResolutionState *combat) {
     g_origFightEnd(combat);
 }
 
+// ---------------------------------------------------------------------------
+// Hook: FaceDirection
+// ---------------------------------------------------------------------------
 static void Hook_FaceDirection(void *character, const uint64_t target_packed,
                                const bool play_animation, const bool force) {
   if (character) {
@@ -510,6 +545,9 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
     g_origFaceDirection(character, target_packed, play_animation, force);
 }
 
+// ---------------------------------------------------------------------------
+// Hook: SlotUpdateDynamicValue
+// ---------------------------------------------------------------------------
 static void Hook_SlotUpdateDynamicValue(void *rcx, void *rdx) {
   // For this, we are completely disabling RNG shuffling for "N" target dynamic values.
   // Despite the name, it does shuffle RNG in other particular cases too, possibly hardcoded in?
@@ -538,6 +576,9 @@ static void *__fastcall Hook_ProcessCombatInput(CombatUIContext *ctx, void *outR
   return g_origProcessCombatInput(ctx, outResult);
 }
 
+// ---------------------------------------------------------------------------
+// Hook: RouteCombatInput
+// ---------------------------------------------------------------------------
 static void *__fastcall Hook_RouteCombatInput(CombatUIContext *ctx, void *outResult, void *param3, void *param4) {
   g_isCombatUIProcessing = false;
   g_castableAbilities.clear();
@@ -673,11 +714,15 @@ static void Initialize() {
     &mj, g_gameBase, "RouteCombatInput",
     "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38");
 
-  // "LoadSaveInternal"
-  const uintptr_t loadSaveInternalRVA = ScanSignature(
-    &mj, g_gameBase, "LoadSaveInternal",
-    "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 83 ec 40 4d 8b f0 48 8b ea 48 8b d9 80 b9 b0 04 00 00 00"
-    " 74 07 33 c0 e9 ? ? ? ? 48 8d 0d ? ? ? ? e8 ? ? ? ? 48 8b f8 48 89 44 24 60 48 85 c0 74 1d 33 d2 41 b8 90 07 00 00");
+  // "InitializeSave"
+  const uintptr_t initializeSaveRVA = ScanSignature(
+    &mj, g_gameBase, "InitializeSave",
+    "48 8B C4 48 89 58 08 48 89 50 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 48 81 EC 20 01 00 00");
+
+  // glaiel::SQLSaveFile::ExecSQL
+  const uintptr_t execSqlRVA = ScanSignature(
+    &mj, g_gameBase, "ExecSQL",
+    "48 89 5C 24 08 4C 89 44 24 18 48 89 54 24 10 55 56 57 48 8D 6C 24 F0 48 81 EC 10 01 00 00 49 8B D8");
 
   // "ContinueFile"
   const uintptr_t continueFileRVA = ScanSignature(
@@ -691,18 +736,20 @@ static void Initialize() {
     GameUtils::SetMewDirectorSingletonPtr((MewDirector **)pMewDirectorPtr);
   }
 
-  if (loadSaveInternalRVA) {
-    mj.InstallHook(loadSaveInternalRVA, 18,
-                   (void *)Hook_LoadSaveInternal,
-                   (void **)&g_origLoadSaveInternal, 10, MOD_NAME);
-    GameUtils::SetLoadSaveInternalPtr((GameUtils::LoadSaveInternal_t)(g_gameBase + loadSaveInternalRVA));
-  } else {
-    Overlay::Log("FAILED to find LoadSaveInternal signature!");
-  }
   if (continueFileRVA) {
     GameUtils::SetContinueFilePtr((GameUtils::ContinueFile_t)(g_gameBase + continueFileRVA));
   } else {
     Overlay::Log("FAILED to find ContinueFile signature!");
+  }
+
+  if (execSqlRVA) {
+    GameUtils::SetExecSQLPtr((GameUtils::ExecSQL_t)(g_gameBase + execSqlRVA));
+  }
+
+  if (initializeSaveRVA) {
+    mj.InstallHook(initializeSaveRVA, 16,
+      (void *)Hook_InitializeSave,
+      (void **)&g_origInitializeSave, 10, MOD_NAME);
   }
 
   if (runFrameRVA) {
