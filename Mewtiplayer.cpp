@@ -755,6 +755,11 @@ static void Initialize() {
     &mj, g_gameBase, "StartRun",
     "48 8B C4 48 89 58 20 44 89 40 18 48 89 50 10 55");
 
+  // "ActiveSceneFunc"
+  const uintptr_t activeSceneFuncRVA = ScanSignature(
+    &mj, g_gameBase, "ActiveSceneFunc",
+    "48 89 5C 24 10 57 48 83 EC 20 33 FF 48 8B D9 48 85 C9 75 10 48 8B 1D");
+
   // Resolve addresses //
   if (pMewDirectorSig) {
     const uintptr_t pMewDirectorPtr =
@@ -772,6 +777,13 @@ static void Initialize() {
     GameUtils::SetStartRunPtr((GameUtils::StartRun_t)(g_gameBase + startRunRVA));
   } else {
     Overlay::Log("FAILED to find StartRun signature!");
+  }
+
+  if (activeSceneFuncRVA) {
+    const uintptr_t activeScenePtr = ResolveRIP(g_gameBase + activeSceneFuncRVA + 20, 3, 7);
+    GameUtils::SetActiveScenePtr((void**)activeScenePtr);
+  } else {
+    Overlay::Log("FAILED to find ActiveSceneFunc signature!");
   }
 
   if (execSqlRVA) {

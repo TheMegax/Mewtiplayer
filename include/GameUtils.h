@@ -33,6 +33,7 @@ void LoadSaveFile(const char *saveName);
 
 typedef void (__fastcall *StartRun_t)(void* mewDirector, MsvcReleaseModeXString* mapNameStr, uint32_t collarId, uint32_t teamSize, char startFlag);
 void SetStartRunPtr(StartRun_t ptr);
+void SetActiveScenePtr(void** ptr);
 void StartCustomRun(int teamSize, int difficulty, int collarIndex);
 
 // Scenes

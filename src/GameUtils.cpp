@@ -91,6 +91,11 @@ void SetStartRunPtr(const StartRun_t ptr) {
   g_StartRun = ptr;
 }
 
+static void** g_activeScenePtr = nullptr;
+void SetActiveScenePtr(void** ptr) {
+  g_activeScenePtr = ptr;
+}
+
 struct FakeSaveSelection {
   char pad0[0x18];    // 0x00
   Entity* entity;     // 0x18
@@ -221,7 +226,7 @@ void StartCustomRun(int teamSize, int difficulty, int collarIndex) {
   *(int32_t*)((char*)progressState + 0x428) = difficulty;
   *(int32_t*)((char*)progressState + 0x440) = difficulty;
 
-  const char* mapName = "alley.gon";
+  const auto mapName = "alley.gon";
 
   MsvcReleaseModeXString mapStr = {};
   mapStr.Mysize = strlen(mapName);
@@ -230,7 +235,23 @@ void StartCustomRun(int teamSize, int difficulty, int collarIndex) {
 
   Overlay::Log("[RUN] Starting custom run: TeamSize=%d, Difficulty=%d, CollarIndex=%d", teamSize, difficulty, collarIndex);
 
-  g_StartRun(dir, &mapStr, collarIndex, teamSize, 1);
+  if (!g_activeScenePtr) {
+    Overlay::Log("[RUN] Warning: g_activeScenePtr is null, calling StartRun directly");
+    g_StartRun(dir, &mapStr, collarIndex, teamSize, 1);
+    return;
+  }
+
+  Scene* houseScene = GetSceneByName("House");
+  if (!houseScene) {
+    Overlay::Log("[RUN] Warning: 'House' scene not found, calling StartRun directly");
+    g_StartRun(dir, &mapStr, collarIndex, teamSize, 1);
+    return;
+  }
+
+  void* oldContext = *g_activeScenePtr;
+  *g_activeScenePtr = houseScene;
+  g_StartRun(dir, &mapStr, collarIndex, teamSize, 0);
+  *g_activeScenePtr = oldContext;
 }
 
 Scene *GetSceneByName(const char *name) {
