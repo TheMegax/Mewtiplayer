@@ -556,16 +556,25 @@ static void RenderActionManagerTab() {
   }
 }
 
+static const char* g_collarNames[] = { "Basic", "All", "Random", "Freedom" };
+
 static void RenderSaveTab() {
   ImGui::Text("Mod Save Manager");
   ImGui::Separator();
 
-  if (ImGui::Button("Load / Create Mod Save")) {
+  ImGui::Text("Custom Run Configuration");
+  ImGui::SliderInt("Team Size", &GameUtils::g_customTeamSize, 1, 50);
+  ImGui::SliderInt("Difficulty Mod", &GameUtils::g_customDifficulty, 0, 10);
+  ImGui::Combo("Collar Type", &GameUtils::g_customCollarIndex, g_collarNames, IM_ARRAYSIZE(g_collarNames));
+
+  ImGui::Spacing();
+  if (ImGui::Button("Start Run")) {
     Overlay::RequestSaveLoad();
   }
   ImGui::TextWrapped(
-      "This will load 'mewtiplayer.sav' if it exists, "
-      "or create a new save if it doesn't.");
+      "This will load 'mewtiplayer.sav' (or create it), "
+      "inject custom progression, and immediately start a custom run "
+      "using the configuration given.");
 }
 
 struct ListedScene {

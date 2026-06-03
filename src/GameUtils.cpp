@@ -86,6 +86,11 @@ void SetContinueFilePtr(const ContinueFile_t ptr) {
   g_ContinueFile = ptr;
 }
 
+static StartRun_t g_StartRun = nullptr;
+void SetStartRunPtr(const StartRun_t ptr) {
+  g_StartRun = ptr;
+}
+
 struct FakeSaveSelection {
   char pad0[0x18];    // 0x00
   Entity* entity;     // 0x18
@@ -101,6 +106,10 @@ static FakeSaveSelection g_fakeSaveSelection = {};
 static MsvcReleaseModeXString g_fakeSaveStrings[4] = {};
 
 bool g_injectCustomSaveData = false;
+int g_customTeamSize = 4;
+int g_customDifficulty = 0;
+int g_customCollarIndex = 0;
+bool g_startCustomRunPending = false;
 
 void LoadSaveFile(const char *saveName) {
   g_injectCustomSaveData = true;
@@ -186,6 +195,42 @@ void LoadSaveFile(const char *saveName) {
   g_fakeSaveStrings[1].Mysize = len;
 
   g_ContinueFile(&g_fakeSaveSelection, 1, false);
+}
+
+void StartCustomRun(int teamSize, int difficulty, int collarIndex) {
+  if (!g_StartRun) {
+    Overlay::Log("[RUN] StartRun not hooked!");
+    return;
+  }
+
+  MewDirector* dir = GetMewDirectorSingleton();
+  if (!dir) {
+    Overlay::Log("[RUN] MewDirector is null!");
+    return;
+  }
+
+  // Offset 1448 (0x5a8) is ProgressState
+  void* progressState = *(void**)((char*)dir + 1448);
+  if (!progressState) {
+    Overlay::Log("[RUN] ProgressState is null!");
+    return;
+  }
+
+  // Set difficulty mod
+  *(int32_t*)((char*)progressState + 0x410) = difficulty;
+  *(int32_t*)((char*)progressState + 0x428) = difficulty;
+  *(int32_t*)((char*)progressState + 0x440) = difficulty;
+
+  const char* mapName = "alley.gon";
+
+  MsvcReleaseModeXString mapStr = {};
+  mapStr.Mysize = strlen(mapName);
+  mapStr.Myres = 15;
+  memcpy(mapStr.Bx.Buf, mapName, mapStr.Mysize + 1);
+
+  Overlay::Log("[RUN] Starting custom run: TeamSize=%d, Difficulty=%d, CollarIndex=%d", teamSize, difficulty, collarIndex);
+
+  g_StartRun(dir, &mapStr, collarIndex, teamSize, 1);
 }
 
 Scene *GetSceneByName(const char *name) {

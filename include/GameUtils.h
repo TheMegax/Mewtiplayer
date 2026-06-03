@@ -24,8 +24,16 @@ std::string SanitizeSQLString(const std::string& input);
 void SetSaveProperty(const std::string& key, int value);
 
 extern bool g_injectCustomSaveData;
+extern int g_customTeamSize;
+extern int g_customDifficulty;
+extern int g_customCollarIndex;
+extern bool g_startCustomRunPending;
 
 void LoadSaveFile(const char *saveName);
+
+typedef void (__fastcall *StartRun_t)(void* mewDirector, MsvcReleaseModeXString* mapNameStr, uint32_t collarId, uint32_t teamSize, char startFlag);
+void SetStartRunPtr(StartRun_t ptr);
+void StartCustomRun(int teamSize, int difficulty, int collarIndex);
 
 // Scenes
 std::vector<Scene *> GetCurrentScenes();

@@ -162,6 +162,7 @@ void __fastcall Hook_InitializeSave(void* gameStateMap, void* saveNameStr) {
       return; // Do not inject custom data into other saves
   }
   GameUtils::g_injectCustomSaveData = false;
+  GameUtils::g_startCustomRunPending = true;
 
   Overlay::Log("[SAVE] Committing custom data...");
 
@@ -608,6 +609,14 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     GameUtils::LoadSaveFile("mewtiplayer.sav");
   }
 
+  if (GameUtils::g_startCustomRunPending) {
+    MewDirector* dir = GameUtils::GetMewDirectorSingleton();
+    if (dir && dir->director && *(void**)((char*)dir + 1448) != nullptr) {
+      GameUtils::g_startCustomRunPending = false;
+      GameUtils::StartCustomRun(GameUtils::g_customTeamSize, GameUtils::g_customDifficulty, GameUtils::g_customCollarIndex);
+    }
+  }
+
   if (g_origRunFrame)
     g_origRunFrame(rcx, rdx);
 }
@@ -729,6 +738,11 @@ static void Initialize() {
     &mj, g_gameBase, "ContinueFile",
     "48 89 5c 24 08 48 89 74 24 10 55 57 41 56 48 8d 6c 24 b9 48 81 ec b0 00 00 00 8b fa 48 8b f1");
 
+  // "StartRun"
+  const uintptr_t startRunRVA = ScanSignature(
+    &mj, g_gameBase, "StartRun",
+    "48 8B C4 48 89 58 20 44 89 40 18 48 89 50 10 55");
+
   // Resolve addresses //
   if (pMewDirectorSig) {
     const uintptr_t pMewDirectorPtr =
@@ -740,6 +754,12 @@ static void Initialize() {
     GameUtils::SetContinueFilePtr((GameUtils::ContinueFile_t)(g_gameBase + continueFileRVA));
   } else {
     Overlay::Log("FAILED to find ContinueFile signature!");
+  }
+
+  if (startRunRVA) {
+    GameUtils::SetStartRunPtr((GameUtils::StartRun_t)(g_gameBase + startRunRVA));
+  } else {
+    Overlay::Log("FAILED to find StartRun signature!");
   }
 
   if (execSqlRVA) {
