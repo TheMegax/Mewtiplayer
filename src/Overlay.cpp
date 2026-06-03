@@ -568,6 +568,107 @@ static void RenderSaveTab() {
       "or create a new save if it doesn't.");
 }
 
+struct ListedScene {
+  std::string name;
+  uint32_t entityCount;
+  uint32_t componentCount;
+  std::vector<std::string> componentTypes;
+};
+
+static std::vector<ListedScene> g_listedScenes;
+static int g_selectedSceneIndex = -1;
+
+static void RenderScenesTab() {
+  ImGui::Text("Active Scenes Manager");
+  ImGui::Separator();
+
+  // Draw List Scenes button
+  if (ImGui::Button("List Current Scenes", ImVec2(180, 0))) {
+    g_listedScenes.clear();
+    g_selectedSceneIndex = -1;
+    std::vector<Scene *> scenes = GameUtils::GetCurrentScenes();
+    for (Scene *scene : scenes) {
+      if (scene) {
+        ListedScene ls;
+        ls.name = scene->name.copy_to_native_string();
+        ls.entityCount = scene->Entities.size();
+        
+        std::vector<Component *> comps = GameUtils::GetSceneComponents(scene);
+        ls.componentCount = comps.size();
+        
+        // Group components by type
+        std::map<std::string, int> compCount;
+        for (Component *c : comps) {
+          MsvcReleaseModeXString typeName = {};
+          if (GameUtils::SafeGetComponentName(c, &typeName)) {
+            compCount[typeName.copy_to_native_string()]++;
+          }
+        }
+        for (const auto &pair : compCount) {
+          ls.componentTypes.push_back(pair.first + " (" + std::to_string(pair.second) + ")");
+        }
+        g_listedScenes.push_back(ls);
+      }
+    }
+  }
+
+  ImGui::Spacing();
+
+  if (g_listedScenes.empty()) {
+    ImGui::TextDisabled("No scenes listed. Click 'List Current Scenes' to query the game.");
+  } else {
+    // Left side: Table of scenes
+    ImGui::BeginChild("##scenes_list_panel", ImVec2(320, 0), true);
+    ImGui::Text("Scenes List:");
+    ImGui::Separator();
+    if (ImGui::BeginTable("##scenes_table", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+      ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+      ImGui::TableSetupColumn("Ents", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+      ImGui::TableSetupColumn("Comps", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+      ImGui::TableHeadersRow();
+
+      for (int i = 0; i < (int)g_listedScenes.size(); i++) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        bool isSelected = (g_selectedSceneIndex == i);
+        if (ImGui::Selectable(g_listedScenes[i].name.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
+          g_selectedSceneIndex = i;
+        }
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("%u", g_listedScenes[i].entityCount);
+        ImGui::TableSetColumnIndex(2);
+        ImGui::Text("%u", g_listedScenes[i].componentCount);
+      }
+      ImGui::EndTable();
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // Right side: Scene Details
+    ImGui::BeginChild("##scene_details_panel", ImVec2(0, 0), true);
+    if (g_selectedSceneIndex >= 0 && g_selectedSceneIndex < (int)g_listedScenes.size()) {
+      const auto &scene = g_listedScenes[g_selectedSceneIndex];
+      ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Scene: %s", scene.name.c_str());
+      ImGui::Separator();
+      ImGui::Text("Entities: %u", scene.entityCount);
+      ImGui::Text("Components: %u", scene.componentCount);
+      ImGui::Spacing();
+      ImGui::Text("Component Breakdown:");
+      ImGui::Separator();
+      
+      ImGui::BeginChild("##comp_list", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+      for (const auto &compType : scene.componentTypes) {
+        ImGui::BulletText("%s", compType.c_str());
+      }
+      ImGui::EndChild();
+    } else {
+      ImGui::TextDisabled("Select a scene from the list to view component details.");
+    }
+    ImGui::EndChild();
+  }
+}
+
 static void InternalRender() {
   // Draw remote cursors
   RenderRemoteCursors();
@@ -608,6 +709,11 @@ static void InternalRender() {
 
     if (ImGui::BeginTabItem("Save Manager")) {
       RenderSaveTab();
+      ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Scenes")) {
+      RenderScenesTab();
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
