@@ -108,6 +108,7 @@ add_library(Mewtiplayer SHARED
         include/NetworkManager.h
         include/Overlay.h
         include/Scanner.h
+        include/MewSQL.h
         src/CrashHandler.cpp
         src/GameUtils.cpp
         src/ImGuiHook.cpp
@@ -116,6 +117,7 @@ add_library(Mewtiplayer SHARED
         src/Overlay.cpp
         src/resources.rc
         src/Scanner.cpp
+        src/MewSQL.cpp
         Mewtiplayer.cpp)
 
 target_compile_options(Mewtiplayer PRIVATE -fms-extensions)

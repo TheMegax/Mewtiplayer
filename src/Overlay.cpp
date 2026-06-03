@@ -2,6 +2,7 @@
 #include "SteamABICompat.h"
 #include "GameUtils.h"
 #include "ImGuiHook.h"
+#include "MewSQL.h"
 #include "InputGhost.h"
 #include "NetworkManager.h"
 #include "imgui.h"
@@ -575,6 +576,51 @@ static void RenderSaveTab() {
       "This will load 'mewtiplayer.sav' (or create it), "
       "inject custom progression, and immediately start a custom run "
       "using the configuration given.");
+
+  static char testDbPath[256] = "test00.sav";
+  static char testPropKey[128] = "house_food";
+  static int testWriteValue = 0;
+  static int64_t testReadValue = -1;
+  static bool hasRead = false;
+
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Text("Save Database I/O Test");
+  
+  ImGui::InputText("Test DB Path", testDbPath, sizeof(testDbPath));
+  ImGui::InputText("Test Key", testPropKey, sizeof(testPropKey));
+  
+  if (ImGui::Button("Read Key")) {
+    if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(testDbPath)) {
+      testReadValue = MewSQL::ReadIntFromDatabase(db, testPropKey, -999);
+      MewSQL::CloseSaveDatabase(db);
+      hasRead = true;
+      Overlay::Log("[SQL TEST] Read '%s' from '%s' -> %lld", testPropKey, testDbPath, testReadValue);
+    } else {
+      Overlay::Log("[SQL TEST] Failed to open database '%s'!", testDbPath);
+      hasRead = false;
+    }
+  }
+  
+  ImGui::SameLine();
+  ImGui::InputInt("Write Value", &testWriteValue);
+  ImGui::SameLine();
+  
+  if (ImGui::Button("Write Key")) {
+    if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(testDbPath)) {
+      char query[256];
+      snprintf(query, sizeof(query), "INSERT OR REPLACE INTO properties VALUES ('%s', %d);", testPropKey, testWriteValue);
+      MewSQL::ExecSQLOnDatabase(db, query);
+      MewSQL::CloseSaveDatabase(db);
+      Overlay::Log("[SQL TEST] Wrote '%s' = %d to '%s'", testPropKey, testWriteValue, testDbPath);
+    } else {
+      Overlay::Log("[SQL TEST] Failed to open database '%s'!", testDbPath);
+    }
+  }
+
+  if (hasRead) {
+    ImGui::Text("Read Value: %lld", testReadValue);
+  }
 }
 
 struct ListedScene {
@@ -595,8 +641,8 @@ static void RenderScenesTab() {
   if (ImGui::Button("List Current Scenes", ImVec2(180, 0))) {
     g_listedScenes.clear();
     g_selectedSceneIndex = -1;
-    std::vector<Scene *> scenes = GameUtils::GetCurrentScenes();
-    for (Scene *scene : scenes) {
+    const std::vector<Scene *> scenes = GameUtils::GetCurrentScenes();
+    for (const Scene *scene : scenes) {
       if (scene) {
         ListedScene ls;
         ls.name = scene->name.copy_to_native_string();
@@ -607,14 +653,15 @@ static void RenderScenesTab() {
         
         // Group components by type
         std::map<std::string, int> compCount;
-        for (Component *c : comps) {
+        for (const Component *c : comps) {
           MsvcReleaseModeXString typeName = {};
           if (GameUtils::SafeGetComponentName(c, &typeName)) {
             compCount[typeName.copy_to_native_string()]++;
+            GameUtils::FreeXString(typeName);
           }
         }
-        for (const auto &pair : compCount) {
-          ls.componentTypes.push_back(pair.first + " (" + std::to_string(pair.second) + ")");
+        for (const auto &[fst, snd] : compCount) {
+          ls.componentTypes.push_back(fst + " (" + std::to_string(snd) + ")");
         }
         g_listedScenes.push_back(ls);
       }
@@ -657,17 +704,17 @@ static void RenderScenesTab() {
     // Right side: Scene Details
     ImGui::BeginChild("##scene_details_panel", ImVec2(0, 0), true);
     if (g_selectedSceneIndex >= 0 && g_selectedSceneIndex < (int)g_listedScenes.size()) {
-      const auto &scene = g_listedScenes[g_selectedSceneIndex];
-      ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Scene: %s", scene.name.c_str());
+      const auto &[name, entityCount, componentCount, componentTypes] = g_listedScenes[g_selectedSceneIndex];
+      ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Scene: %s", name.c_str());
       ImGui::Separator();
-      ImGui::Text("Entities: %u", scene.entityCount);
-      ImGui::Text("Components: %u", scene.componentCount);
+      ImGui::Text("Entities: %u", entityCount);
+      ImGui::Text("Components: %u", componentCount);
       ImGui::Spacing();
       ImGui::Text("Component Breakdown:");
       ImGui::Separator();
       
       ImGui::BeginChild("##comp_list", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
-      for (const auto &compType : scene.componentTypes) {
+      for (const auto &compType : componentTypes) {
         ImGui::BulletText("%s", compType.c_str());
       }
       ImGui::EndChild();

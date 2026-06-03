@@ -28,7 +28,7 @@ rc /fo build\resources.res src\resources.rc
 echo Compiling Mewtiplayer...
 cl /LD /O2 /Zi /GS- /W3 /std:c++17 /D_CRT_SECURE_NO_WARNINGS ^
   /I . /I include /I external/mewjector /I external/steam /I external/imgui /I external/kiero /I external/kiero/minhook/include ^
-  Mewtiplayer.cpp src/CrashHandler.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/ImGuiHook.cpp src/GameUtils.cpp src/InputGhost.cpp ^
+  Mewtiplayer.cpp src/CrashHandler.cpp src/Scanner.cpp src/NetworkManager.cpp src/Overlay.cpp src/ImGuiHook.cpp src/GameUtils.cpp src/InputGhost.cpp src/MewSQL.cpp ^
   external/kiero/kiero.cpp ^
   external/kiero/minhook/src/buffer.c ^
   external/kiero/minhook/src/hook.c ^

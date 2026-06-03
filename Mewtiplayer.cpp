@@ -6,6 +6,7 @@
 #include "Overlay.h"
 #include "Scanner.h"
 #include "mewjector.h"
+#include "MewSQL.h"
 #include <unordered_set>
 
 #define MOD_NAME "Mewtiplayer"
@@ -760,7 +761,65 @@ static void Initialize() {
     &mj, g_gameBase, "ActiveSceneFunc",
     "48 89 5C 24 10 57 48 83 EC 20 33 FF 48 8B D9 48 85 C9 75 10 48 8B 1D");
 
+  // MewSQL signature scans
+  const uintptr_t sqlOpenRVA = ScanSignature(
+    &mj, g_gameBase, "SQLSaveFile::open",
+    "48 89 5C 24 08 48 89 74 24 18 48 89 54 24 10 57 48 83 EC 20 48 8B DA 48 8B F1 48 8D 79 08 48 3B FA 74 16 48 83 7A 18 0F");
+
+  const uintptr_t sqlRetrieveRVA = ScanSignature(
+    &mj, g_gameBase, "SQLSaveFile::Retrieve",
+    "4C 89 44 24 18 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E9 48 81 EC C8 00 00 00 49 8B F8 4C 8B FA 33 C9 89 0A 48 8D 45 CF 48 89 45 67 48 8D 05 ?? ?? ?? ?? 48 89 45 CF");
+
+  const uintptr_t sqlCloseRVA = ScanSignature(
+    &mj, g_gameBase, "CloseConnection",
+    "40 55 57 48 83 EC 28 80 79 71 A7 48 8B F9 0F 85 D0 03 00 00 48 83 79 08 00 0F 85 C5 03 00 00 44 8B 41 28");
+
+  const uintptr_t destructStrRVA = ScanSignature(
+    &mj, g_gameBase, "DestructString",
+    "40 53 48 83 EC 20 48 8B 51 18 48 8B D9 48 83 FA 0F 76 2C 48 8B 09 48 FF C2 48 81 FA 00 10 00 00");
+
+  const uintptr_t baseSavePathSig = ScanSignature(
+    &mj, g_gameBase, "BaseSavePathLookup",
+    "48 83 3D ?? ?? ?? ?? 0F 4C 0F 47 25 ?? ?? ?? ??");
+
   // Resolve addresses //
+  if (baseSavePathSig) {
+    const uintptr_t baseSavePathAddr = ResolveRIP(g_gameBase + baseSavePathSig + 8, 4, 8);
+    MewSQL::SetBaseSavePathPtr((MsvcReleaseModeXString*)baseSavePathAddr);
+  } else {
+    Overlay::Log("FAILED to find BaseSavePathLookup signature!");
+  }
+
+  if (sqlOpenRVA) {
+    MewSQL::SetOpenPtr((MewSQL::SQLSaveFile_open_t)(g_gameBase + sqlOpenRVA));
+  } else {
+    Overlay::Log("FAILED to find SQLSaveFile::open signature!");
+  }
+
+  if (sqlRetrieveRVA) {
+    MewSQL::SetRetrievePtr((MewSQL::Retrieve_t)(g_gameBase + sqlRetrieveRVA));
+  } else {
+    Overlay::Log("FAILED to find SQLSaveFile::Retrieve signature!");
+  }
+
+  if (sqlCloseRVA) {
+    MewSQL::SetCloseConnectionPtr((MewSQL::CloseConnection_t)(g_gameBase + sqlCloseRVA));
+  } else {
+    Overlay::Log("FAILED to find CloseConnection signature!");
+  }
+
+  if (destructStrRVA) {
+    const auto destructFunc = (GameUtils::DestructString_t)(g_gameBase + destructStrRVA);
+    MewSQL::SetDestructStringPtr(destructFunc);
+    GameUtils::SetDestructStringPtr(destructFunc);
+  } else {
+    Overlay::Log("FAILED to find DestructString signature!");
+  }
+
+  if (execSqlRVA) {
+    MewSQL::SetExecSQLPtr((MewSQL::ExecSQL_t)(g_gameBase + execSqlRVA));
+  }
+
   if (pMewDirectorSig) {
     const uintptr_t pMewDirectorPtr =
         ResolveRIP(g_gameBase + pMewDirectorSig + 18, 3, 7);

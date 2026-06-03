@@ -55,6 +55,12 @@ Component *FindComponentByTypeName(const Scene *scene, const char *typeName);
 bool SafeGetComponentName(const Component *p_component,
                           MsvcReleaseModeXString *out_name);
 
+// MSVC XString Helpers
+typedef void (__fastcall *DestructString_t)(MsvcReleaseModeXString* str);
+void SetDestructStringPtr(DestructString_t ptr);
+void InitXString(MsvcReleaseModeXString& xstr, const std::string& str);
+void FreeXString(MsvcReleaseModeXString& xstr);
+
 // Button interaction state at offset +0x2F0
 enum ButtonState : int32_t {
   ButtonState_Idle = 0,

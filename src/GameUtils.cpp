@@ -11,9 +11,36 @@ namespace GameUtils {
 
 static MewDirector **g_pMewDirectorPtr = nullptr;
 static TurnControl **g_pTurnControlPtr = nullptr;
+static DestructString_t g_DestructString = nullptr;
 
 void SetMewDirectorSingletonPtr(MewDirector **ptr) { g_pMewDirectorPtr = ptr; }
 void SetTurnControlPtr(TurnControl **ptr) { g_pTurnControlPtr = ptr; }
+void SetDestructStringPtr(DestructString_t ptr) { g_DestructString = ptr; }
+
+void InitXString(MsvcReleaseModeXString& xstr, const std::string& str) {
+  memset(&xstr, 0, sizeof(xstr));
+  const size_t len = str.length();
+  if (len < 16) {
+    memcpy(xstr.Bx.Buf, str.c_str(), len + 1);
+    xstr.Myres = 15;
+  } else {
+    xstr.Bx.Ptr = (char*)malloc(len + 1);
+    memcpy(xstr.Bx.Ptr, str.c_str(), len + 1);
+    xstr.Myres = len;
+  }
+  xstr.Mysize = len;
+}
+
+void FreeXString(MsvcReleaseModeXString& xstr) {
+  if (g_DestructString) {
+    g_DestructString(&xstr);
+  } else {
+    if (xstr.Myres >= 16 && xstr.Bx.Ptr) {
+      free(xstr.Bx.Ptr);
+    }
+    memset(&xstr, 0, sizeof(xstr));
+  }
+}
 
 TurnControl *GetTurnControl() {
   if (g_pTurnControlPtr)
@@ -43,28 +70,15 @@ void ExecuteSQL(const char* query) {
   void* sqlSaveFile = (char*)dir + 0x4a8;
 
   MsvcReleaseModeXString queryStr;
-  size_t len = strlen(query);
-  if (len < 16) {
-    memcpy(queryStr.Bx.Buf, query, len + 1);
-    queryStr.Myres = 15;
-  } else {
-    queryStr.Bx.Ptr = (char*)malloc(len + 1);
-    memcpy(queryStr.Bx.Ptr, query, len + 1);
-    queryStr.Myres = len;
-  }
-  queryStr.Mysize = len;
+  InitXString(queryStr, query);
 
   void* dummyFunc[8] = {}; // Dummy std::function block (64 bytes)
   g_ExecSQL(sqlSaveFile, &queryStr, dummyFunc);
-
-  if (len >= 16 && queryStr.Bx.Ptr) {
-    free(queryStr.Bx.Ptr);
-  }
 }
 
 std::string SanitizeSQLString(const std::string& input) {
   std::string output;
-  for (char c : input) {
+  for (const char c : input) {
     if (c == '\'') {
       output += "''";
     } else {
@@ -74,8 +88,8 @@ std::string SanitizeSQLString(const std::string& input) {
   return output;
 }
 
-void SetSaveProperty(const std::string& key, int value) {
-  std::string safeKey = SanitizeSQLString(key);
+void SetSaveProperty(const std::string& key, const int value) {
+  const std::string safeKey = SanitizeSQLString(key);
   char query[512];
   snprintf(query, sizeof(query), "INSERT OR REPLACE INTO properties VALUES ('%s', %d);", safeKey.c_str(), value);
   ExecuteSQL(query);
@@ -134,7 +148,7 @@ void LoadSaveFile(const char *saveName) {
     return;
   }
 
-  std::vector<Scene*> scenes = GetCurrentScenes();
+  const std::vector<Scene*> scenes = GetCurrentScenes();
   int baseIndex = -1;
   int tutorialIndex = -1;
 
@@ -157,7 +171,7 @@ void LoadSaveFile(const char *saveName) {
   // Deconstruct scenes between Base and the targetScene
   for (int i = baseIndex + 1; i < tutorialIndex - 1; i++) {
     if (scenes[i]) {
-      scenes[i]->doing_scene_destruction = 1;
+      scenes[i]->doing_scene_destruction = true;
     }
   }
 
@@ -177,7 +191,7 @@ void LoadSaveFile(const char *saveName) {
   }
 
   memset(&g_fakeSaveSelection, 0, sizeof(g_fakeSaveSelection));
-  memset(g_fakeSaveStrings, 0, sizeof(g_fakeSaveStrings));
+  FreeXString(g_fakeSaveStrings[1]);
 
   g_fakeSaveSelection.entity = validComp->entity;
   g_fakeSaveSelection.scene = targetScene;
@@ -187,22 +201,12 @@ void LoadSaveFile(const char *saveName) {
   g_fakeSaveSelection.saveStrings_last = g_fakeSaveStrings + 4;
   g_fakeSaveSelection.saveStrings_end = g_fakeSaveStrings + 4;
 
-  size_t len = strlen(saveName);
-  if (len < 16) {
-    memcpy(g_fakeSaveStrings[1].Bx.Buf, saveName, len + 1);
-    g_fakeSaveStrings[1].Myres = 15;
-  } else {
-    const auto heapBuf = (char*)malloc(len + 1);
-    memcpy(heapBuf, saveName, len + 1);
-    g_fakeSaveStrings[1].Bx.Ptr = heapBuf;
-    g_fakeSaveStrings[1].Myres = len;
-  }
-  g_fakeSaveStrings[1].Mysize = len;
+  InitXString(g_fakeSaveStrings[1], saveName);
 
   g_ContinueFile(&g_fakeSaveSelection, 1, false);
 }
 
-void StartCustomRun(int teamSize, int difficulty, int collarIndex) {
+void StartCustomRun(const int teamSize, const int difficulty, const int collarIndex) {
   if (!g_StartRun) {
     Overlay::Log("[RUN] StartRun not hooked!");
     return;
@@ -228,10 +232,8 @@ void StartCustomRun(int teamSize, int difficulty, int collarIndex) {
 
   const auto mapName = "alley.gon";
 
-  MsvcReleaseModeXString mapStr = {};
-  mapStr.Mysize = strlen(mapName);
-  mapStr.Myres = 15;
-  memcpy(mapStr.Bx.Buf, mapName, mapStr.Mysize + 1);
+  MsvcReleaseModeXString mapStr;
+  InitXString(mapStr, mapName);
 
   Overlay::Log("[RUN] Starting custom run: TeamSize=%d, Difficulty=%d, CollarIndex=%d", teamSize, difficulty, collarIndex);
 
@@ -495,7 +497,9 @@ Component *FindComponentByTypeName(const Scene *scene, const char *typeName) {
   for (Component *p_component : components) {
     MsvcReleaseModeXString name = {};
     if (SafeGetComponentName(p_component, &name)) {
-      if (name.as_native_string_view() == typeName) {
+      const bool match = name.as_native_string_view() == typeName;
+      FreeXString(name);
+      if (match) {
         return p_component;
       }
     }
@@ -552,10 +556,12 @@ Component *FindButton(const Scene *scene, const char *roleName) {
     MsvcReleaseModeXString tn = {};
     if (!SafeGetComponentName(c, &tn))
       continue;
-    if (tn.as_native_string_view() != "Button")
+    const bool isButton = tn.as_native_string_view() == "Button";
+    FreeXString(tn);
+    if (!isButton)
       continue;
     __try {
-      auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
+      const auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
       if (role->Mysize > 0 && role->Mysize < 256 &&
           role->as_native_string_view() == roleName) {
         return c;
@@ -573,7 +579,9 @@ std::vector<Component *> FindAllButtons(const Scene *scene, const char *roleName
     MsvcReleaseModeXString tn = {};
     if (!SafeGetComponentName(c, &tn))
       continue;
-    if (tn.as_native_string_view() != "Button")
+    const bool isButton = tn.as_native_string_view() == "Button";
+    FreeXString(tn);
+    if (!isButton)
       continue;
     __try {
       const auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
@@ -705,8 +713,11 @@ void *GameUtils::ResolveGridTile(const int x, const int y) {
       continue;
     std::string_view nameStr = name.as_native_string_view();
 
+    const bool isTile = (nameStr.find("Tile") != std::string::npos);
+    FreeXString(name);
+
     // Fuzzy search for tile-like components
-    if (nameStr.find("Tile") != std::string::npos) {
+    if (isTile) {
       tiles.push_back(c);
     }
   }
@@ -724,6 +735,7 @@ void *GameUtils::ResolveGridTile(const int x, const int y) {
     SafeGetComponentName(tile, &name);
     Overlay::Log("[GRID] Resolved (%d, %d) via Index -> %d, name: %s", x, y,
                  idx, name.as_native_string_view().data());
+    FreeXString(name);
     return tiles[idx];
   }
 
