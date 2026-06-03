@@ -28,6 +28,12 @@ extern int g_customTeamSize;
 extern int g_customDifficulty;
 extern int g_customCollarIndex;
 extern bool g_startCustomRunPending;
+extern bool g_isLoadingCustomCats;
+extern int g_currentCustomCatIndex;
+
+typedef void (__fastcall *MewSaveFile_Load_t)(void* thisPtr, int64_t sql_id, void* catPtr);
+void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr);
+MewSaveFile_Load_t GetMewSaveFileLoadPtr();
 
 void LoadSaveFile(const char *saveName);
 

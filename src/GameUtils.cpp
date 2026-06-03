@@ -129,6 +129,12 @@ int g_customTeamSize = 4;
 int g_customDifficulty = 0;
 int g_customCollarIndex = 0;
 bool g_startCustomRunPending = false;
+bool g_isLoadingCustomCats = false;
+int g_currentCustomCatIndex = 1;
+static MewSaveFile_Load_t g_MewSaveFile_Load = nullptr;
+
+void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr) { g_MewSaveFile_Load = ptr; }
+MewSaveFile_Load_t GetMewSaveFileLoadPtr() { return g_MewSaveFile_Load; }
 
 void LoadSaveFile(const char *saveName) {
   g_injectCustomSaveData = true;
@@ -237,9 +243,13 @@ void StartCustomRun(const int teamSize, const int difficulty, const int collarIn
 
   Overlay::Log("[RUN] Starting custom run: TeamSize=%d, Difficulty=%d, CollarIndex=%d", teamSize, difficulty, collarIndex);
 
+  g_isLoadingCustomCats = true;
+  g_currentCustomCatIndex = 1;
+
   if (!g_activeScenePtr) {
     Overlay::Log("[RUN] Warning: g_activeScenePtr is null, calling StartRun directly");
     g_StartRun(dir, &mapStr, collarIndex, teamSize, 1);
+    g_isLoadingCustomCats = false;
     return;
   }
 
@@ -247,6 +257,7 @@ void StartCustomRun(const int teamSize, const int difficulty, const int collarIn
   if (!houseScene) {
     Overlay::Log("[RUN] Warning: 'House' scene not found, calling StartRun directly");
     g_StartRun(dir, &mapStr, collarIndex, teamSize, 1);
+    g_isLoadingCustomCats = false;
     return;
   }
 
@@ -254,6 +265,8 @@ void StartCustomRun(const int teamSize, const int difficulty, const int collarIn
   *g_activeScenePtr = houseScene;
   g_StartRun(dir, &mapStr, collarIndex, teamSize, 0);
   *g_activeScenePtr = oldContext;
+
+  g_isLoadingCustomCats = false;
 }
 
 Scene *GetSceneByName(const char *name) {

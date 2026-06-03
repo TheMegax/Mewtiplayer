@@ -29,7 +29,7 @@ struct RemoteCursor {
 
 static std::deque<std::string> g_logLines;
 static std::mutex g_logMutex;
-static const size_t MAX_LOG_LINES = 512;
+static constexpr size_t MAX_LOG_LINES = 512;
 static bool g_visible = true;
 static char g_lobbyNameBuffer[128] = "Mewtiplayer Match";
 static MJ_fn_Log g_origMjLog = nullptr;
@@ -64,12 +64,10 @@ void LoadCursorTextures() {
 
   // Load hotspots from resource
   std::map<std::string, ImVec2> hotspots;
-  HRSRC hResHot = FindResourceA(hModule, "hotspots", RT_RCDATA);
-  if (hResHot) {
+  if (HRSRC hResHot = FindResourceA(hModule, "hotspots", RT_RCDATA)) {
     DWORD size = SizeofResource(hModule, hResHot);
     HGLOBAL hGlobal = LoadResource(hModule, hResHot);
-    auto pData = (char *)LockResource(hGlobal);
-    if (pData) {
+    if (auto pData = (char *)LockResource(hGlobal)) {
       std::string content(pData, size);
       std::stringstream ss(content);
       std::string line;
@@ -86,15 +84,13 @@ void LoadCursorTextures() {
   }
 
   for (uint8_t i = 0; i < 19; ++i) {
-    HRSRC hRes = FindResourceA(hModule, g_CursorNames[i], RT_RCDATA);
-    if (hRes) {
+    if (HRSRC hRes = FindResourceA(hModule, g_CursorNames[i], RT_RCDATA)) {
       DWORD size = SizeofResource(hModule, hRes);
       HGLOBAL hGlobal = LoadResource(hModule, hRes);
-      void *pData = LockResource(hGlobal);
-      if (pData) {
+      if (void *pData = LockResource(hGlobal)) {
         int w, h, channels;
         unsigned char *data = stbi_load_from_memory(
-            static_cast<const unsigned char *>(pData), size, &w, &h, &channels, 4);
+            static_cast<const unsigned char *>(pData), (int)size, &w, &h, &channels, 4);
         if (data) {
           GLuint tex;
           glGenTextures(1, &tex);
@@ -147,7 +143,7 @@ void Overlay::LogV(const char *fmt, const va_list args) {
   vsnprintf(buf, sizeof(buf), fmt, args);
 
   {
-    std::lock_guard<std::mutex> lock(g_logMutex);
+    std::lock_guard lock(g_logMutex);
     g_logLines.push_back(std::string(buf));
     while (g_logLines.size() > MAX_LOG_LINES)
       g_logLines.pop_front();
@@ -185,7 +181,7 @@ bool Overlay::ConsumeSaveLoad() {
 }
 
 static void RenderRemoteCursors() {
-  std::lock_guard<std::mutex> lock(g_cursorMutex);
+  std::lock_guard lock(g_cursorMutex);
   ImDrawList *drawList = ImGui::GetForegroundDrawList();
   const HWND hWnd = ImGuiHook::GetHWND();
   const auto now = std::chrono::steady_clock::now();
@@ -466,19 +462,19 @@ static void RenderActionManagerTab() {
   const auto &actions = NetworkManager::Get().GetRecordedActions();
   std::string csvData =
       "Type,ActorNUID,ActionType,AbilityName,TargetX,TargetY,Target2X,Target2Y,NX,NY,Anim,Force\n";
-  for (const auto &act : actions) {
+  for (const auto &[type, data] : actions) {
     char line[512];
-    if (act.type == PacketType::TurnAction) {
+    if (type == PacketType::TurnAction) {
       snprintf(line, sizeof(line), "ACTION,%u,%d,%s,%d,%d,%d,%d,0,0,0,0\n",
-               act.data.action.actorNUID, act.data.action.actionType,
-               act.data.action.abilityName, act.data.action.targetX,
-               act.data.action.targetY, act.data.action.target2X,
-               act.data.action.target2Y);
-    } else if (act.type == PacketType::TurnFacing) {
+               data.action.actorNUID, data.action.actionType,
+               data.action.abilityName, data.action.targetX,
+               data.action.targetY, data.action.target2X,
+               data.action.target2Y);
+    } else if (type == PacketType::TurnFacing) {
       snprintf(line, sizeof(line), "FACING,%u,0,NULL,0,0,0,0,%d,%d,%d,%d\n",
-               act.data.facing.actorNUID, act.data.facing.nx,
-               act.data.facing.ny, act.data.facing.anim ? 1 : 0,
-               act.data.facing.force ? 1 : 0);
+               data.facing.actorNUID, data.facing.nx,
+               data.facing.ny, data.facing.anim ? 1 : 0,
+               data.facing.force ? 1 : 0);
     }
     csvData += line;
   }
@@ -564,7 +560,7 @@ static void RenderSaveTab() {
   ImGui::Separator();
 
   ImGui::Text("Custom Run Configuration");
-  ImGui::SliderInt("Team Size", &GameUtils::g_customTeamSize, 1, 50);
+  ImGui::SliderInt("Team Size", &GameUtils::g_customTeamSize, 2, 8);
   ImGui::SliderInt("Difficulty Mod", &GameUtils::g_customDifficulty, 0, 10);
   ImGui::Combo("Collar Type", &GameUtils::g_customCollarIndex, g_collarNames, IM_ARRAYSIZE(g_collarNames));
 
@@ -572,10 +568,6 @@ static void RenderSaveTab() {
   if (ImGui::Button("Start Run")) {
     Overlay::RequestSaveLoad();
   }
-  ImGui::TextWrapped(
-      "This will load 'mewtiplayer.sav' (or create it), "
-      "inject custom progression, and immediately start a custom run "
-      "using the configuration given.");
 
   static char testDbPath[256] = "test00.sav";
   static char testPropKey[128] = "house_food";

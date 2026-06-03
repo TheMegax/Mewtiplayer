@@ -209,6 +209,47 @@ void __fastcall Hook_InitializeSave(void* gameStateMap, void* saveNameStr) {
 }
 
 // ---------------------------------------------------------------------------
+// Hook: CreateStrayCat
+// ---------------------------------------------------------------------------
+typedef void* (__fastcall *CreateStrayCat_t)(void* catsManager);
+static CreateStrayCat_t g_origCreateStrayCat = nullptr;
+
+void* __fastcall Hook_CreateStrayCat(void* catsManager) {
+  void* cat = nullptr;
+  if (g_origCreateStrayCat) {
+    cat = g_origCreateStrayCat(catsManager);
+  }
+
+  if (GameUtils::g_isLoadingCustomCats && cat) {
+    const int index = GameUtils::g_currentCustomCatIndex;
+    Overlay::Log("[CAT LOAD] Hooked CreateStrayCat, loading custom cat at index %d from test00.sav...", index);
+
+    if (glaiel::SQLSaveFile* dbFile = MewSQL::OpenSaveDatabase("test00.sav")) {
+      if (const GameUtils::MewSaveFile_Load_t mewSaveFileLoad = GameUtils::GetMewSaveFileLoadPtr()) {
+        char dummySave[0x600] = {};
+        memcpy(dummySave + 0x470, dbFile, sizeof(glaiel::SQLSaveFile));
+
+        const auto catIdPtr = (int64_t*)((char*)cat + 3144);
+        const int64_t originalID = *catIdPtr;
+
+        mewSaveFileLoad((void*)dummySave, index, cat);
+        *catIdPtr = originalID;
+
+        Overlay::Log("[CAT LOAD] Custom cat loaded successfully! OriginalID: %lld restored.", originalID);
+      } else {
+        Overlay::Log("[CAT LOAD] Error: MewSaveFile::Load pointer not set!");
+      }
+      MewSQL::CloseSaveDatabase(dbFile);
+    } else {
+      Overlay::Log("[CAT LOAD] Error: Could not open test00.sav database!");
+    }
+    GameUtils::g_currentCustomCatIndex++;
+  }
+
+  return cat;
+}
+
+// ---------------------------------------------------------------------------
 // Hook: AbilityTrigger
 // ---------------------------------------------------------------------------
 void __fastcall Hook_AbilityTrigger(Ability *ability, TurnAction *turnAction) {
@@ -534,6 +575,7 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
           actPkt.type = PacketType::TurnFacing;
           actPkt.data.facing = pkt;
 
+          // ReSharper disable once CppSomeObjectMembersMightNotBeInitialized
           g_lastSentTurnPackage = actPkt;
           NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt,
                                                 sizeof(pkt), !g_packetTesting);
@@ -761,6 +803,15 @@ static void Initialize() {
     &mj, g_gameBase, "ActiveSceneFunc",
     "48 89 5C 24 10 57 48 83 EC 20 33 FF 48 8B D9 48 85 C9 75 10 48 8B 1D");
 
+  // Custom cat loader signature scans
+  const uintptr_t createStrayCatRVA = ScanSignature(
+    &mj, g_gameBase, "CreateStrayCat",
+    "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 30 41 8B F8 48 8B E9");
+
+  const uintptr_t mewSaveFileLoadRVA = ScanSignature(
+    &mj, g_gameBase, "MewSaveFile::Load",
+    "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 56 41 57 48 8D AC 24 30 FF FF FF");
+
   // MewSQL signature scans
   const uintptr_t sqlOpenRVA = ScanSignature(
     &mj, g_gameBase, "SQLSaveFile::open",
@@ -843,6 +894,20 @@ static void Initialize() {
     GameUtils::SetActiveScenePtr((void**)activeScenePtr);
   } else {
     Overlay::Log("FAILED to find ActiveSceneFunc signature!");
+  }
+
+  if (mewSaveFileLoadRVA) {
+    GameUtils::SetMewSaveFileLoadPtr((GameUtils::MewSaveFile_Load_t)(g_gameBase + mewSaveFileLoadRVA));
+  } else {
+    Overlay::Log("FAILED to find MewSaveFile::Load signature!");
+  }
+
+  if (createStrayCatRVA) {
+    mj.InstallHook(createStrayCatRVA, 15,
+      (void *)Hook_CreateStrayCat,
+      (void **)&g_origCreateStrayCat, 10, MOD_NAME);
+  } else {
+    Overlay::Log("FAILED to find CreateStrayCat signature!");
   }
 
   if (execSqlRVA) {
