@@ -555,6 +555,37 @@ static void RenderActionManagerTab() {
 
 static const char* g_collarNames[] = { "Basic", "All", "Random", "Freedom" };
 
+static bool IsSaveOnAdventure() {
+  static bool cachedResult = false;
+  static DWORD lastCheckTime = 0;
+  const DWORD now = GetTickCount();
+
+  if (now - lastCheckTime < 2000) {
+    return cachedResult;
+  }
+  lastCheckTime = now;
+
+  if (!MewSQL::SaveFileExists("mewtiplayer.sav")) {
+    cachedResult = false;
+    return false;
+  }
+
+  // If a save injection/load is currently pending, bypass background query to avoid locks
+  if (GameUtils::g_injectCustomSaveData || GameUtils::g_startCustomRunPending) {
+    return cachedResult;
+  }
+
+  glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase("mewtiplayer.sav");
+  if (!db) {
+    cachedResult = false;
+    return false;
+  }
+  const int64_t onAdventure = MewSQL::ReadIntFromDatabase(db, "on_adventure", 0);
+  MewSQL::CloseSaveDatabase(db);
+  cachedResult = onAdventure == 1;
+  return cachedResult;
+}
+
 static void RenderSaveTab() {
   ImGui::Text("Mod Save Manager");
   ImGui::Separator();
@@ -565,8 +596,21 @@ static void RenderSaveTab() {
   ImGui::Combo("Collar Type", &GameUtils::g_customCollarIndex, g_collarNames, IM_ARRAYSIZE(g_collarNames));
 
   ImGui::Spacing();
-  if (ImGui::Button("Start Run")) {
+  if (ImGui::Button("Start New Run")) {
+    GameUtils::g_injectCustomSaveData = true;
     Overlay::RequestSaveLoad();
+  }
+
+  ImGui::SameLine();
+
+  const bool canContinue = MewSQL::SaveFileExists("mewtiplayer.sav") && IsSaveOnAdventure();
+  if (canContinue) {
+    if (ImGui::Button("Continue Run")) {
+      GameUtils::g_injectCustomSaveData = false;
+      Overlay::RequestSaveLoad();
+    }
+  } else {
+    ImGui::TextDisabled("Continue Run (No active run)");
   }
 
   static char testDbPath[256] = "test00.sav";

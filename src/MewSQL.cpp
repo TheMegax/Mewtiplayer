@@ -1,5 +1,6 @@
 #include "MewSQL.h"
 #include "GameUtils.h"
+#include "Overlay.h"
 #include <windows.h>
 #include <cstring>
 
@@ -19,17 +20,15 @@ void SetCloseConnectionPtr(const CloseConnection_t ptr) { g_CloseConnection = pt
 void SetDestructStringPtr(const DestructString_t ptr) { g_DestructString = ptr; }
 void SetBaseSavePathPtr(MsvcReleaseModeXString* ptr) { g_baseSavePathPtr = ptr; }
 
-glaiel::SQLSaveFile* OpenSaveDatabase(const std::string& path) {
-  if (!g_open) return nullptr;
-
+std::string GetAbsoluteSavePath(const std::string& path) {
   std::string fullPath = path;
   if (g_baseSavePathPtr && g_baseSavePathPtr->is_valid()) {
     std::string baseSavePath = g_baseSavePathPtr->begin();
     
     bool isAbsolute = false;
-    if (path.length() >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/')) {
+    if (path.length() >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/'))
       isAbsolute = true;
-    } else if (path.length() > 0 && (path[0] == '/' || path[0] == '\\')) {
+    else if (!path.empty() && (path[0] == '/' || path[0] == '\\')) {
       isAbsolute = true;
     } else if (!baseSavePath.empty() && path.find(baseSavePath) == 0) {
       isAbsolute = true;
@@ -49,11 +48,50 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const std::string& path) {
       fullPath = baseSavePath + "saves/" + cleanName;
     }
   }
+  return fullPath;
+}
+
+bool SaveFileExists(const std::string& path) {
+  std::string fullPath = GetAbsoluteSavePath(path);
+  DWORD dwAttrib = GetFileAttributesA(fullPath.c_str());
+  return (dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+void DeleteSaveFile(const std::string& path) {
+  std::string fullPath = GetAbsoluteSavePath(path);
+  BOOL ok = DeleteFileA(fullPath.c_str());
+  if (!ok) {
+    DWORD err = GetLastError();
+    if (err != ERROR_FILE_NOT_FOUND) {
+      Overlay::Log("[ERR] DeleteSaveFile '%s' failed, error %lu", fullPath.c_str(), err);
+    }
+  } else {
+    Overlay::Log("[SAVE] Wiped save file: %s", fullPath.c_str());
+  }
+  DeleteFileA((fullPath + "-journal").c_str());
+  DeleteFileA((fullPath + "-wal").c_str());
+  DeleteFileA((fullPath + "-shm").c_str());
+}
+
+void CloseActiveSaveConnection(void* mewDirector) {
+  if (!mewDirector) return;
+  void** dbPtr = (void**)((char*)mewDirector + 0x4a8);
+  if (dbPtr && *dbPtr && g_CloseConnection) {
+    Overlay::Log("[SAVE] Closing active director SQL database connection to unlock save file...");
+    g_CloseConnection(*dbPtr, 0);
+    *dbPtr = nullptr;
+  }
+}
+
+glaiel::SQLSaveFile* OpenSaveDatabase(const std::string& path) {
+  if (!g_open) return nullptr;
+
+  std::string fullPath = GetAbsoluteSavePath(path);
 
   auto* dbFile = new glaiel::SQLSaveFile();
   memset(dbFile, 0, sizeof(glaiel::SQLSaveFile));
 
-  MsvcReleaseModeXString pathStr;
+  MsvcReleaseModeXString pathStr = {};
   GameUtils::InitXString(pathStr, fullPath);
 
   g_open(dbFile, &pathStr);
@@ -64,7 +102,7 @@ void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile) {
   if (!dbFile) return;
 
   if (g_CloseConnection && dbFile->db) {
-    g_CloseConnection(dbFile->db);
+    g_CloseConnection(dbFile->db, 0);
     dbFile->db = nullptr;
   }
 
@@ -78,7 +116,7 @@ void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile) {
 void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const std::string& query) {
   if (!g_ExecSQL || !dbFile) return;
 
-  MsvcReleaseModeXString queryStr;
+  MsvcReleaseModeXString queryStr = {};
   GameUtils::InitXString(queryStr, query);
 
   void* dummyFunc[8] = {}; // Dummy std::function block (64 bytes)
@@ -88,13 +126,13 @@ void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const std::string& query) {
 int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const std::string& key, int64_t defaultVal) {
   if (!g_Retrieve || !dbFile) return defaultVal;
 
-  MsvcReleaseModeXString tableStr;
+  MsvcReleaseModeXString tableStr = {};
   GameUtils::InitXString(tableStr, "properties");
 
-  MsvcReleaseModeXString keyStr;
+  MsvcReleaseModeXString keyStr = {};
   GameUtils::InitXString(keyStr, key);
 
-  SQLData keyData;
+  SQLData keyData = {};
   keyData.type = 2; // String
   keyData.padding = 0;
   keyData.intVal = (int64_t)keyStr.begin(); // Raw C-string character pointer

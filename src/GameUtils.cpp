@@ -137,7 +137,6 @@ void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr) { g_MewSaveFile_Load = ptr; }
 MewSaveFile_Load_t GetMewSaveFileLoadPtr() { return g_MewSaveFile_Load; }
 
 void LoadSaveFile(const char *saveName) {
-  g_injectCustomSaveData = true;
   // This will initiate a fadeout sequence. At the end of it, it will initiate the save file with the given name,
   // creating a new mewdirector. It later takes the scene pointer from the fake save selection and destroys it,
   // loading the new save's scenes in its place.

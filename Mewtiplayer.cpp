@@ -154,6 +154,12 @@ static void Hook_BeginTurn(Character *character, int kind) {
 // Hook: InitializeSave
 // ---------------------------------------------------------------------------
 void __fastcall Hook_InitializeSave(void* gameStateMap, void* saveNameStr) {
+  if (GameUtils::g_injectCustomSaveData) {
+    MewSQL::CloseActiveSaveConnection(GameUtils::GetMewDirectorSingleton());
+    Overlay::Log("[SAVE] Wiping save file for Start New Run...");
+    MewSQL::DeleteSaveFile("mewtiplayer.sav");
+  }
+
   // First, call the original function to create/open the DB.
   if (g_origInitializeSave) {
     g_origInitializeSave(gameStateMap, saveNameStr);
@@ -823,7 +829,7 @@ static void Initialize() {
 
   const uintptr_t sqlCloseRVA = ScanSignature(
     &mj, g_gameBase, "CloseConnection",
-    "40 55 57 48 83 EC 28 80 79 71 A7 48 8B F9 0F 85 D0 03 00 00 48 83 79 08 00 0F 85 C5 03 00 00 44 8B 41 28");
+    "48 89 7C 24 20 41 56 48 83 EC 30 44 8B F2 48 8B F9 48 85 C9");
 
   const uintptr_t destructStrRVA = ScanSignature(
     &mj, g_gameBase, "DestructString",

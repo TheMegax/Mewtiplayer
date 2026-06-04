@@ -23,7 +23,7 @@ namespace MewSQL {
 typedef void (__fastcall *SQLSaveFile_open_t)(glaiel::SQLSaveFile* thisPtr, MsvcReleaseModeXString* pathStr);
 typedef void (__fastcall *ExecSQL_t)(glaiel::SQLSaveFile* thisPtr, MsvcReleaseModeXString* queryStr, void* stdFuncCallback);
 typedef void (__fastcall *Retrieve_t)(glaiel::SQLSaveFile* thisPtr, SQLData* outVal, MsvcReleaseModeXString* keyStr, SQLData* defaultVal, int32_t param5);
-typedef void (__fastcall *CloseConnection_t)(void* db);
+typedef int32_t (__fastcall *CloseConnection_t)(void* db, int32_t flag);
 typedef void (__fastcall *DestructString_t)(MsvcReleaseModeXString* str);
 
 void SetOpenPtr(SQLSaveFile_open_t ptr);
@@ -37,5 +37,9 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const std::string& path);
 void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile);
 void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const std::string& query);
 int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const std::string& key, int64_t defaultVal = 0);
+std::string GetAbsoluteSavePath(const std::string& path);
+bool SaveFileExists(const std::string& path);
+void DeleteSaveFile(const std::string& path);
+void CloseActiveSaveConnection(void* mewDirector);
 
 } // namespace MewSQL
