@@ -57,6 +57,9 @@ static ProcessCombatInput_t g_origProcessCombatInput = nullptr;
 typedef void *(__fastcall *RouteCombatInput_t)(CombatUIContext *ctx, void *outResult, void *param3, void *param4);
 static RouteCombatInput_t g_origRouteCombatInput = nullptr;
 
+typedef void(__fastcall *PauseGame_t)(void *pauseMenuScene);
+static PauseGame_t g_origPauseGame = nullptr;
+
 static bool g_isCombatUIProcessing = false;
 static std::unordered_set<void *> g_castableAbilities;
 
@@ -231,7 +234,8 @@ void* __fastcall Hook_CreateStrayCat(void* catsManager) {
     Overlay::Log("[CAT LOAD] Hooked CreateStrayCat, loading custom cat at index %d from test00.sav...", index);
 
     if (glaiel::SQLSaveFile* dbFile = MewSQL::OpenSaveDatabase("test00.sav")) {
-      if (const GameUtils::MewSaveFile_Load_t mewSaveFileLoad = GameUtils::GetMewSaveFileLoadPtr()) {
+      // ReSharper disable once CppLocalVariableMayBeConst
+      if (GameUtils::MewSaveFile_Load_t mewSaveFileLoad = GameUtils::GetMewSaveFileLoadPtr()) {
         char dummySave[0x600] = {};
         memcpy(dummySave + 0x470, dbFile, sizeof(glaiel::SQLSaveFile));
 
@@ -630,17 +634,15 @@ static void Hook_FaceDirection(void *character, const uint64_t target_packed,
           NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt,
                                                 sizeof(pkt), !g_packetTesting);
 
-          Overlay::Log("[FACE] Broadcast TurnFacing for NUID:%u | Target:(%d,%d)",
-                       nuid, nx, ny);
-        } else {
+          if (g_talkative) {
+            Overlay::Log("[FACE] Broadcast TurnFacing for NUID:%u | Target:(%d,%d)", nuid, nx, ny);
+          }
+        } else if (g_talkative) {
           if (isLocalActiveNUID) {
-            Overlay::Log("[FACE] Local Active NUID (%d), Queue not empty | "
-                         "Target:(%d,%d)",
-                         nuid, nx, ny);
+            Overlay::Log("[FACE] Active NUID (%d), Queue not empty | Target:(%d,%d)", nuid, nx, ny);
           } else if (nuid != 0xFFFFFFFF) {
             Overlay::Log(
-                "[FACE] Queue empty, NUID not local (%d) | Target:(%d,%d)",
-                nuid, nx, ny);
+                "[FACE] Queue empty, NUID not active (%d) | Target:(%d,%d)", nuid, nx, ny);
           }
         }
       }
@@ -690,6 +692,30 @@ static void *__fastcall Hook_RouteCombatInput(CombatUIContext *ctx, void *outRes
   g_castableAbilities.clear();
 
   return g_origRouteCombatInput(ctx, outResult, param3, param4);
+}
+
+// ---------------------------------------------------------------------------
+// Hook: PauseGame
+// ---------------------------------------------------------------------------
+static void __fastcall Hook_PauseGame(void *pauseMenuScene) {
+  if (g_origPauseGame) {
+    g_origPauseGame(pauseMenuScene);
+  }
+
+  if (pauseMenuScene && NetworkManager::Get().GetCurrentLobby().IsValid()) {
+    if (void *sceneManager = *(void **)((char *)pauseMenuScene + 0x28)) {
+      void **start = *(void ***)((char *)sceneManager + 0x0);
+      void **end = *(void ***)((char *)sceneManager + 0x8);
+      if (start && end) {
+        for (void **p = start; p != end; ++p) {
+          if (void *scene = *p) {
+            *((char *)scene + 0x4d8) = 0;
+          }
+        }
+      }
+    }
+    *(int32_t *)((char *)pauseMenuScene + 0xa4) = 0;
+  }
 }
 
 static void Hook_RunFrame(void *rcx, void *rdx) {
@@ -827,6 +853,11 @@ static void Initialize() {
   const uintptr_t routeCombatInputRVA = ScanSignature(
     &mj, g_gameBase, "RouteCombatInput",
     "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38");
+
+  // "PauseGame"
+  const uintptr_t pauseGameRVA = ScanSignature(
+      &mj, g_gameBase, "PauseGame",
+      "48 8B C4 53 48 83 EC 60 80 B9 C0 00 00 00 00 48 8B D9 0F 85");
 
   // "InitializeSave"
   const uintptr_t initializeSaveRVA = ScanSignature(
@@ -1077,6 +1108,14 @@ static void Initialize() {
       (void **)&g_origRouteCombatInput, 10, MOD_NAME);
   } else {
     Overlay::Log("Failed to find RouteCombatInput!");
+  }
+
+  if (pauseGameRVA) {
+    mj.InstallHook(pauseGameRVA, 15,
+      (void *)Hook_PauseGame,
+      (void **)&g_origPauseGame, 10, MOD_NAME);
+  } else {
+    Overlay::Log("Failed to find PauseGame!");
   }
 }
 
