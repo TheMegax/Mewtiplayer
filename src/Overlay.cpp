@@ -553,7 +553,7 @@ static void RenderActionManagerTab() {
   }
 }
 
-static const char* g_collarNames[] = { "Basic", "All", "Random", "Freedom" };
+static const char* g_collarNames[] = { "Basic", "All", "Random", "Freedom", "Custom" };
 
 static bool IsSaveOnAdventure() {
   static bool cachedResult = false;
@@ -595,8 +595,24 @@ static void RenderSaveTab() {
   ImGui::SliderInt("Difficulty Mod", &GameUtils::g_customDifficulty, 0, 10);
   ImGui::Combo("Collar Type", &GameUtils::g_customCollarIndex, g_collarNames, IM_ARRAYSIZE(g_collarNames));
 
+  if (GameUtils::g_customCollarIndex == 4) {
+    static char s_customClassesBuf[512] = "Fighter, Tank, Necromancer, Psychic";
+    static bool s_firstParse = true;
+    if (s_firstParse) {
+      GameUtils::SetCustomCollarClasses(s_customClassesBuf);
+      s_firstParse = false;
+    }
+    ImGui::Spacing();
+    if (ImGui::InputText("Custom Classes", s_customClassesBuf, sizeof(s_customClassesBuf))) {
+      GameUtils::SetCustomCollarClasses(s_customClassesBuf);
+    }
+    GameUtils::g_useCustomCollarClasses = true;
+  } else {
+    GameUtils::g_useCustomCollarClasses = false;
+  }
+
   ImGui::Spacing();
-  if (ImGui::Button("Start New Run")) {
+  if (ImGui::Button("New Run")) {
     GameUtils::g_injectCustomSaveData = true;
     Overlay::RequestSaveLoad();
   }
@@ -610,7 +626,7 @@ static void RenderSaveTab() {
       Overlay::RequestSaveLoad();
     }
   } else {
-    ImGui::TextDisabled("Continue Run (No active run)");
+    ImGui::TextDisabled("Continue Run");
   }
 
   static char testDbPath[256] = "test00.sav";

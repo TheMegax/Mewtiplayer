@@ -128,9 +128,33 @@ bool g_injectCustomSaveData = false;
 int g_customTeamSize = 4;
 int g_customDifficulty = 0;
 int g_customCollarIndex = 0;
+bool g_useCustomCollarClasses = false;
+std::vector<std::string> g_customCollarClasses;
 bool g_startCustomRunPending = false;
 bool g_isLoadingCustomCats = false;
 int g_currentCustomCatIndex = 1;
+
+void SetCustomCollarClasses(const std::string& input) {
+  g_customCollarClasses.clear();
+  std::string item;
+  for (char c : input) {
+    if (c == ',') {
+      size_t first = item.find_first_not_of(" \t\r\n");
+      size_t last = item.find_last_not_of(" \t\r\n");
+      if (first != std::string::npos && last != std::string::npos) {
+        g_customCollarClasses.push_back(item.substr(first, (last - first + 1)));
+      }
+      item.clear();
+    } else {
+      item.push_back(c);
+    }
+  }
+  size_t first = item.find_first_not_of(" \t\r\n");
+  size_t last = item.find_last_not_of(" \t\r\n");
+  if (first != std::string::npos && last != std::string::npos) {
+    g_customCollarClasses.push_back(item.substr(first, (last - first + 1)));
+  }
+}
 static MewSaveFile_Load_t g_MewSaveFile_Load = nullptr;
 
 void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr) { g_MewSaveFile_Load = ptr; }

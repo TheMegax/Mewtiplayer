@@ -256,6 +256,50 @@ void* __fastcall Hook_CreateStrayCat(void* catsManager) {
 }
 
 // ---------------------------------------------------------------------------
+// Hook: GetCollarVector & GameAllocate
+// ---------------------------------------------------------------------------
+typedef void* (__fastcall *GameAllocate_t)(size_t size);
+static GameAllocate_t g_GameAllocate = nullptr;
+
+typedef int64_t* (__fastcall *GetCollarVector_t)(int64_t* outVector, int64_t collarId, int64_t param_3, int64_t param_4);
+static GetCollarVector_t g_origGetCollarVector = nullptr;
+
+int64_t* __fastcall Hook_GetCollarVector(int64_t* outVector, int64_t collarId, int64_t param_3, int64_t param_4) {
+  if (GameUtils::g_useCustomCollarClasses && !GameUtils::g_customCollarClasses.empty()) {
+    Overlay::Log("[SAVE] Populating custom collar vector with %zu classes...", GameUtils::g_customCollarClasses.size());
+
+    outVector[0] = 0;
+    outVector[1] = 0;
+    outVector[2] = 0;
+
+    const size_t count = GameUtils::g_customCollarClasses.size();
+    const size_t bytesToAllocate = count * sizeof(MsvcReleaseModeXString);
+
+    if (g_GameAllocate) {
+      if (auto* array = (MsvcReleaseModeXString*)g_GameAllocate(bytesToAllocate)) {
+        memset(array, 0, bytesToAllocate);
+        for (size_t i = 0; i < count; ++i) {
+          GameUtils::InitXString(array[i], GameUtils::g_customCollarClasses[i]);
+        }
+        outVector[0] = (int64_t)array;
+        outVector[1] = (int64_t)(array + count);
+        outVector[2] = (int64_t)(array + count);
+      } else {
+        Overlay::Log("[SAVE] Error: GameAllocate failed to allocate %zu bytes!", bytesToAllocate);
+      }
+    } else {
+      Overlay::Log("[SAVE] Error: GameAllocate pointer not resolved!");
+    }
+    return outVector;
+  }
+
+  if (g_origGetCollarVector) {
+    return g_origGetCollarVector(outVector, collarId, param_3, param_4);
+  }
+  return outVector;
+}
+
+// ---------------------------------------------------------------------------
 // Hook: AbilityTrigger
 // ---------------------------------------------------------------------------
 void __fastcall Hook_AbilityTrigger(Ability *ability, TurnAction *turnAction) {
@@ -839,6 +883,14 @@ static void Initialize() {
     &mj, g_gameBase, "BaseSavePathLookup",
     "48 83 3D ?? ?? ?? ?? 0F 4C 0F 47 25 ?? ?? ?? ??");
 
+  const uintptr_t gameAllocateRVA = ScanSignature(
+    &mj, g_gameBase, "GameAllocate",
+    "48 83 EC 28 48 85 C9 75 07 33 C0 48 83 C4 28 C3 48 81 F9 00 10 00 00");
+
+  const uintptr_t getCollarVectorRVA = ScanSignature(
+    &mj, g_gameBase, "GetCollarVector",
+    "48 8B C4 48 89 58 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 F8 FD FF FF");
+
   // Resolve addresses //
   if (baseSavePathSig) {
     const uintptr_t baseSavePathAddr = ResolveRIP(g_gameBase + baseSavePathSig + 8, 4, 8);
@@ -914,6 +966,20 @@ static void Initialize() {
       (void **)&g_origCreateStrayCat, 10, MOD_NAME);
   } else {
     Overlay::Log("FAILED to find CreateStrayCat signature!");
+  }
+
+  if (gameAllocateRVA) {
+    g_GameAllocate = (GameAllocate_t)(g_gameBase + gameAllocateRVA);
+  } else {
+    Overlay::Log("FAILED to find GameAllocate signature!");
+  }
+
+  if (getCollarVectorRVA) {
+    mj.InstallHook(getCollarVectorRVA, 16,
+      (void *)Hook_GetCollarVector,
+      (void **)&g_origGetCollarVector, 10, MOD_NAME);
+  } else {
+    Overlay::Log("FAILED to find GetCollarVector signature!");
   }
 
   if (execSqlRVA) {
