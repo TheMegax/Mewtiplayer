@@ -4,7 +4,7 @@
 #include <string_view>
 #include <windows.h>
 
-// Definitions adapted from polymeric's mewgenics_analysis
+// Scene definitions adapted from polymeric's mewgenics_analysis
 // Source: https://github.com/p0lymeric/mewgenics_analysis
 // Credit: polymeric 2026
 
@@ -505,3 +505,20 @@ struct TurnAction {
   int32_t _field_80;  // 128
   int32_t magic84;    // 132 ("AULT")
 };
+
+struct vec2 {
+  double x;
+  double y;
+};
+
+struct ButchBox : Component {
+  void *movieClip;                     // +0x38
+  char _padding_0[0xa0];               // +0x40
+  void *butchBoxMovieClip;             // +0xe0
+  void *butchBoxMaskMovieClip;         // +0xe8
+  bool tutorialFlag;                   // +0xf0
+  char _padding_1[7];                  // +0xf1
+  podvector<PersistentCharacter*> cats; // +0xf8
+  podvector<vec2> positions;           // +0x108
+};
+
