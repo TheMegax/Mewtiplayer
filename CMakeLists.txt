@@ -118,6 +118,16 @@ add_library(Mewtiplayer SHARED
         src/resources.rc
         src/Scanner.cpp
         src/MewSQL.cpp
+        include/hooks/HookMacros.h
+        include/hooks/ModState.h
+        include/hooks/CombatHooks.h
+        include/hooks/SaveHooks.h
+        include/hooks/AdventureBoxHooks.h
+        include/hooks/MiscHooks.h
+        src/hooks/CombatHooks.cpp
+        src/hooks/SaveHooks.cpp
+        src/hooks/AdventureBoxHooks.cpp
+        src/hooks/MiscHooks.cpp
         Mewtiplayer.cpp)
 
 target_compile_options(Mewtiplayer PRIVATE -fms-extensions)
