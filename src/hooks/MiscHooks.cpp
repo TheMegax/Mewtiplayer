@@ -29,8 +29,9 @@ static void __fastcall Hook_PauseGame(void *pauseMenuScene) {
     g_origPauseGame(pauseMenuScene);
   }
 
-  if (pauseMenuScene && NetworkManager::Get().GetCurrentLobby().IsValid()) {
-    if (void *sceneManager = *(void **)((char *)pauseMenuScene + 0x28)) {
+  auto *pm = (PauseMenuScene *)pauseMenuScene;
+  if (pm && NetworkManager::Get().GetCurrentLobby().IsValid()) {
+    if (void *sceneManager = pm->sceneManager) {
       void **start = *(void ***)((char *)sceneManager + 0x0);
       void **end = *(void ***)((char *)sceneManager + 0x8);
       if (start && end) {
@@ -41,7 +42,7 @@ static void __fastcall Hook_PauseGame(void *pauseMenuScene) {
         }
       }
     }
-    *(int32_t *)((char *)pauseMenuScene + 0xa4) = 0;
+    pm->pauseTimer = 0;
   }
 }
 
@@ -69,7 +70,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
 
   if (GameUtils::g_startCustomRunPending) {
     MewDirector* dir = GameUtils::GetMewDirectorSingleton();
-    if (dir && dir->director && *(void**)((char*)dir + 1448) != nullptr) {
+    if (dir && dir->director && dir->house != nullptr) {
       GameUtils::g_startCustomRunPending = false;
       GameUtils::StartCustomRun(GameUtils::g_customTeamSize, GameUtils::g_customDifficulty, GameUtils::g_customCollarIndex);
     }

@@ -75,7 +75,7 @@ void DeleteSaveFile(const std::string& path) {
 
 void CloseActiveSaveConnection(void* mewDirector) {
   if (!mewDirector) return;
-  void** dbPtr = (void**)((char*)mewDirector + 0x4a8);
+  void** dbPtr = &((MewDirector*)mewDirector)->sqlSaveFile;
   if (dbPtr && *dbPtr && g_CloseConnection) {
     Overlay::Log("[SAVE] Closing active director SQL database connection to unlock save file...");
     g_CloseConnection(*dbPtr, 0);

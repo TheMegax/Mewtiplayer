@@ -90,7 +90,7 @@ void* __fastcall Hook_CreateStrayCat(void* catsManager) {
         char dummySave[0x600] = {};
         memcpy(dummySave + 0x470, dbFile, sizeof(glaiel::SQLSaveFile));
 
-        const auto catIdPtr = (int64_t*)((char*)cat + 3144);
+        const auto catIdPtr = &((PersistentCharacter*)cat)->catID;
         const int64_t originalID = *catIdPtr;
 
         mewSaveFileLoad((void*)dummySave, index, cat);

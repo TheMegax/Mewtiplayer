@@ -144,7 +144,7 @@ public:
   void EnqueueReplayAction(const ActionPacket &pkt);
 
 private:
-  NetworkManager() : m_mj(nullptr), m_activeNUID(0xFFFFFFFF) { m_CurrentLobby.Clear(); }
+  NetworkManager() : m_mj(nullptr) { m_CurrentLobby.Clear(); }
 
   MewjectorAPI *m_mj;
   std::string m_ModID;

@@ -1,6 +1,5 @@
 #pragma once
 #include "mewjector.h"
-#include <stdint.h>
 #include <windows.h>
 
 uintptr_t FindPattern(uintptr_t base, const char *signature);

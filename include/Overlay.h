@@ -3,7 +3,7 @@
 #include <cstdint>
 
 namespace Overlay {
-// Setup the Kiero-based ImGui hook.
+// Set up the Kiero-based ImGui hook.
 void Setup(MewjectorAPI *mj);
 
 // Append a line to the overlay log window.

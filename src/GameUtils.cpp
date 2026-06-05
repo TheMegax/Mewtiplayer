@@ -67,7 +67,7 @@ void ExecuteSQL(const char* query) {
   MewDirector* dir = GetMewDirectorSingleton();
   if (!dir) return;
 
-  void* sqlSaveFile = (char*)dir + 0x4a8;
+  void* sqlSaveFile = dir->sqlSaveFile;
 
   MsvcReleaseModeXString queryStr;
   InitXString(queryStr, query);
@@ -247,17 +247,16 @@ void StartCustomRun(const int teamSize, const int difficulty, const int collarIn
     return;
   }
 
-  // Offset 1448 (0x5a8) is ProgressState
-  void* progressState = *(void**)((char*)dir + 1448);
+  House* progressState = dir->house;
   if (!progressState) {
     Overlay::Log("[RUN] ProgressState is null!");
     return;
   }
 
   // Set difficulty mod
-  *(int32_t*)((char*)progressState + 0x410) = difficulty;
-  *(int32_t*)((char*)progressState + 0x428) = difficulty;
-  *(int32_t*)((char*)progressState + 0x440) = difficulty;
+  progressState->difficultyMod1 = difficulty;
+  progressState->difficultyMod2 = difficulty;
+  progressState->difficultyMod3 = difficulty;
 
   const auto mapName = "alley.gon";
 
@@ -560,7 +559,7 @@ ButtonState GetButtonState(Component *button) {
   if (!button)
     return ButtonState_Invalid;
   __try {
-    return (ButtonState) * (int32_t *)((uintptr_t)button + 0x2F0);
+    return (ButtonState)((Button *)button)->state;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return ButtonState_Invalid;
   }
@@ -570,7 +569,7 @@ bool GetButtonRoleName(Component *button, char *outBuf, const size_t bufSize) {
   if (!button || !outBuf || bufSize == 0)
     return false;
   __try {
-    const auto *role = (MsvcReleaseModeXString *)((uintptr_t)button + 0x1F8);
+    const auto *role = &((Button *)button)->roleName;
     if (role->Mysize > 0 && role->Mysize < 256) {
       const auto sv = role->as_native_string_view();
       const size_t len = sv.size() < bufSize - 1 ? sv.size() : bufSize - 1;
@@ -597,7 +596,7 @@ Component *FindButton(const Scene *scene, const char *roleName) {
     if (!isButton)
       continue;
     __try {
-      const auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
+      const auto *role = &((Button *)c)->roleName;
       if (role->Mysize > 0 && role->Mysize < 256 &&
           role->as_native_string_view() == roleName) {
         return c;
@@ -620,7 +619,7 @@ std::vector<Component *> FindAllButtons(const Scene *scene, const char *roleName
     if (!isButton)
       continue;
     __try {
-      const auto *role = (MsvcReleaseModeXString *)((uintptr_t)c + 0x1F8);
+      const auto *role = &((Button *)c)->roleName;
       if (role->Mysize > 0 && role->Mysize < 256 &&
           role->as_native_string_view() == roleName) {
         result.push_back(c);

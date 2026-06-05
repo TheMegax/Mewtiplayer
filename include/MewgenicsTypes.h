@@ -173,280 +173,291 @@ template <typename T> struct ComponentVTable {
 };
 
 struct Component {
-  const ComponentVTable<Component> *vtable; // 0
-  uint32_t _objid;                          // 8
-  uint8_t override_tags_B0;                 // 12
-  uint8_t override_tags_B1;                 // 13
-  bool entity_enabled;                      // 14
-  bool deleted;                             // 15
-  bool enabled;                             // 16
-  bool started;                             // 17
-  char _12[6];                              // 18
-  Entity *entity;                           // 24
-  Scene *scene;                             // 32
-  Director *director;                       // 40
-  double timescale;                         // 48
+  const ComponentVTable<Component> *vtable; // 0x00
+  uint32_t _objid;                          // 0x08
+  uint8_t override_tags_B0;                 // 0x0C
+  uint8_t override_tags_B1;                 // 0x0D
+  bool entity_enabled;                      // 0x0E
+  bool deleted;                             // 0x0F
+  bool enabled;                             // 0x10
+  bool started;                             // 0x11
+  char _12[6];                              // 0x12
+  Entity *entity;                           // 0x18
+  Scene *scene;                             // 0x20
+  Director *director;                       // 0x28
+  double timescale;                         // 0x30
 };
-static_assert(sizeof(Component) == 56, "Component size mismatch");
+static_assert(sizeof(Component) == 0x38, "Component size mismatch");
 
 struct Scene {
-  Director *director;                                    // 0
-  podvector<Entity *> Entities;                          // 8
-  podvector<Component *> *ComponentLists;                // 24
-  void *CachedActiveComponentLists;                      // 32
-  char _padding_1[1160];                                 // 40
-  bool doing_scene_destruction;                          // 1200
-  char _padding_2[7];                                    // 1201
-  MsvcReleaseModeXString name;                           // 1208
-  char _padding_3[260 - sizeof(MsvcReleaseModeXString)]; // 1240
-  int32_t petListCount;                                  // 1468
-  PersistentCharacter **petListPtr;                      // 1472
-  char _padding_4[124];                                  // 1480
-  int32_t catList2Count;                                 // 1604
-  PersistentCharacter **catListPtr;                      // 1608
+  Director *director;                      // 0x000
+  podvector<Entity *> Entities;            // 0x008
+  podvector<Component *> *ComponentLists;  // 0x018
+  void *CachedActiveComponentLists;        // 0x020
+  char _padding_1[0x488];                  // 0x028
+  bool doing_scene_destruction;            // 0x4B0
+  char _padding_2[0x7];                    // 0x4B1
+  MsvcReleaseModeXString name;             // 0x4B8
+  char _padding_3[0xE4];                   // 0x4D8
+  int32_t petListCount;                    // 0x5BC
+  PersistentCharacter **petListPtr;        // 0x5C0
+  char _padding_4[0x7C];                   // 0x5C8
+  int32_t catList2Count;                   // 0x644
+  PersistentCharacter **catListPtr;        // 0x648
 };
-static_assert(offsetof(Scene, doing_scene_destruction) == 1200, "Scene offset mismatch");
-static_assert(offsetof(Scene, name) == 1208, "Scene offset mismatch");
-static_assert(offsetof(Scene, petListCount) == 1468, "Scene offset mismatch");
-static_assert(offsetof(Scene, catList2Count) == 1604, "Scene offset mismatch");
+static_assert(offsetof(Scene, doing_scene_destruction) == 0x4B0, "Scene offset mismatch");
+static_assert(offsetof(Scene, name) == 0x4B8, "Scene offset mismatch");
+static_assert(offsetof(Scene, petListCount) == 0x5BC, "Scene offset mismatch");
+static_assert(offsetof(Scene, catList2Count) == 0x644, "Scene offset mismatch");
 
 struct Entity {
-  EntityVTable *vtable;              // 0
-  Scene *scene;                      // 8
-  double timescale;                  // 16
-  bool deleted;                      // 24
-  bool enabled;                      // 25
-  char _padding[6];                  // 26
-  podvector<Component *> components; // 32
-  podvector<void *> unknown_0;       // 48
-  char _padding_1[64];               // 64
-  int64_t catID;                     // 128
-  bool isActive;                     // 136
-  char _padding_2[95];               // 137
-  void *container;                   // 232
+  EntityVTable *vtable;              // 0x00
+  Scene *scene;                      // 0x08
+  double timescale;                  // 0x10
+  bool deleted;                      // 0x18
+  bool enabled;                      // 0x19
+  char _padding[0x6];                // 0x1A
+  podvector<Component *> components; // 0x20
+  podvector<void *> unknown_0;       // 0x30
+  char _padding_1[0x40];             // 0x40
+  int64_t catID;                     // 0x80
+  bool isActive;                     // 0x88
+  char _padding_2[0x5F];             // 0x89
+  void *container;                   // 0xE8
 };
-static_assert(offsetof(Entity, catID) == 128, "Entity offset mismatch");
-static_assert(offsetof(Entity, container) == 232, "Entity offset mismatch");
+static_assert(offsetof(Entity, catID) == 0x80, "Entity offset mismatch");
+static_assert(offsetof(Entity, container) == 0xE8, "Entity offset mismatch");
 
 struct EntityVTable {
   void *(__cdecl *VDtor)(Entity *thiss, uint32_t flags);
 };
 
 struct House {
-  char _padding_house_0[28];  // 0
-  int32_t absoluteDay;        // 28
-  char _padding_house_1[28];  // 32
-  int32_t furnitureCount;     // 60
-  void *furniturePtr;         // 64
-  char _padding_house_2[104]; // 72
-  int32_t food;               // 176
-  int32_t gold;               // 180
-  int32_t blankCollars;       // 184
-  int32_t storageExpansion;   // 188
+  char _padding_0[0x1C];    // 0x00
+  int32_t absoluteDay;      // 0x1C
+  char _padding_1[0x1C];    // 0x20
+  int32_t furnitureCount;   // 0x3C
+  void *furniturePtr;       // 0x40
+  char _padding_2[0x68];    // 0x48
+  int32_t food;             // 0xB0
+  int32_t gold;             // 0xB4
+  int32_t blankCollars;     // 0xB8
+  int32_t storageExpansion; // 0xBC
+  char _padding_3[0x350];   // 0xC0
+  int32_t difficultyMod1;   // 0x410
+  char _padding_4[0x14];    // 0x414
+  int32_t difficultyMod2;   // 0x428
+  char _padding_5[0x14];    // 0x42C
+  int32_t difficultyMod3;   // 0x440
 };
-static_assert(offsetof(House, food) == 176, "House offset mismatch");
-static_assert(offsetof(House, absoluteDay) == 28, "House offset mismatch");
+static_assert(offsetof(House, food) == 0xB0, "House offset mismatch");
+static_assert(offsetof(House, absoluteDay) == 0x1C, "House offset mismatch");
 
 struct Director {
   MsvcReleaseModeVector<Scene *> scenes;
 };
 
 struct MewDirector {
-  char _padding_0[24];                // 0
-  void* contextData;                  // 24
-  void* sceneManager;                 // 32
-  Director *director;                 // 40
-  char _padding_1[1360];              // 48 (there's definitely stuff in here like holy)
-  int32_t currentDay;                 // 1408
-  char _padding_2[28];                // 1412
-  void *inventoryPtr;                 // 1440
-  House *house;                       // 1448
-  char _padding_3[8];                 // 1456
-  int32_t partyCapacity;              // 1464
-  int32_t partyCount;                 // 1468
-  PersistentCharacter **partyData;    // 1472
-  char _padding_4[264];               // 1480 (more stuff in here)
-  int32_t eventDifficulty;            // 1744
-  char _padding_5[4];                 // 1748
-  int32_t gamePhase;                  // 1752
-  int32_t chapterState;               // 1756
-  int32_t chapterNum;                 // 1760
-  char _padding_6[4];                 // 1764
-  MsvcReleaseModeXString chapterName; // 1768
-  char _padding_7[12];                // 1800
-  bool inCombat;                      // 1812
-  bool isProductionSave;              // 1813
+  char _padding_0[0x18];                // 0x000
+  void* contextData;                    // 0x018
+  void* sceneManager;                   // 0x020
+  Director *director;                   // 0x028
+  char _padding_1[0x478];               // 0x030
+  void* sqlSaveFile;                    // 0x4A8
+  char _padding_1a[0xD0];               // 0x4B0
+  int32_t currentDay;                   // 0x580
+  char _padding_2[0x1C];                // 0x584
+  void *inventoryPtr;                   // 0x5A0
+  House *house;                         // 0x5A8
+  char _padding_3[0x8];                 // 0x5B0
+  int32_t partyCapacity;                // 0x5B8
+  int32_t partyCount;                   // 0x5BC
+  PersistentCharacter **partyData;      // 0x5C0
+  char _padding_4[0x108];               // 0x5C8
+  int32_t eventDifficulty;              // 0x6D0
+  char _padding_5[0x4];                 // 0x6D4
+  int32_t gamePhase;                    // 0x6D8
+  int32_t chapterState;                 // 0x6DC
+  int32_t chapterNum;                   // 0x6E0
+  char _padding_6[0x4];                 // 0x6E4
+  MsvcReleaseModeXString chapterName;   // 0x6E8
+  char _padding_7[0xC];                 // 0x708
+  bool inCombat;                        // 0x714
+  bool isProductionSave;                // 0x715
 };
-static_assert(offsetof(MewDirector, director) == 40, "MewDirector offset mismatch");
-static_assert(offsetof(MewDirector, currentDay) == 1408, "MewDirector offset mismatch");
-static_assert(offsetof(MewDirector, house) == 1448, "MewDirector offset mismatch");
-static_assert(offsetof(MewDirector, partyCount) == 1468, "MewDirector offset mismatch");
-static_assert(offsetof(MewDirector, inCombat) == 1812, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, director) == 0x028, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, currentDay) == 0x580, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, house) == 0x5A8, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, partyCount) == 0x5BC, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, inCombat) == 0x714, "MewDirector offset mismatch");
 
 struct HouseCat : Component {
-  char _padding_0[72];  // 56
-  int64_t sql_key;      // 128
+  char _padding_0[0x48];  // 0x38
+  int64_t sql_key;        // 0x80
 };
 
 struct PersistentCharacter {
-  char _padding_0[24];              // 0
-  MsvcReleaseModeWString name;      // 24
-  char _padding_1[72];              // 56
-  int64_t sql_key;                  // 128
-  char _padding_2[2896];            // 136
-  int64_t parentID;                 // 3032
-  char _padding_3[24];              // 3040
-  int32_t state;                    // 3064
-  char _padding_4[20];              // 3068
-  MsvcReleaseModeXString className; // 3088
-  int32_t level;                    // 3120
-  char _padding_6[4];               // 3124
-  int32_t birthDay;                 // 3128
-  char _padding_7[12];              // 3132
-  int64_t catID;                    // 3144
+  char _padding_0[0x18];              // 0x000
+  MsvcReleaseModeWString name;        // 0x018
+  char _padding_1[0x48];              // 0x038
+  int64_t sql_key;                    // 0x080
+  char _padding_2[0x54];              // 0x088
+  bool onAdventure;                   // 0x0DC
+  char _padding_2a[0xAFB];            // 0x0DD
+  int64_t parentID;                   // 0xBD8
+  char _padding_3[0x18];              // 0xBE0
+  int32_t state;                      // 0xBF8
+  char _padding_4[0x14];              // 0xBFC
+  MsvcReleaseModeXString className;   // 0xC10
+  int32_t level;                      // 0xC30
+  char _padding_6[0x4];               // 0xC34
+  int32_t birthDay;                   // 0xC38
+  char _padding_7[0xC];               // 0xC3C
+  int64_t catID;                      // 0xC48
 };
-static_assert(offsetof(PersistentCharacter, name) == 24, "PersistentCharacter offset mismatch");
-static_assert(offsetof(PersistentCharacter, sql_key) == 128, "PersistentCharacter offset mismatch");
-static_assert(offsetof(PersistentCharacter, className) == 3088, "PersistentCharacter offset mismatch");
-static_assert(offsetof(PersistentCharacter, level) == 3120, "PersistentCharacter offset mismatch");
-static_assert(offsetof(PersistentCharacter, catID) == 3144, "PersistentCharacter offset mismatch");
+static_assert(offsetof(PersistentCharacter, name) == 0x018, "PersistentCharacter offset mismatch");
+static_assert(offsetof(PersistentCharacter, sql_key) == 0x080, "PersistentCharacter offset mismatch");
+static_assert(offsetof(PersistentCharacter, onAdventure) == 0x0DC, "PersistentCharacter offset mismatch");
+static_assert(offsetof(PersistentCharacter, className) == 0xC10, "PersistentCharacter offset mismatch");
+static_assert(offsetof(PersistentCharacter, level) == 0xC30, "PersistentCharacter offset mismatch");
+static_assert(offsetof(PersistentCharacter, catID) == 0xC48, "PersistentCharacter offset mismatch");
 
 struct AbilityDefinition {
-  char _padding_0[136];        // 0
-  MsvcReleaseModeXString name; // 136
+  char _padding_0[0x88];        // 0x00
+  MsvcReleaseModeXString name;  // 0x88
 };
 
 struct Ability {
-  void *vtable;                         // 0
-  AbilityDefinition *definition;        // 8
-  Character *owner;                     // 16
-  char _padding_1[8];                   // 24
+  void *vtable;                   // 0x00
+  AbilityDefinition *definition;  // 0x08
+  Character *owner;               // 0x10
+  char _padding_1[0x8];           // 0x18
 };
 
 struct FighterList {
-  char _padding_0[12];  // 0
-  uint32_t count;       // 12
-  Character **data;     // 16
+  char _padding_0[0xC];   // 0x00
+  uint32_t count;         // 0x0C
+  Character **data;       // 0x10
 };
 
 struct CombatStateBlock {
-  char _padding_0[8080]; // 0
-  FighterList *fighters; // 8080
+  char _padding_0[0x1F90]; // 0x0000
+  FighterList *fighters;   // 0x1F90
 };
 
 struct CombatEntityManager {
-  char _padding_0[32];          // 0
-  CombatStateBlock *stateBlock; // 32
+  char _padding_0[0x20];         // 0x00
+  CombatStateBlock *stateBlock;  // 0x20
 };
 
 struct TacticsTile : Component {
-  char _padding_0[16];  // 56
-  int32_t x;            // 72
-  int32_t y;            // 76
+  char _padding_0[0x10];  // 0x38
+  int32_t x;              // 0x48
+  int32_t y;              // 0x4C
 };
 
 struct GridPositionComponent : Component {
-  char _padding_0[64];      // 56
-  TacticsTile *currentNode; // 120
-  TacticsTile *targetNode;  // 128
+  char _padding_0[0x40];      // 0x38
+  TacticsTile *currentNode;   // 0x78
+  TacticsTile *targetNode;    // 0x80
 };
 
 struct CombatContext {
-  char _padding_0[8];                 // 0
-  CombatEntityManager *entityManager; // 8
+  char _padding_0[0x8];                 // 0x00
+  CombatEntityManager *entityManager;   // 0x08
 };
 
 struct CombatUIContext {
-  char _padding_0[56];                 // 0
-  CombatUISlotManager *entityManager;  // 56
-  char _padding_1[640];                // 64
-  int32_t pendingActionCount;          // 704
-  char _padding_2[268];                // 708
-  bool isInputDirty;                   // 976
-  char _padding_3[2];                  // 977
-  bool isDragging;                     // 979
+  char _padding_0[0x38];                 // 0x000
+  CombatUISlotManager *entityManager;    // 0x038
+  char _padding_1[0x280];                // 0x040
+  int32_t pendingActionCount;            // 0x2C0
+  char _padding_2[0x10C];                // 0x2C4
+  bool isInputDirty;                     // 0x3D0
+  char _padding_3[0x2];                  // 0x3D1
+  bool isDragging;                       // 0x3D3
 };
-static_assert(offsetof(CombatUIContext, entityManager) == 56, "BattleUIContext offset mismatch");
-static_assert(offsetof(CombatUIContext, pendingActionCount) == 704, "BattleUIContext offset mismatch");
-static_assert(offsetof(CombatUIContext, isInputDirty) == 976, "BattleUIContext offset mismatch");
-static_assert(offsetof(CombatUIContext, isDragging) == 979, "BattleUIContext offset mismatch");
+static_assert(offsetof(CombatUIContext, entityManager) == 0x038, "BattleUIContext offset mismatch");
+static_assert(offsetof(CombatUIContext, pendingActionCount) == 0x2C0, "BattleUIContext offset mismatch");
+static_assert(offsetof(CombatUIContext, isInputDirty) == 0x3D0, "BattleUIContext offset mismatch");
+static_assert(offsetof(CombatUIContext, isDragging) == 0x3D3, "BattleUIContext offset mismatch");
 
 struct TurnControl {
-  char _padding_0[24];    // 0
-  CombatContext *context; // 24
-  char _padding_1[312];   // 32
-  int32_t turnCount;      // 344
+  char _padding_0[0x18];    // 0x00
+  CombatContext *context;   // 0x18
+  char _padding_1[0x138];   // 0x20
+  int32_t turnCount;        // 0x158
 };
 
 struct CombatResolutionState {
-  char _padding_0[53];  // 0
-  bool defeat;          // 0x35
-  char _padding_1[372]; // 0x36
-  bool victory;         // 0x1AA
+  char _padding_0[0x35];  // 0x000
+  bool defeat;            // 0x035
+  char _padding_1[0x174]; // 0x036
+  bool victory;           // 0x1AA
 };
 static_assert(offsetof(CombatResolutionState, defeat) == 0x35, "CombatResolutionState offset mismatch");
 static_assert(offsetof(CombatResolutionState, victory) == 0x1AA, "CombatResolutionState offset mismatch");
 
 struct Character {
-  void *vtable;                         // 0
-  char _padding_0[128];                 // 8
-  PersistentCharacter *persistentChar;  // 136
-  char _padding_1[56];                  // 144
-  Ability *ability0;                    // 200 (It is only valid for the first ability cast then disappears)
-  Ability *defaultMove;                 // 208
-  Ability *basicAttack;                 // 216
-  char _padding_1a[16];                 // 224
-  Ability **spells;                     // 240
-  char _padding_1b[408];                // 248 -- TODO: Check item actions later, they may be an array too
-  MsvcReleaseModeWString name;          // 656
-  char _padding_2[473];                 // 688
-  uint8_t isPlayerCat;                  // 1161
-  char _padding_3[38];                  // 1161
-  int32_t currentHP;                    // 1200
-  int32_t barrierHP;                    // 1204
-  int32_t lives;                        // 1208
-  int32_t maxHP;                        // 1212
-  char _padding_4[2];                   // 1216
-  bool isDead;                          // 1218
-  char _padding_5[221];                 // 1219
-  int32_t strength;                     // 1440
-  int32_t dexterity;                    // 1444
-  int32_t constitution;                 // 1448
-  int32_t intelligence;                 // 1452
-  int32_t speed;                        // 1456
-  int32_t charisma;                     // 1460
-  int32_t luck;                         // 1464
-  char _padding_6[28];                  // 1468
-  int32_t baseMovement;                 // 1496
-  int32_t baseInitiative;               // 1500
-  int32_t baseManaRegen;                // 1504
-  int32_t baseHealthRegen;              // 1508
-  char _padding_7[8];                   // 1512
-  int32_t baseMana;                     // 1520
-  int32_t baseInitialMana;              // 1524
-  char _padding_8[44];                  // 1528
-  int32_t baseCritChance;               // 1572
-  char _padding_9[200];                 // 1576
-  int32_t buffedStr;                    // 1776
-  int32_t buffedDex;                    // 1780
-  int32_t buffedCon;                    // 1784
-  int32_t buffedInt;                    // 1788
-  int32_t buffedSpd;                    // 1792
-  char _padding_10[1494];               // 1796
-  bool isStatic;                        // 3290
-  bool isInanimate;                     // 3291
-  char _padding_11[2];                  // 3292
-  bool isChampion;                      // 3294
-  bool isElite;                         // 3295
-  char _padding_12[20];                 // 3598
-  int32_t characterType;                // 3316
+  void *vtable;                         // 0x000
+  char _padding_0[0x80];                // 0x008
+  PersistentCharacter *persistentChar;  // 0x088
+  char _padding_1[0x38];                // 0x090
+  Ability *ability0;                    // 0x0C8 (It is only valid for the first ability cast then disappears)
+  Ability *defaultMove;                 // 0x0D0
+  Ability *basicAttack;                 // 0x0D8
+  char _padding_1a[0x10];               // 0x0E0
+  Ability **spells;                     // 0x0F0
+  char _padding_1b[0x198];              // 0x0F8 -- TODO: Check item actions later, they may be an array too
+  MsvcReleaseModeWString name;          // 0x290
+  char _padding_2[0x1D9];               // 0x2B0
+  uint8_t isPlayerCat;                  // 0x489
+  char _padding_3[0x26];                // 0x48A
+  int32_t currentHP;                    // 0x4B0
+  int32_t barrierHP;                    // 0x4B4
+  int32_t lives;                        // 0x4B8
+  int32_t maxHP;                        // 0x4BC
+  char _padding_4[0x2];                 // 0x4C0
+  bool isDead;                          // 0x4C2
+  char _padding_5[0xDD];                // 0x4C3
+  int32_t strength;                     // 0x5A0
+  int32_t dexterity;                    // 0x5A4
+  int32_t constitution;                 // 0x5A8
+  int32_t intelligence;                 // 0x5AC
+  int32_t speed;                        // 0x5B0
+  int32_t charisma;                     // 0x5B4
+  int32_t luck;                         // 0x5B8
+  char _padding_6[0x1C];                // 0x5BC
+  int32_t baseMovement;                 // 0x5D8
+  int32_t baseInitiative;               // 0x5DC
+  int32_t baseManaRegen;                // 0x5E0
+  int32_t baseHealthRegen;              // 0x5E4
+  char _padding_7[0x8];                 // 0x5E8
+  int32_t baseMana;                     // 0x5F0
+  int32_t baseInitialMana;              // 0x5F4
+  char _padding_8[0x2C];                // 0x5F8
+  int32_t baseCritChance;               // 0x624
+  char _padding_9[0xC8];                // 0x628
+  int32_t buffedStr;                    // 0x6F0
+  int32_t buffedDex;                    // 0x6F4
+  int32_t buffedCon;                    // 0x6F8
+  int32_t buffedInt;                    // 0x6FC
+  int32_t buffedSpd;                    // 0x700
+  char _padding_10[0x5D6];              // 0x704
+  bool isStatic;                        // 0xCDA
+  bool isInanimate;                     // 0xCDB
+  char _padding_11[0x2];                // 0xCDC
+  bool isChampion;                      // 0xCDE
+  bool isElite;                         // 0xCDF
+  char _padding_12[0x14];               // 0xCE0
+  int32_t characterType;                // 0xCF4
 };
-static_assert(offsetof(Character, name) == 656, "Character offset mismatch");
-static_assert(offsetof(Character, currentHP) == 1200, "Character offset mismatch");
-static_assert(offsetof(Character, maxHP) == 1212, "Character offset mismatch");
-static_assert(offsetof(Character, strength) == 1440, "Character offset mismatch");
-static_assert(offsetof(Character, buffedStr) == 1776, "Character offset mismatch");
-static_assert(offsetof(Character, characterType) == 3316, "Character offset mismatch");
+static_assert(offsetof(Character, name) == 0x290, "Character offset mismatch");
+static_assert(offsetof(Character, currentHP) == 0x4B0, "Character offset mismatch");
+static_assert(offsetof(Character, maxHP) == 0x4BC, "Character offset mismatch");
+static_assert(offsetof(Character, strength) == 0x5A0, "Character offset mismatch");
+static_assert(offsetof(Character, buffedStr) == 0x6F0, "Character offset mismatch");
+static_assert(offsetof(Character, characterType) == 0xCF4, "Character offset mismatch");
 
 struct UIAbilitySlotVTable {
   void *unk0;
@@ -459,51 +470,51 @@ struct UIAbilitySlot {
 };
 
 struct CombatUISlotManager {
-  char _padding_0[208];           // 0
-  UIAbilitySlot *primaryEntity;   // 208
-  UIAbilitySlot *secondaryEntity; // 216
-  UIAbilitySlot *tertiaryEntity;  // 224
-  char _padding_1[4];             // 232
-  uint32_t extraCount;            // 236
-  UIAbilitySlot **extraArray;     // 240
+  char _padding_0[0xD0];           // 0x00
+  UIAbilitySlot *primaryEntity;    // 0xD0
+  UIAbilitySlot *secondaryEntity;  // 0xD8
+  UIAbilitySlot *tertiaryEntity;   // 0xE0
+  char _padding_1[0x4];            // 0xE8
+  uint32_t extraCount;             // 0xEC
+  UIAbilitySlot **extraArray;      // 0xF0
 };
-static_assert(offsetof(CombatUISlotManager, primaryEntity) == 208, "BattleUISlotManager offset mismatch");
-static_assert(offsetof(CombatUISlotManager, secondaryEntity) == 216, "BattleUISlotManager offset mismatch");
-static_assert(offsetof(CombatUISlotManager, tertiaryEntity) == 224, "BattleUISlotManager offset mismatch");
-static_assert(offsetof(CombatUISlotManager, extraCount) == 236, "BattleUISlotManager offset mismatch");
-static_assert(offsetof(CombatUISlotManager, extraArray) == 240, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, primaryEntity) == 0xD0, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, secondaryEntity) == 0xD8, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, tertiaryEntity) == 0xE0, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, extraCount) == 0xEC, "BattleUISlotManager offset mismatch");
+static_assert(offsetof(CombatUISlotManager, extraArray) == 0xF0, "BattleUISlotManager offset mismatch");
 
 struct TurnAction {
-  int32_t type;       // 0
-  int32_t _pad0;      // 4
-  Ability *ability;   // 8
-  int32_t targetX;    // 16
-  int32_t targetY;    // 20
-  int32_t target2X;   // 24
-  int32_t target2Y;   // 28
-  Character *actor;   // 32
-  int32_t unk_28;     // 40
-  int32_t unk_2C;     // 44
-  uint8_t flag_30;    // 48
-  uint8_t flag_31;    // 49
-  uint8_t flag_32;    // 50
-  uint8_t flag_33;    // 51
-  uint8_t flag_34;    // 52
-  uint8_t flag_35;    // 53
-  uint8_t flag_36;    // 54
-  uint8_t flag_37;    // 55
-  int32_t _field_38;  // 56
-  int32_t _field_3C;  // 60
-  void *staticPtr40;  // 64
-  void *staticPtr48;  // 72
-  void *dynamicPtr50; // 80
-  void *dynamicPtr58; // 88 (Unique heap token)
-  void *staticPtr60;  // 96
-  void *staticPtr68;  // 104
-  void *callback;     // 112
-  void *_field_78;    // 120
-  int32_t _field_80;  // 128
-  int32_t magic84;    // 132 ("AULT")
+  int32_t type;       // 0x00
+  int32_t _pad0;      // 0x04
+  Ability *ability;   // 0x08
+  int32_t targetX;    // 0x10
+  int32_t targetY;    // 0x14
+  int32_t target2X;   // 0x18
+  int32_t target2Y;   // 0x1C
+  Character *actor;   // 0x20
+  int32_t unk_28;     // 0x28
+  int32_t unk_2C;     // 0x2C
+  uint8_t flag_30;    // 0x30
+  uint8_t flag_31;    // 0x31
+  uint8_t flag_32;    // 0x32
+  uint8_t flag_33;    // 0x33
+  uint8_t flag_34;    // 0x34
+  uint8_t flag_35;    // 0x35
+  uint8_t flag_36;    // 0x36
+  uint8_t flag_37;    // 0x37
+  int32_t _field_38;  // 0x38
+  int32_t _field_3C;  // 0x3C
+  void *staticPtr40;  // 0x40
+  void *staticPtr48;  // 0x48
+  void *dynamicPtr50; // 0x50
+  void *dynamicPtr58; // 0x58 (Unique heap token)
+  void *staticPtr60;  // 0x60
+  void *staticPtr68;  // 0x68
+  void *callback;     // 0x70
+  void *_field_78;    // 0x78
+  int32_t _field_80;  // 0x80
+  int32_t magic84;    // 0x84 ("AULT")
 };
 
 struct vec2 {
@@ -511,14 +522,33 @@ struct vec2 {
   double y;
 };
 
-struct ButchBox : Component {
-  void *movieClip;                     // +0x38
-  char _padding_0[0xa0];               // +0x40
-  void *butchBoxMovieClip;             // +0xe0
-  void *butchBoxMaskMovieClip;         // +0xe8
-  bool tutorialFlag;                   // +0xf0
-  char _padding_1[7];                  // +0xf1
-  podvector<PersistentCharacter*> cats; // +0xf8
-  podvector<vec2> positions;           // +0x108
+struct MovieClip {
+  char _padding_0[0x80]; // 0x00
+  double x;              // 0x80
+  double y;              // 0x88
 };
 
+struct Button : Component {
+  char _padding_0[0x1C0];             // 0x038
+  MsvcReleaseModeXString roleName;    // 0x1F8
+  char _padding_1[0xD8];              // 0x218
+  int32_t state;                      // 0x2F0
+};
+
+struct PauseMenuScene {
+  char _padding_0[0x28];          // 0x00
+  void *sceneManager;             // 0x28
+  char _padding_1[0x78];          // 0x30
+  int32_t pauseTimer;             // 0xA4
+};
+
+struct ButchBox : Component {
+  void *movieClip;                      // 0x38
+  char _padding_0[0xA0];                // 0x40
+  void *butchBoxMovieClip;              // 0xE0
+  void *butchBoxMaskMovieClip;          // 0xE8
+  bool tutorialFlag;                    // 0xF0
+  char _padding_1[0x7];                 // 0xF1
+  podvector<PersistentCharacter*> cats; // 0xF8
+  podvector<vec2> positions;            // 0x108
+};

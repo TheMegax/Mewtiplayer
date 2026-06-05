@@ -74,14 +74,14 @@ bool __fastcall Hook_ButchBox_TryPlaceCat(ButchBox *self, void *cat) {
   if (!self || !cat) return false;
 
   int best_slot = -1;
-  void* catMc = *(void**)((char*)cat + 0x40);
-  void* boxMc = *(void**)((char*)self + 0x38);
+  auto* catMc = *(MovieClip**)((char*)cat + 0x40);
+  auto* boxMc = (MovieClip*)self->movieClip;
 
   if (catMc && boxMc) {
-    const double catX = *(double*)((char*)catMc + 0x80);
-    const double catY = *(double*)((char*)catMc + 0x88);
-    const double boxX = *(double*)((char*)boxMc + 0x80);
-    const double boxY = *(double*)((char*)boxMc + 0x88);
+    const double catX = catMc->x;
+    const double catY = catMc->y;
+    const double boxX = boxMc->x;
+    const double boxY = boxMc->y;
 
     const double relX = catX - boxX;
     const double relY = catY - boxY;
@@ -253,7 +253,7 @@ void __fastcall Hook_LoadAdventure(LoadAdventureArgs *args) {
     for (int i = 4; i < g_adventureCapacity; ++i) {
       if (self->cats.data_ && self->cats.data_[i]) {
         PersistentCharacter *cat = self->cats.data_[i];
-        *((char*)cat + 0xdc) = 1; // Mark as on adventure
+        cat->onAdventure = true;
         markedCount++;
       }
     }
@@ -265,7 +265,7 @@ void AdventureBoxHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
         "48 85 C9 74 36 53 48 83 EC 20 4C 8B C1 33 D2 48 8B 0D",
         g_pCRTHeap, 15, 3, 7);
     if (g_pCRTHeap)
-        Overlay::Log("Resolved CRTHeap pointer: %p", (void*)g_pCRTHeap);
+        Overlay::Log("Found CRTHeap at RVA %p", (void*)g_pCRTHeap);
 
     HOOK_INSTALL(mj, gameBase, ButchBox_Init,
         "48 8B C4 55 53 56 57 41 56 48 8D 68 A1 48 81 EC E0 00 00 00", 20);
