@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <set>
+
 struct Character;
 
 enum class PacketType : uint8_t {
@@ -19,7 +21,14 @@ enum class PacketType : uint8_t {
   CombatStart,
   CombatEnd,
   TurnAction,
-  TurnFacing
+  TurnFacing,
+  // --- Multiplayer Save Protocol ---
+  SaveCatRequest,      // Host -> Clients: "Send me your ButchBox cat blobs"
+  SaveCatResponse,     // Client -> Host: cat blob data (chunked)
+  SaveFileTransfer,    // Host -> Clients: the complete mewtiplayer.sav file (chunked)
+  SaveFileAck,         // Client -> Host: "I received and wrote the save file"
+  SaveLoadSignal,      // Host -> Clients: "Load mewtiplayer.sav now"
+  ButchBoxCatCountSync,// Broadcast ButchBox count to other lobby members
 };
 
 #pragma pack(push, 1)
@@ -74,6 +83,49 @@ struct LobbyInfo {
   std::string name;
   int memberCount;
   int maxMembers;
+};
+
+#pragma pack(push, 1)
+struct ChunkedTransferHeader {
+  uint32_t transferId;
+  uint32_t chunkIndex;
+  uint32_t totalChunks;
+  uint32_t totalSize;
+  uint32_t chunkSize;
+  uint32_t chunkOffset;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct CatBlobHeader {
+  uint64_t senderSteamID;
+  int64_t  sqlKey;
+  uint32_t blobSize;
+  int32_t  originalAge;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct SaveLoadSignalPacket {
+  uint32_t teamSize;
+  uint32_t difficulty;
+  uint32_t collarIndex;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct ButchBoxCatCountPacket {
+  uint32_t catCount;
+};
+#pragma pack(pop)
+
+enum class SaveSyncState : uint8_t {
+  Idle,
+  WaitingForCatResponses,
+  SendingSaveFile,
+  WaitingForAcks,
+  ReceivingSaveFile,
+  Ready,
 };
 
 #pragma pack(push, 1)
@@ -143,6 +195,14 @@ public:
   const std::vector<ActionPacket> &GetRecordedActions() const;
   void EnqueueReplayAction(const ActionPacket &pkt);
 
+  bool SendPacketReliable(CSteamID target, PacketType type, const void *data, uint32_t size);
+  void SendChunkedData(CSteamID target, PacketType type, const uint8_t* data, uint32_t totalSize, uint32_t transferId);
+  void BeginMultiplayerSave();
+  SaveSyncState GetSaveSyncState() const { return m_saveSyncState; }
+  int GetTotalLobbyCatCount();
+  int GetLobbyMemberCatCount(uint64_t steamID);
+  void SendLocalCatCount();
+
 private:
   NetworkManager() : m_mj(nullptr) { m_CurrentLobby.Clear(); }
 
@@ -190,6 +250,47 @@ private:
 
   static void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
   void HandleTurnFacing(CSteamID remoteID, const void *data, uint32_t length);
+
+  void HandleSaveCatRequest(CSteamID remoteID);
+  void HandleSaveCatResponse(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleSaveFileTransfer(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleSaveFileAck(CSteamID remoteID);
+  void HandleSaveLoadSignal(const void *data, uint32_t length);
+  void BuildAndDistributeSave();
+  void HandleButchBoxCatCountSync(CSteamID remoteID, const void *data, uint32_t length);
+
+  // Save synchronization state variables
+  SaveSyncState m_saveSyncState = SaveSyncState::Idle;
+  uint32_t m_nextTransferId = 1;
+
+  struct PendingCatBlob {
+    uint64_t senderSteamID;
+    int64_t sqlKey;
+    std::vector<uint8_t> data;
+    int32_t originalAge;
+  };
+  std::vector<PendingCatBlob> m_collectedCatBlobs;
+  std::set<uint64_t> m_pendingCatResponseFrom;
+  std::set<uint64_t> m_pendingAcksFrom;
+  std::map<uint64_t, int> m_lobbyMemberCatCounts;
+
+  // Client-side save file transfer assembly
+  uint32_t m_clientSaveTransferId = 0;
+  std::vector<uint8_t> m_receivedSaveBuffer;
+  uint32_t m_expectedSaveSize = 0;
+  uint32_t m_receivedSaveChunks = 0;
+  uint32_t m_expectedSaveChunks = 0;
+  std::vector<bool> m_receivedSaveChunkTracker;
+
+  // Host-side client transfer trackers
+  struct ClientTransferState {
+    uint32_t transferId = 0;
+    uint32_t expectedChunks = 0;
+    uint32_t receivedChunks = 0;
+    std::vector<uint8_t> buffer;
+    std::vector<bool> chunkTracker;
+  };
+  std::map<uint64_t, ClientTransferState> m_clientTransfers;
 
   STEAM_CALLBACK(NetworkManager, OnGameLobbyJoinRequested,
                  GameLobbyJoinRequested_t);

@@ -5,6 +5,8 @@
 #include <vector>
 #include <string>
 
+extern const std::string CUSTOM_SAVE_NAME;
+
 namespace GameUtils {
 
 // MewDirector singleton

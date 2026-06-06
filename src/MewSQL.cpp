@@ -1,8 +1,10 @@
 #include "MewSQL.h"
 #include "GameUtils.h"
 #include "Overlay.h"
+#include "hooks/ModState.h"
 #include <windows.h>
 #include <cstring>
+#include <fstream>
 
 namespace MewSQL {
 
@@ -149,6 +151,65 @@ int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const std::string& key,
 
   GameUtils::FreeXString(keyStr);
   return result;
+}
+
+std::vector<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, const std::string& table, const int64_t key) {
+  std::vector<uint8_t> result;
+  if (!g_Retrieve || !dbFile) return result;
+
+  MsvcReleaseModeXString tableStr = {};
+  GameUtils::InitXString(tableStr, table);
+
+  SQLData keyData = {};
+  keyData.type = 5;
+  keyData.padding = 0;
+  keyData.intVal = key;
+  keyData.length = 0;
+
+  SQLData outData = {};
+
+  g_Retrieve(dbFile, &outData, &tableStr, &keyData, 4);
+
+  if (g_modState.talkative) {
+    Overlay::Log("[SAVE_DEBUG] ReadBlobFromDatabase table=%s key=%lld -> returned type=%d, intVal=%lld, length=%lld",
+                 table.c_str(), key, outData.type, outData.intVal, outData.length);
+  }
+
+  if (outData.intVal != 0 && outData.length > 0) {
+    result.resize(outData.length);
+    memcpy(result.data(), (const void*)outData.intVal, outData.length);
+  }
+
+  GameUtils::FreeXString(tableStr);
+  return result;
+}
+
+std::vector<uint8_t> ReadSaveFileRaw(const std::string& path) {
+  const std::string fullPath = GetAbsoluteSavePath(path);
+  std::vector<uint8_t> buffer;
+  std::ifstream file(fullPath, std::ios::binary | std::ios::ate);
+  if (file) {
+    const std::streamsize size = file.tellg();
+    if (size > 0) {
+      buffer.resize(size);
+      file.seekg(0, std::ios::beg);
+      if (!file.read((char*)buffer.data(), size)) {
+        buffer.clear();
+      }
+    }
+  }
+  return buffer;
+}
+
+bool WriteSaveFileRaw(const std::string& path, const uint8_t* data, size_t size) {
+  const std::string fullPath = GetAbsoluteSavePath(path);
+  std::ofstream file(fullPath, std::ios::binary);
+  if (!file) {
+    Overlay::Log("[ERR] Failed to open save file for writing: %s", fullPath.c_str());
+    return false;
+  }
+  file.write((const char*)data, size);
+  return file.good();
 }
 
 } // namespace MewSQL

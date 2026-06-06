@@ -2,13 +2,18 @@
 #include "hooks/HookMacros.h"
 #include "hooks/ModState.h"
 #include "MewgenicsTypes.h"
+#include "GameUtils.h"
 #include "Overlay.h"
 #include "Scanner.h"
 #include <algorithm>
 #include <vector>
+#include "NetworkManager.h"
 
 static int g_adventureCapacity = 4; // TODO: Pretty glitchy to have >4
 static HANDLE* g_pCRTHeap = nullptr;
+
+typedef void* (__fastcall *LookupPersistentCharacter_t)(void* pedigreeState, int64_t catID);
+static LookupPersistentCharacter_t g_LookupPersistentCharacter = nullptr;
 
 static HANDLE GetCRTHeap() {
   if (g_pCRTHeap) {
@@ -29,7 +34,10 @@ HOOK_DEFINE(ButchBox_TryRemoveCat, void, ButchBox*, void*)
 HOOK_DEFINE(ButchBox_Depart, bool, ButchBox*)
 HOOK_DEFINE(LoadAdventure, void, LoadAdventureArgs*)
 
+static ButchBox* g_activeButchBox = nullptr;
+
 void __fastcall Hook_ButchBox_Init(ButchBox *self, const bool param2) {
+  g_activeButchBox = self;
   if (g_origButchBox_Init) {
     g_origButchBox_Init(self, param2);
   }
@@ -68,6 +76,9 @@ void __fastcall Hook_ButchBox_Init(ButchBox *self, const bool param2) {
       self->positions.size_ = g_adventureCapacity;
     }
   }
+
+  // Trigger local cat count update/broadcast
+  NetworkManager::Get().SendLocalCatCount();
 }
 
 bool __fastcall Hook_ButchBox_TryPlaceCat(ButchBox *self, void *cat) {
@@ -135,6 +146,10 @@ bool __fastcall Hook_ButchBox_TryPlaceCat(ButchBox *self, void *cat) {
     }
   }
 
+  if (result) {
+    NetworkManager::Get().SendLocalCatCount();
+  }
+
   return result;
 }
 
@@ -196,6 +211,7 @@ void __fastcall Hook_ButchBox_TryRemoveCat(ButchBox *self, void *cat) {
         g_origButchBox_TryRemoveCat(self, cat);
       }
     }
+    NetworkManager::Get().SendLocalCatCount();
   }
 }
 
@@ -249,12 +265,19 @@ void __fastcall Hook_LoadAdventure(LoadAdventureArgs *args) {
 
   if (args && args->butchBox) {
     const ButchBox *self = args->butchBox;
-    int markedCount = 0;
-    for (int i = 4; i < g_adventureCapacity; ++i) {
-      if (self->cats.data_ && self->cats.data_[i]) {
-        PersistentCharacter *cat = self->cats.data_[i];
-        cat->onAdventure = true;
-        markedCount++;
+    MewDirector* director = GameUtils::GetMewDirectorSingleton();
+    void* pedigreeState = director ? *(void**)((char*)director + 0x598) : nullptr;
+
+    if (pedigreeState && g_LookupPersistentCharacter) {
+      int markedCount = 0;
+      for (int i = 4; i < g_adventureCapacity; ++i) {
+        if (self->cats.data_ && self->cats.data_[i]) {
+          const int64_t catID = *(int64_t*)((char*)self->cats.data_[i] + 0x80);
+          if (auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
+            cat->onAdventure = true;
+            markedCount++;
+          }
+        }
       }
     }
   }
@@ -284,4 +307,94 @@ void AdventureBoxHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
 
     HOOK_INSTALL(mj, gameBase, LoadAdventure,
         "48 89 5C 24 08 48 89 7C 24 20 55 48 8D 6C 24 C0 48 81 EC 40 01 00 00", 23);
+
+    SCAN_SET(mj, gameBase, LookupPersistentCharacter,
+        "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 40 4C 8B C2 48 8B F9 48 83 FA FF 0F 84",
+        g_LookupPersistentCharacter);
+}
+
+std::vector<int64_t> GetButchBoxCatKeys() {
+  std::vector<int64_t> keys;
+  const ButchBox* box = nullptr;
+  for (const Scene* scene : GameUtils::GetCurrentScenes()) {
+    if (scene) {
+      box = (ButchBox*)GameUtils::FindComponentByTypeName(scene, "ButchBox");
+      if (box) break;
+    }
+  }
+
+  if (!box) {
+    box = g_activeButchBox;
+  }
+
+  if (!box) return keys;
+
+  for (int i = 0; i < g_adventureCapacity; ++i) {
+    if (box->cats.data_ && box->cats.data_[i]) {
+      keys.push_back(box->cats.data_[i]->sql_key);
+    }
+  }
+  return keys;
+}
+
+int GetButchBoxCatAge(const int64_t sqlKey) {
+  const ButchBox* box = nullptr;
+  for (const Scene* scene : GameUtils::GetCurrentScenes()) {
+    if (scene) {
+      box = (ButchBox*)GameUtils::FindComponentByTypeName(scene, "ButchBox");
+      if (box) break;
+    }
+  }
+
+  if (!box) {
+    box = g_activeButchBox;
+  }
+
+  if (!box) return 0;
+
+  MewDirector* director = GameUtils::GetMewDirectorSingleton();
+  if (!director) return 0;
+
+  void* pedigreeState = *(void**)((char*)director + 0x598);
+  if (!pedigreeState || !g_LookupPersistentCharacter) return 0;
+
+  for (int i = 0; i < g_adventureCapacity; ++i) {
+    if (box->cats.data_ && box->cats.data_[i]) {
+      const int64_t catID = *(int64_t*)((char*)box->cats.data_[i] + 0x80);
+      if (catID == sqlKey) {
+        if (auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
+          int64_t uVar2 = *(int64_t*)((char*)cat + 0xc40);
+          if (uVar2 == -1) {
+            uVar2 = director->currentDay;
+          }
+          return (int)uVar2 - cat->birthDay;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+int GetLocalButchBoxCatCount() {
+  const ButchBox* box = nullptr;
+  for (const Scene* scene : GameUtils::GetCurrentScenes()) {
+    if (scene) {
+      box = (ButchBox*)GameUtils::FindComponentByTypeName(scene, "ButchBox");
+      if (box) break;
+    }
+  }
+
+  if (!box) {
+    box = g_activeButchBox;
+  }
+
+  if (!box) return 0;
+
+  int count = 0;
+  for (int i = 0; i < g_adventureCapacity; ++i) {
+    if (box->cats.data_ && box->cats.data_[i]) {
+      count++;
+    }
+  }
+  return count;
 }

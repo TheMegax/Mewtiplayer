@@ -7,7 +7,11 @@
 #include "ImGuiHook.h"
 #include "Overlay.h"
 
+#include <string>
+
 ModState g_modState;
+
+extern const std::string CUSTOM_SAVE_NAME = "mewtiplayer.sav";
 
 static MewjectorAPI mj;
 

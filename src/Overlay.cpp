@@ -279,6 +279,29 @@ static void RenderNetworkTab() {
 
   if (current.IsValid()) {
     ImGui::Text("Current Lobby: %llu", current.ConvertToUint64());
+
+    ImGui::Spacing();
+    ImGui::Text("Lobby Members:");
+    if (ImGui::BeginTable("##lobby_members", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+      ImGui::TableSetupColumn("Player Name");
+      ImGui::TableSetupColumn("Cats in ButchBox");
+      ImGui::TableHeadersRow();
+
+      const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(current);
+      for (int i = 0; i < numMembers; i++) {
+        CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(current, i);
+        const char* name = SteamFriends()->GetFriendPersonaName(member);
+        const int catCount = NetworkManager::Get().GetLobbyMemberCatCount(member.ConvertToUint64());
+        
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("%s", name ? name : "Unknown Player");
+        
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("%d cat(s)", catCount);
+      }
+      ImGui::EndTable();
+    }
   } else {
     ImGui::Text("Status: Not in a lobby.");
   }
@@ -557,7 +580,7 @@ static bool IsSaveOnAdventure() {
   }
   lastCheckTime = now;
 
-  if (!MewSQL::SaveFileExists("mewtiplayer.sav")) {
+  if (!MewSQL::SaveFileExists(CUSTOM_SAVE_NAME)) {
     cachedResult = false;
     return false;
   }
@@ -567,7 +590,7 @@ static bool IsSaveOnAdventure() {
     return cachedResult;
   }
 
-  glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase("mewtiplayer.sav");
+  glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME);
   if (!db) {
     cachedResult = false;
     return false;
@@ -606,20 +629,41 @@ static void RenderSaveTab() {
   ImGui::Spacing();
   if (ImGui::Button("New Run")) {
     GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
-    GameUtils::CreateMewtiplayerSave("mewtiplayer.sav");
+    GameUtils::CreateMewtiplayerSave(CUSTOM_SAVE_NAME.c_str());
     GameUtils::g_startCustomRunPending = true;
-    GameUtils::LoadSaveFile("mewtiplayer.sav");
+    GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
   }
 
   ImGui::SameLine();
 
-  const bool canContinue = MewSQL::SaveFileExists("mewtiplayer.sav") && IsSaveOnAdventure();
+  // ReSharper disable once CppTooWideScope
+  const bool canContinue = MewSQL::SaveFileExists(CUSTOM_SAVE_NAME) && IsSaveOnAdventure();
   if (canContinue) {
     if (ImGui::Button("Continue Run")) {
-      GameUtils::LoadSaveFile("mewtiplayer.sav");
+      GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
     }
   } else {
     ImGui::TextDisabled("Continue Run");
+  }
+
+  if (NetworkManager::Get().IsHost()) {
+    ImGui::SameLine();
+    const int totalCats = NetworkManager::Get().GetTotalLobbyCatCount();
+    const bool canDepart = (totalCats == GameUtils::g_customTeamSize);
+
+    if (!canDepart) {
+      ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Multiplayer Depart")) {
+      NetworkManager::Get().BeginMultiplayerSave();
+    }
+    if (!canDepart) {
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                         "(%d/%d cats placed)",
+                         totalCats, GameUtils::g_customTeamSize);
+    }
   }
 
   static char testDbPath[256] = "test00.sav";
@@ -731,7 +775,7 @@ static void RenderScenesTab() {
       for (int i = 0; i < (int)g_listedScenes.size(); i++) {
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
-        bool isSelected = (g_selectedSceneIndex == i);
+        const bool isSelected = g_selectedSceneIndex == i;
         if (ImGui::Selectable(g_listedScenes[i].name.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
           g_selectedSceneIndex = i;
         }

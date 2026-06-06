@@ -20,9 +20,9 @@ void* __fastcall Hook_CreateStrayCat(void* catsManager) {
 
   if (GameUtils::g_isLoadingCustomCats && cat) {
     const int index = GameUtils::g_currentCustomCatIndex;
-    Overlay::Log("[SAVE] Hooked CreateStrayCat, loading custom cat at index %d from test00.sav...", index);
+    Overlay::Log("[SAVE] Hooked CreateStrayCat, loading custom cat at index %d from %s...", index, CUSTOM_SAVE_NAME.c_str());
 
-    if (glaiel::SQLSaveFile* dbFile = MewSQL::OpenSaveDatabase("test00.sav")) {
+    if (glaiel::SQLSaveFile* dbFile = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME)) {
       // ReSharper disable once CppLocalVariableMayBeConst
       if (GameUtils::MewSaveFile_Load_t mewSaveFileLoad = GameUtils::GetMewSaveFileLoadPtr()) {
         char dummySave[0x600] = {};
@@ -33,6 +33,16 @@ void* __fastcall Hook_CreateStrayCat(void* catsManager) {
 
         mewSaveFileLoad((void*)dummySave, index, cat);
         *catIdPtr = originalID;
+
+        // Restore cat age by adjusting birthDay relative to currentDay
+        const int64_t originalAge = MewSQL::ReadIntFromDatabase(dbFile, "cat_original_age_" + std::to_string(index), -1);
+        if (originalAge != -1) {
+          const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
+          const int32_t currentDayVal = dir ? dir->currentDay : 1;
+          ((PersistentCharacter*)cat)->birthDay = currentDayVal - (int32_t)originalAge;
+          Overlay::Log("[SAVE] Restored custom cat age to %lld (birthDay set to %d, currentDay is %d)",
+                       originalAge, ((PersistentCharacter*)cat)->birthDay, currentDayVal);
+        }
 
         Overlay::Log("[SAVE] Custom cat loaded successfully! OriginalID: %lld restored.", originalID);
       } else {
@@ -94,20 +104,15 @@ void SaveHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
   }
 
   // MewDirector_ctor resolver via InitTestSave scan
-  uintptr_t initTestSaveRva = ScanSignature(mj, gameBase, "InitTestSave",
+  const uintptr_t initTestSaveRva = ScanSignature(mj, gameBase, "InitTestSave",
       "80 b9 b0 04 00 00 00 74 07 33 c0 e9 bd 01 00 00 48 8d 0d ?? ?? ?? ?? e8");
   if (initTestSaveRva) {
-    uintptr_t callAddr = gameBase + initTestSaveRva + 0x3c;
+    const uintptr_t callAddr = gameBase + initTestSaveRva + 0x3c;
     if (*(uint8_t*)callAddr == 0xe8) {
-      int32_t relOffset = *(int32_t*)(callAddr + 1);
-      auto ctorPtr = (GameUtils::MewDirector_ctor_t)(callAddr + 5 + relOffset);
+      const int32_t relOffset = *(int32_t*)(callAddr + 1);
+      const auto ctorPtr = (GameUtils::MewDirector_ctor_t)(callAddr + 5 + relOffset);
       GameUtils::SetMewDirectorCtorPtr(ctorPtr);
-      Overlay::Log("[SAVE] Resolved MewDirector constructor: %p", ctorPtr);
-    } else {
-      Overlay::Log("[SAVE] Error: InitTestSave call opcode mismatch!");
     }
-  } else {
-    Overlay::Log("[SAVE] Error: InitTestSave signature scan failed!");
   }
 
   // ExecSQL - set to BOTH MewSQL and GameUtils

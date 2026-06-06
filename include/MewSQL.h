@@ -9,6 +9,8 @@ struct SQLData {
   int64_t length;    // offset 0x10 (string/blob length)
 };
 
+#include <vector>
+
 namespace glaiel {
 struct SQLSaveFile {
   void* db;                             // 0x00
@@ -37,6 +39,9 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const std::string& path);
 void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile);
 void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const std::string& query);
 int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const std::string& key, int64_t defaultVal = 0);
+std::vector<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, const std::string& table, int64_t key);
+std::vector<uint8_t> ReadSaveFileRaw(const std::string& path);
+bool WriteSaveFileRaw(const std::string& path, const uint8_t* data, size_t size);
 std::string GetAbsoluteSavePath(const std::string& path);
 bool SaveFileExists(const std::string& path);
 void DeleteSaveFile(const std::string& path);

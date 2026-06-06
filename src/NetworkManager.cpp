@@ -1,3 +1,4 @@
+// ReSharper disable CppMemberFunctionMayBeStatic
 #include "NetworkManager.h"
 #include "SteamABICompat.h"
 #include "GameUtils.h"
@@ -5,7 +6,10 @@
 #include "InputGhost.h"
 #include "Overlay.h"
 #include "mewjector.h"
+#include "MewSQL.h"
+#include "hooks/AdventureBoxHooks.h"
 #include <cstring>
+#include <algorithm>
 
 typedef void(__fastcall *FaceDirection_t)(void *character,
                                           uint64_t target_packed,
@@ -25,6 +29,15 @@ void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
 void NetworkManager::Update() {
   SteamAPI_RunCallbacks();
   ReceivePackets();
+
+  static int frameCount = 0;
+  if (m_CurrentLobby.IsValid()) {
+    frameCount++;
+    if (frameCount >= 120) {
+      frameCount = 0;
+      SendLocalCatCount();
+    }
+  }
 }
 
 bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
@@ -59,7 +72,7 @@ void NetworkManager::ReceivePackets() {
       continue;
 
     const void *payload = buffer.data() + sizeof(PacketHeader);
-    uint32_t payloadLen = hdr->length;
+    const uint32_t payloadLen = hdr->length;
 
     switch (hdr->type) {
     case PacketType::Ping:
@@ -88,6 +101,24 @@ void NetworkManager::ReceivePackets() {
       break;
     case PacketType::TurnFacing:
       HandleTurnFacing(remoteID, payload, payloadLen);
+      break;
+    case PacketType::SaveCatRequest:
+      HandleSaveCatRequest(remoteID);
+      break;
+    case PacketType::SaveCatResponse:
+      HandleSaveCatResponse(remoteID, payload, payloadLen);
+      break;
+    case PacketType::SaveFileTransfer:
+      HandleSaveFileTransfer(remoteID, payload, payloadLen);
+      break;
+    case PacketType::SaveFileAck:
+      HandleSaveFileAck(remoteID);
+      break;
+    case PacketType::SaveLoadSignal:
+      HandleSaveLoadSignal(payload, payloadLen);
+      break;
+    case PacketType::ButchBoxCatCountSync:
+      HandleButchBoxCatCountSync(remoteID, payload, payloadLen);
       break;
     default:
       Overlay::Log("Received unknown packet type %u from %llu", hdr->type,
@@ -257,6 +288,7 @@ void NetworkManager::LeaveLobby() {
     m_activeNUID = 0xFFFFFFFF;
     m_catOwnership.clear();
     m_discoveredCats.clear();
+    m_lobbyMemberCatCounts.clear();
     RefreshLobbyList();
   }
 }
@@ -342,6 +374,7 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   m_activeNUID = 0xFFFFFFFF;
   m_catOwnership.clear();
   m_discoveredCats.clear();
+  m_lobbyMemberCatCounts.clear();
 
   Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
 
@@ -469,6 +502,7 @@ void NetworkManager::InitializeEntityMapping() {
   }
 }
 
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
 uint32_t NetworkManager::GetNUID(Character *character) {
   const auto it = m_charToNuid.find(character);
   if (it != m_charToNuid.end()) {
@@ -505,3 +539,481 @@ void NetworkManager::ResetEntityMapping() {
   m_nuidToChar.clear();
   m_nextNuid = 0;
 }
+
+bool NetworkManager::SendPacketReliable(const CSteamID target, const PacketType type, const void *data, const uint32_t size) {
+  PacketHeader header;
+  header.type = type;
+  header.length = size;
+
+  std::vector<uint8_t> buffer(sizeof(PacketHeader) + size);
+  memcpy(buffer.data(), &header, sizeof(PacketHeader));
+  if (size > 0 && data)
+    memcpy(buffer.data() + sizeof(PacketHeader), data, size);
+
+  return SteamNetworking()->SendP2PPacket(
+      target, buffer.data(), (uint32)buffer.size(), k_EP2PSendReliable);
+}
+
+void NetworkManager::SendChunkedData(CSteamID target, const PacketType type, const uint8_t* data, const uint32_t totalSize, const uint32_t transferId) {
+  constexpr uint32_t CHUNK_PAYLOAD_SIZE = 100 * 1024; // 100 KB chunks
+  const uint32_t totalChunks = totalSize == 0 ? 1 : (totalSize + CHUNK_PAYLOAD_SIZE - 1) / CHUNK_PAYLOAD_SIZE;
+
+  Overlay::Log("[SAVE] Starting chunked transfer ID %u, size %u, chunks %u to %llu",
+               transferId, totalSize, totalChunks, target.ConvertToUint64());
+
+  for (uint32_t i = 0; i < totalChunks; ++i) {
+    const uint32_t offset = i * CHUNK_PAYLOAD_SIZE;
+    uint32_t size = 0;
+    if (totalSize > 0) {
+      size = std::min(CHUNK_PAYLOAD_SIZE, totalSize - offset);
+    }
+
+    std::vector<uint8_t> chunkBuffer(sizeof(ChunkedTransferHeader) + size);
+    const auto header = (ChunkedTransferHeader*)chunkBuffer.data();
+    header->transferId = transferId;
+    header->chunkIndex = i;
+    header->totalChunks = totalChunks;
+    header->totalSize = totalSize;
+    header->chunkSize = size;
+    header->chunkOffset = offset;
+
+    if (size > 0 && data) {
+      memcpy(chunkBuffer.data() + sizeof(ChunkedTransferHeader), data + offset, size);
+    }
+
+    if (!SendPacketReliable(target, type, chunkBuffer.data(), chunkBuffer.size())) {
+      Overlay::Log("[ERR] Failed to send chunk %u of %u to %llu", i, totalChunks, target.ConvertToUint64());
+    }
+  }
+}
+
+void NetworkManager::BeginMultiplayerSave() {
+  if (!IsHost()) {
+    Overlay::Log("[ERR] Only host can begin multiplayer save.");
+    return;
+  }
+  if (!m_CurrentLobby.IsValid()) {
+    Overlay::Log("[ERR] Not in a lobby.");
+    return;
+  }
+
+  Overlay::Log("[SAVE] Initiating multiplayer save sync protocol...");
+
+  const int totalCats = GetTotalLobbyCatCount();
+  if (totalCats != GameUtils::g_customTeamSize) {
+    Overlay::Log("[ERR] Cannot depart: total cat count (%d) must match configured Team Size (%d)!", totalCats, GameUtils::g_customTeamSize);
+    return;
+  }
+
+  m_saveSyncState = SaveSyncState::WaitingForCatResponses;
+  m_collectedCatBlobs.clear();
+  m_pendingCatResponseFrom.clear();
+  m_clientTransfers.clear();
+
+  // Gather lobby members (excluding host)
+  const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  const CSteamID myID = SteamUser()->GetSteamID();
+  for (int i = 0; i < numMembers; i++) {
+    CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+    if (member != myID) {
+      m_pendingCatResponseFrom.insert(member.ConvertToUint64());
+    }
+  }
+
+  // Read host's own cats from their active save file
+  const MewDirector* director = GameUtils::GetMewDirectorSingleton();
+  void* activeDb = director ? director->sqlSaveFile : nullptr;
+
+  // Get host's ButchBox cat keys
+  const std::vector<int64_t> hostKeys = GetButchBoxCatKeys();
+  Overlay::Log("[SAVE] Host found %zu cats in their ButchBox.", hostKeys.size());
+
+  if (activeDb) {
+    glaiel::SQLSaveFile tempDb = {};
+    tempDb.db = activeDb;
+
+    for (const int64_t key : hostKeys) {
+      std::vector<uint8_t> blob = MewSQL::ReadBlobFromDatabase(&tempDb, "cats", key);
+      if (!blob.empty()) {
+        const size_t blobSize = blob.size();
+        PendingCatBlob pending;
+        pending.senderSteamID = myID.ConvertToUint64();
+        pending.sqlKey = key;
+        pending.data = std::move(blob);
+        pending.originalAge = GetButchBoxCatAge(key);
+        m_collectedCatBlobs.push_back(std::move(pending));
+        Overlay::Log("[SAVE] Gathered host cat key %lld (size %zu, age %d)", key, blobSize, pending.originalAge);
+      } else {
+        Overlay::Log("[ERR] Failed to read blob for host cat key %lld", key);
+      }
+    }
+  } else {
+    Overlay::Log("[ERR] Host active save database connection is null!");
+  }
+
+  // 3. Send SaveCatRequest to all clients
+  if (!m_pendingCatResponseFrom.empty()) {
+    constexpr uint32_t requestVal = 0;
+    for (const uint64_t clientID : m_pendingCatResponseFrom) {
+      SendPacketReliable(CSteamID(clientID), PacketType::SaveCatRequest, &requestVal, sizeof(requestVal));
+      Overlay::Log("[SAVE] Requested cats from client %llu", clientID);
+    }
+  } else {
+    Overlay::Log("[SAVE] No clients in lobby. Building save file directly.");
+    BuildAndDistributeSave();
+  }
+}
+
+void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
+  Overlay::Log("[SAVE] Received SaveCatRequest from host %llu", remoteID.ConvertToUint64());
+
+  const MewDirector* director = GameUtils::GetMewDirectorSingleton();
+  void* activeDb = director ? director->sqlSaveFile : nullptr;
+
+  const std::vector<int64_t> clientKeys = GetButchBoxCatKeys();
+  Overlay::Log("[SAVE] Client found %zu cats in ButchBox.", clientKeys.size());
+
+  std::vector<uint8_t> responseBuffer;
+  const CSteamID myID = SteamUser()->GetSteamID();
+
+  if (activeDb) {
+    glaiel::SQLSaveFile tempDb = {};
+    tempDb.db = activeDb;
+
+    for (const int64_t key : clientKeys) {
+      std::vector<uint8_t> blob = MewSQL::ReadBlobFromDatabase(&tempDb, "cats", key);
+      if (!blob.empty()) {
+        CatBlobHeader header;
+        header.senderSteamID = myID.ConvertToUint64();
+        header.sqlKey = key;
+        header.blobSize = blob.size();
+        header.originalAge = GetButchBoxCatAge(key);
+
+        // Append header
+        const size_t oldSize = responseBuffer.size();
+        responseBuffer.resize(oldSize + sizeof(CatBlobHeader) + blob.size());
+        memcpy(responseBuffer.data() + oldSize, &header, sizeof(CatBlobHeader));
+        memcpy(responseBuffer.data() + oldSize + sizeof(CatBlobHeader), blob.data(), blob.size());
+
+        Overlay::Log("[SAVE] Added cat key %lld (size %zu, age %d) to response buffer.", key, blob.size(), header.originalAge);
+      } else {
+        Overlay::Log("[ERR] Client failed to read blob for cat key %lld", key);
+      }
+    }
+  } else {
+    Overlay::Log("[ERR] Client active save database connection is null!");
+  }
+
+  // Send chunked response back to host
+  const uint32_t transferId = m_nextTransferId++;
+  SendChunkedData(remoteID, PacketType::SaveCatResponse, responseBuffer.data(), responseBuffer.size(), transferId);
+}
+
+void NetworkManager::HandleSaveCatResponse(const CSteamID remoteID, const void *data, const uint32_t length) {
+  if (length < sizeof(ChunkedTransferHeader)) {
+    Overlay::Log("[ERR] SaveCatResponse length too small: %u", length);
+    return;
+  }
+
+  const auto chunkHdr = (const ChunkedTransferHeader*)data;
+  const uint64_t senderID = remoteID.ConvertToUint64();
+
+  // Find or create transfer state for this client
+  auto&[transferId, expectedChunks, receivedChunks, buffer, chunkTracker] = m_clientTransfers[senderID];
+  if (transferId != chunkHdr->transferId) {
+    transferId = chunkHdr->transferId;
+    buffer.resize(chunkHdr->totalSize);
+    expectedChunks = chunkHdr->totalChunks;
+    receivedChunks = 0;
+    chunkTracker.assign(chunkHdr->totalChunks, false);
+    Overlay::Log("[SAVE] Initialized cat response transfer ID %u from %llu, expected size %u, chunks %u",
+                 chunkHdr->transferId, senderID, chunkHdr->totalSize, chunkHdr->totalChunks);
+  }
+
+  if (chunkHdr->chunkIndex < chunkTracker.size() && !chunkTracker[chunkHdr->chunkIndex]) {
+    chunkTracker[chunkHdr->chunkIndex] = true;
+    receivedChunks++;
+
+    if (chunkHdr->chunkSize > 0) {
+      memcpy(buffer.data() + chunkHdr->chunkOffset, (const uint8_t*)data + sizeof(ChunkedTransferHeader), chunkHdr->chunkSize);
+    }
+
+    if (receivedChunks == expectedChunks) {
+      Overlay::Log("[SAVE] Completed cat response transfer from client %llu. Reassembling...", senderID);
+
+      // Parse cats from reassembled buffer
+      uint32_t offset = 0;
+      const uint32_t bufferSize = buffer.size();
+      uint32_t parsedCatsCount = 0;
+
+      while (offset + sizeof(CatBlobHeader) <= bufferSize) {
+        const auto catHdr = (const CatBlobHeader*)(buffer.data() + offset);
+        if (offset + sizeof(CatBlobHeader) + catHdr->blobSize > bufferSize) {
+          Overlay::Log("[ERR] Corrupt cat response buffer from %llu: blob size goes out of bounds.", senderID);
+          break;
+        }
+
+        PendingCatBlob pending;
+        pending.senderSteamID = catHdr->senderSteamID;
+        pending.sqlKey = catHdr->sqlKey;
+        pending.originalAge = catHdr->originalAge;
+        pending.data.resize(catHdr->blobSize);
+        memcpy(pending.data.data(), buffer.data() + offset + sizeof(CatBlobHeader), catHdr->blobSize);
+
+        m_collectedCatBlobs.push_back(std::move(pending));
+        parsedCatsCount++;
+
+        offset += sizeof(CatBlobHeader) + catHdr->blobSize;
+      }
+      Overlay::Log("[SAVE] Successfully parsed %u cats from client %llu.", parsedCatsCount, senderID);
+      m_pendingCatResponseFrom.erase(senderID);
+
+      // If all client responses have been received, build and distribute save file!
+      if (m_pendingCatResponseFrom.empty()) {
+        Overlay::Log("[SAVE] All client cat responses received. Proceeding to build save.");
+        BuildAndDistributeSave();
+      }
+    }
+  }
+}
+
+void NetworkManager::BuildAndDistributeSave() {
+  if (m_collectedCatBlobs.size() != GameUtils::g_customTeamSize) {
+    Overlay::Log("[ERR] Aborting depart: gathered %zu cats, but configured Team Size is %d!",
+                 m_collectedCatBlobs.size(), GameUtils::g_customTeamSize);
+    m_saveSyncState = SaveSyncState::Idle;
+    return;
+  }
+
+  Overlay::Log("[SAVE] Building synchronized %s...", CUSTOM_SAVE_NAME.c_str());
+
+  // Create multiplayer save file
+  GameUtils::CreateMewtiplayerSave(CUSTOM_SAVE_NAME.c_str());
+
+  // Open it and write all collected cat blobs
+  if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME)) {
+    Overlay::Log("[SAVE] Inserting %zu cats into %s...", m_collectedCatBlobs.size(), CUSTOM_SAVE_NAME.c_str());
+
+    for (size_t i = 0; i < m_collectedCatBlobs.size(); ++i) {
+      const auto& cat = m_collectedCatBlobs[i];
+
+      // Convert bytes to Hex
+      std::string hexStr;
+      hexStr.reserve(cat.data.size() * 2);
+      static constexpr char hexChars[] = "0123456789ABCDEF";
+      for (const uint8_t b : cat.data) {
+        hexStr.push_back(hexChars[b >> 4]);
+        hexStr.push_back(hexChars[b & 0x0F]);
+      }
+
+      std::string query = "INSERT OR REPLACE INTO cats VALUES (" + std::to_string(i + 1) + ", X'" + hexStr + "');";
+      MewSQL::ExecSQLOnDatabase(db, query);
+
+      // Write original age to properties table
+      // We'll use it later to restore their original age once we send them back to their original saves
+      std::string ageQuery = "INSERT OR REPLACE INTO properties VALUES ('cat_original_age_" + std::to_string(i + 1) + "', " + std::to_string(cat.originalAge) + ");";
+      MewSQL::ExecSQLOnDatabase(db, ageQuery);
+      Overlay::Log("[SAVE] Wrote original age %d for cat %zu into properties", cat.originalAge, i + 1);
+    }
+
+    MewSQL::CloseSaveDatabase(db);
+    Overlay::Log("[SAVE] Finished inserting cats into %s.", CUSTOM_SAVE_NAME.c_str());
+  } else {
+    Overlay::Log("[ERR] Failed to open %s database for inserting cats!", CUSTOM_SAVE_NAME.c_str());
+  }
+
+  // Read raw bytes of the newly built save file to send to clients
+  const std::vector<uint8_t> saveBytes = MewSQL::ReadSaveFileRaw(CUSTOM_SAVE_NAME);
+  if (saveBytes.empty()) {
+    Overlay::Log("[ERR] Synchronized %s is empty or cannot be read!", CUSTOM_SAVE_NAME.c_str());
+    return;
+  }
+  Overlay::Log("[SAVE] Synchronized save size: %zu bytes", saveBytes.size());
+
+  // Send save file to all clients in the lobby
+  m_saveSyncState = SaveSyncState::SendingSaveFile;
+  m_pendingAcksFrom.clear();
+
+  const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  const CSteamID myID = SteamUser()->GetSteamID();
+  const uint32_t transferId = m_nextTransferId++;
+
+  for (int i = 0; i < numMembers; i++) {
+    CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+    if (member != myID) {
+      m_pendingAcksFrom.insert(member.ConvertToUint64());
+      SendChunkedData(member, PacketType::SaveFileTransfer, saveBytes.data(), saveBytes.size(), transferId);
+      Overlay::Log("[SAVE] Sent save file transfer to client %llu", member.ConvertToUint64());
+    }
+  }
+
+  if (!m_pendingAcksFrom.empty()) {
+    m_saveSyncState = SaveSyncState::WaitingForAcks;
+  } else {
+    // No clients to wait for, host can load immediately
+    Overlay::Log("[SAVE] No clients to wait for. Sending Load Signal directly.");
+    m_saveSyncState = SaveSyncState::Ready;
+
+    SaveLoadSignalPacket packet;
+    packet.teamSize = GameUtils::g_customTeamSize;
+    packet.difficulty = GameUtils::g_customDifficulty;
+    packet.collarIndex = GameUtils::g_customCollarIndex;
+
+    HandleSaveLoadSignal(&packet, sizeof(packet));
+  }
+}
+
+void NetworkManager::HandleSaveFileTransfer(const CSteamID remoteID, const void *data, const uint32_t length) {
+  if (length < sizeof(ChunkedTransferHeader)) {
+    Overlay::Log("[ERR] SaveFileTransfer length too small: %u", length);
+    return;
+  }
+
+  const auto chunkHdr = (const ChunkedTransferHeader*)data;
+
+  if (m_clientSaveTransferId != chunkHdr->transferId) {
+    m_clientSaveTransferId = chunkHdr->transferId;
+    m_receivedSaveBuffer.resize(chunkHdr->totalSize);
+    m_expectedSaveSize = chunkHdr->totalSize;
+    m_expectedSaveChunks = chunkHdr->totalChunks;
+    m_receivedSaveChunks = 0;
+    m_receivedSaveChunkTracker.assign(chunkHdr->totalChunks, false);
+    m_saveSyncState = SaveSyncState::ReceivingSaveFile;
+    Overlay::Log("[SAVE] Client: Initialized save file transfer ID %u, size %u, chunks %u",
+                 chunkHdr->transferId, chunkHdr->totalSize, chunkHdr->totalChunks);
+  }
+
+  if (chunkHdr->chunkIndex < m_receivedSaveChunkTracker.size() && !m_receivedSaveChunkTracker[chunkHdr->chunkIndex]) {
+    m_receivedSaveChunkTracker[chunkHdr->chunkIndex] = true;
+    m_receivedSaveChunks++;
+
+    if (chunkHdr->chunkSize > 0) {
+      memcpy(m_receivedSaveBuffer.data() + chunkHdr->chunkOffset, (const uint8_t*)data + sizeof(ChunkedTransferHeader), chunkHdr->chunkSize);
+    }
+
+    if (m_receivedSaveChunks == m_expectedSaveChunks) {
+      Overlay::Log("[SAVE] Client: Completed save file transfer. Writing to %s...", CUSTOM_SAVE_NAME.c_str());
+
+      MewSQL::DeleteSaveFile(CUSTOM_SAVE_NAME);
+
+      if (MewSQL::WriteSaveFileRaw(CUSTOM_SAVE_NAME, m_receivedSaveBuffer.data(), m_receivedSaveBuffer.size())) {
+        Overlay::Log("[SAVE] Client: Successfully wrote %s. Sending Ack to host.", CUSTOM_SAVE_NAME.c_str());
+
+        constexpr uint32_t ackVal = 1;
+        SendPacketReliable(remoteID, PacketType::SaveFileAck, &ackVal, sizeof(ackVal));
+      } else {
+        Overlay::Log("[ERR] Client: Failed to write %s!", CUSTOM_SAVE_NAME.c_str());
+      }
+    }
+  }
+}
+
+void NetworkManager::HandleSaveFileAck(const CSteamID remoteID) {
+  const uint64_t senderID = remoteID.ConvertToUint64();
+  Overlay::Log("[SAVE] Received SaveFileAck from client %llu", senderID);
+
+  m_pendingAcksFrom.erase(senderID);
+
+  if (m_pendingAcksFrom.empty() && m_saveSyncState == SaveSyncState::WaitingForAcks) {
+    Overlay::Log("[SAVE] All client acks received! Signaling load save file...");
+    m_saveSyncState = SaveSyncState::Ready;
+
+    SaveLoadSignalPacket packet;
+    packet.teamSize = GameUtils::g_customTeamSize;
+    packet.difficulty = GameUtils::g_customDifficulty;
+    packet.collarIndex = GameUtils::g_customCollarIndex;
+
+    const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+    const CSteamID myID = SteamUser()->GetSteamID();
+    for (int i = 0; i < numMembers; i++) {
+      CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+      if (member != myID) {
+        SendPacketReliable(member, PacketType::SaveLoadSignal, &packet, sizeof(packet));
+      }
+    }
+
+    HandleSaveLoadSignal(&packet, sizeof(packet));
+  }
+}
+
+void NetworkManager::HandleSaveLoadSignal(const void *data, const uint32_t length) {
+  Overlay::Log("[SAVE] Received SaveLoadSignal. Initiating run loading flow...");
+
+  uint32_t teamSize = GameUtils::g_customTeamSize;
+  uint32_t difficulty = GameUtils::g_customDifficulty;
+  uint32_t collarIndex = GameUtils::g_customCollarIndex;
+
+  if (length == sizeof(SaveLoadSignalPacket)) {
+    const SaveLoadSignalPacket* packet = (const SaveLoadSignalPacket*)data;
+    teamSize = packet->teamSize;
+    difficulty = packet->difficulty;
+    collarIndex = packet->collarIndex;
+  }
+
+  // Set custom run globals so that StartCustomRun uses them
+  GameUtils::g_customTeamSize = teamSize;
+  GameUtils::g_customDifficulty = difficulty;
+  GameUtils::g_customCollarIndex = collarIndex;
+
+  // Initiate save file loading sequence
+  GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
+  GameUtils::g_startCustomRunPending = true;
+
+  GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
+
+  // Reset sync state to Idle
+  m_saveSyncState = SaveSyncState::Idle;
+}
+
+int NetworkManager::GetTotalLobbyCatCount() {
+  if (!m_CurrentLobby.IsValid()) return 0;
+
+  m_lobbyMemberCatCounts[SteamUser()->GetSteamID().ConvertToUint64()] = GetLocalButchBoxCatCount();
+
+  int total = 0;
+  int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  for (int i = 0; i < numMembers; i++) {
+    CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+    auto it = m_lobbyMemberCatCounts.find(member.ConvertToUint64());
+    if (it != m_lobbyMemberCatCounts.end()) {
+      total += it->second;
+    }
+  }
+  return total;
+}
+
+int NetworkManager::GetLobbyMemberCatCount(const uint64_t steamID) {
+  if (steamID == SteamUser()->GetSteamID().ConvertToUint64()) {
+    return GetLocalButchBoxCatCount();
+  }
+  const auto it = m_lobbyMemberCatCounts.find(steamID);
+  if (it != m_lobbyMemberCatCounts.end()) {
+    return it->second;
+  }
+  return 0;
+}
+
+void NetworkManager::SendLocalCatCount() {
+  if (!m_CurrentLobby.IsValid()) return;
+  ButchBoxCatCountPacket packet;
+  packet.catCount = GetLocalButchBoxCatCount();
+
+  m_lobbyMemberCatCounts[SteamUser()->GetSteamID().ConvertToUint64()] = packet.catCount;
+
+  int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  CSteamID myID = SteamUser()->GetSteamID();
+  for (int i = 0; i < numMembers; i++) {
+    CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+    if (member != myID) {
+      SendPacketReliable(member, PacketType::ButchBoxCatCountSync, &packet, sizeof(packet));
+    }
+  }
+}
+
+void NetworkManager::HandleButchBoxCatCountSync(CSteamID remoteID, const void *data, uint32_t length) {
+  if (length == sizeof(ButchBoxCatCountPacket)) {
+    const auto packet = (const ButchBoxCatCountPacket*)data;
+    m_lobbyMemberCatCounts[remoteID.ConvertToUint64()] = packet->catCount;
+  }
+}
+

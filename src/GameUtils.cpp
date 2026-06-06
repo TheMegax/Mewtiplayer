@@ -145,10 +145,10 @@ int g_currentCustomCatIndex = 1;
 void SetCustomCollarClasses(const std::string& input) {
   g_customCollarClasses.clear();
   std::string item;
-  for (char c : input) {
+  for (const char c : input) {
     if (c == ',') {
-      size_t first = item.find_first_not_of(" \t\r\n");
-      size_t last = item.find_last_not_of(" \t\r\n");
+      const size_t first = item.find_first_not_of(" \t\r\n");
+      const size_t last = item.find_last_not_of(" \t\r\n");
       if (first != std::string::npos && last != std::string::npos) {
         g_customCollarClasses.push_back(item.substr(first, (last - first + 1)));
       }
