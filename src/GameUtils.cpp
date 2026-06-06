@@ -176,12 +176,12 @@ void CreateSaveFile(const char *saveName) {
 
   Overlay::Log("[SAVE] Creating save file '%s'...", saveName);
 
-  void* tempDirector = malloc(0x790);
+  auto* tempDirector = (MewDirector*)malloc(sizeof(MewDirector));
   if (!tempDirector) {
     Overlay::Log("[SAVE] Error: malloc failed for temporary MewDirector!");
     return;
   }
-  memset(tempDirector, 0, 0x790);
+  memset(tempDirector, 0, sizeof(MewDirector));
 
   g_MewDirector_ctor(tempDirector);
 
@@ -189,13 +189,13 @@ void CreateSaveFile(const char *saveName) {
   InitXString(saveNameXStr, saveName);
 
   // Call original InitializeSave (offset +0x38 of tempDirector is GameStateMap)
-  g_InitializeSave((char*)tempDirector + 0x38, &saveNameXStr);
+  g_InitializeSave(tempDirector->gameStateMap, &saveNameXStr);
 
   FreeXString(saveNameXStr);
   MewSQL::CloseActiveSaveConnection(tempDirector);
 
   if (g_DestructString) {
-    g_DestructString((MsvcReleaseModeXString*)((char*)tempDirector + 0x4B0));
+    g_DestructString(&tempDirector->saveNameStr);
   }
   free(tempDirector);
 
@@ -758,38 +758,36 @@ void *GetThreadLocalStoragePointer() {
 }
 
 void SetRNGState(const void *seed32) {
-  const auto tls = (uint8_t *)GetThreadLocalStoragePointer();
+  auto* tls = (GameTLSLayout*)GetThreadLocalStoragePointer();
   if (!tls)
     return;
 
   const auto seed = (const uint32_t *)seed32;
 
   // Inject the 256-bit seed directly into the Thread Local RNG State!
-  *(uint32_t *)(tls + 0x178) = seed[0];
-  *(uint32_t *)(tls + 0x17c) = seed[1];
-  *(uint32_t *)(tls + 0x180) = seed[2];
-  *(uint32_t *)(tls + 0x184) = seed[3];
+  tls->rngState[0] = seed[0];
+  tls->rngState[1] = seed[1];
+  tls->rngState[2] = seed[2];
+  tls->rngState[3] = seed[3];
 
-  // The last 16 bytes are written as two 64-bit integers.
-  // Offset 400 (decimal) is 0x190 (hex).
-  *(uint64_t *)(tls + 0x188) = *(uint64_t *)(seed + 4);
-  *(uint64_t *)(tls + 0x190) = *(uint64_t *)(seed + 6);
+  tls->rngState4 = *(const uint64_t *)(seed + 4);
+  tls->rngState5 = *(const uint64_t *)(seed + 6);
 }
 
 void GetRNGState(void *outSeed32) {
-  const auto tls = (uint8_t *)GetThreadLocalStoragePointer();
+  const auto* tls = (const GameTLSLayout*)GetThreadLocalStoragePointer();
   if (!tls)
     return;
 
   auto *out = (uint32_t *)outSeed32;
 
-  out[0] = *(uint32_t *)(tls + 0x178);
-  out[1] = *(uint32_t *)(tls + 0x17c);
-  out[2] = *(uint32_t *)(tls + 0x180);
-  out[3] = *(uint32_t *)(tls + 0x184);
+  out[0] = tls->rngState[0];
+  out[1] = tls->rngState[1];
+  out[2] = tls->rngState[2];
+  out[3] = tls->rngState[3];
 
-  *(uint64_t *)(out + 4) = *(uint64_t *)(tls + 0x188);
-  *(uint64_t *)(out + 6) = *(uint64_t *)(tls + 0x190);
+  *(uint64_t *)(out + 4) = tls->rngState4;
+  *(uint64_t *)(out + 6) = tls->rngState5;
 }
 
 // Note: Doesn't work, will need to look into it further

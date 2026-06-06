@@ -265,14 +265,14 @@ void __fastcall Hook_LoadAdventure(LoadAdventureArgs *args) {
 
   if (args && args->butchBox) {
     const ButchBox *self = args->butchBox;
-    MewDirector* director = GameUtils::GetMewDirectorSingleton();
-    void* pedigreeState = director ? *(void**)((char*)director + 0x598) : nullptr;
+    const MewDirector* director = GameUtils::GetMewDirectorSingleton();
+    void* pedigreeState = director ? director->pedigreeState : nullptr;
 
     if (pedigreeState && g_LookupPersistentCharacter) {
       int markedCount = 0;
       for (int i = 4; i < g_adventureCapacity; ++i) {
         if (self->cats.data_ && self->cats.data_[i]) {
-          const int64_t catID = *(int64_t*)((char*)self->cats.data_[i] + 0x80);
+          const int64_t catID = self->cats.data_[i]->sql_key;
           if (auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
             cat->onAdventure = true;
             markedCount++;
@@ -355,19 +355,19 @@ int GetButchBoxCatAge(const int64_t sqlKey) {
   MewDirector* director = GameUtils::GetMewDirectorSingleton();
   if (!director) return 0;
 
-  void* pedigreeState = *(void**)((char*)director + 0x598);
+  void* pedigreeState = director->pedigreeState;
   if (!pedigreeState || !g_LookupPersistentCharacter) return 0;
 
   for (int i = 0; i < g_adventureCapacity; ++i) {
     if (box->cats.data_ && box->cats.data_[i]) {
-      const int64_t catID = *(int64_t*)((char*)box->cats.data_[i] + 0x80);
+      const int64_t catID = box->cats.data_[i]->sql_key;
       if (catID == sqlKey) {
-        if (auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
-          int64_t uVar2 = *(int64_t*)((char*)cat + 0xc40);
-          if (uVar2 == -1) {
-            uVar2 = director->currentDay;
+        if (const auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
+          int64_t deathDay = cat->deathDay;
+          if (deathDay == -1) {
+            deathDay = director->currentDay;
           }
-          return (int)uVar2 - cat->birthDay;
+          return (int)deathDay - cat->birthDay;
         }
       }
     }

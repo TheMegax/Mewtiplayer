@@ -262,11 +262,14 @@ struct MewDirector {
   void* contextData;                    // 0x018
   void* sceneManager;                   // 0x020
   Director *director;                   // 0x028
-  char _padding_1[0x478];               // 0x030
+  char _padding_1[0x8];                 // 0x030
+  char gameStateMap[0x470];             // 0x038
   void* sqlSaveFile;                    // 0x4A8
-  char _padding_1a[0xD0];               // 0x4B0
+  MsvcReleaseModeXString saveNameStr;   // 0x4B0
+  char _padding_1a[0xB0];               // 0x4D0
   int32_t currentDay;                   // 0x580
-  char _padding_2[0x1C];                // 0x584
+  char _padding_2[0x14];                // 0x584
+  void* pedigreeState;                  // 0x598
   void *inventoryPtr;                   // 0x5A0
   House *house;                         // 0x5A8
   char _padding_3[0x8];                 // 0x5B0
@@ -284,12 +287,40 @@ struct MewDirector {
   char _padding_7[0xC];                 // 0x708
   bool inCombat;                        // 0x714
   bool isProductionSave;                // 0x715
+  char _padding_8[0x7A];                // 0x716
 };
 static_assert(offsetof(MewDirector, director) == 0x028, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, gameStateMap) == 0x038, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, sqlSaveFile) == 0x4A8, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, saveNameStr) == 0x4B0, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, currentDay) == 0x580, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, pedigreeState) == 0x598, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, house) == 0x5A8, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, partyCount) == 0x5BC, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, inCombat) == 0x714, "MewDirector offset mismatch");
+static_assert(sizeof(MewDirector) == 0x790, "MewDirector size mismatch");
+
+namespace glaiel {
+struct SQLSaveFile {
+  void* db;                             // 0x00
+  MsvcReleaseModeXString db_path_string; // 0x08
+  char padding[128];                    // 0x28 (safe padding)
+};
+}
+
+struct MewSaveFile {
+  char _padding_0[0x470];       // 0x000
+  glaiel::SQLSaveFile sqlFile;  // 0x470
+  char _padding_1[0xE8];        // 0x518
+};
+static_assert(sizeof(MewSaveFile) == 0x600, "MewSaveFile size mismatch");
+
+struct GameTLSLayout {
+  char padding[0x178];
+  uint32_t rngState[4];  // 0x178
+  uint64_t rngState4;    // 0x188
+  uint64_t rngState5;    // 0x190
+};
 
 struct HouseCat : Component {
   char _padding_0[0x48];  // 0x38
@@ -312,7 +343,8 @@ struct PersistentCharacter {
   int32_t level;                      // 0xC30
   char _padding_6[0x4];               // 0xC34
   int32_t birthDay;                   // 0xC38
-  char _padding_7[0xC];               // 0xC3C
+  char _padding_7[0x4];               // 0xC3C
+  int64_t deathDay;                   // 0xC40
   int64_t catID;                      // 0xC48
 };
 static_assert(offsetof(PersistentCharacter, name) == 0x018, "PersistentCharacter offset mismatch");
@@ -320,6 +352,7 @@ static_assert(offsetof(PersistentCharacter, sql_key) == 0x080, "PersistentCharac
 static_assert(offsetof(PersistentCharacter, onAdventure) == 0x0DC, "PersistentCharacter offset mismatch");
 static_assert(offsetof(PersistentCharacter, className) == 0xC10, "PersistentCharacter offset mismatch");
 static_assert(offsetof(PersistentCharacter, level) == 0xC30, "PersistentCharacter offset mismatch");
+static_assert(offsetof(PersistentCharacter, deathDay) == 0xC40, "PersistentCharacter offset mismatch");
 static_assert(offsetof(PersistentCharacter, catID) == 0xC48, "PersistentCharacter offset mismatch");
 
 struct AbilityDefinition {

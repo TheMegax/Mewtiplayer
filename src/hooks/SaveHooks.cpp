@@ -25,13 +25,13 @@ void* __fastcall Hook_CreateStrayCat(void* catsManager) {
     if (glaiel::SQLSaveFile* dbFile = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME)) {
       // ReSharper disable once CppLocalVariableMayBeConst
       if (GameUtils::MewSaveFile_Load_t mewSaveFileLoad = GameUtils::GetMewSaveFileLoadPtr()) {
-        char dummySave[0x600] = {};
-        memcpy(dummySave + 0x470, dbFile, sizeof(glaiel::SQLSaveFile));
+        MewSaveFile dummySave = {};
+        dummySave.sqlFile = *dbFile;
 
         const auto catIdPtr = &((PersistentCharacter*)cat)->catID;
         const int64_t originalID = *catIdPtr;
 
-        mewSaveFileLoad((void*)dummySave, index, cat);
+        mewSaveFileLoad(&dummySave, index, cat);
         *catIdPtr = originalID;
 
         // Restore cat age by adjusting birthDay relative to currentDay

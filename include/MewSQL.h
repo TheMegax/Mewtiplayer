@@ -11,14 +11,6 @@ struct SQLData {
 
 #include <vector>
 
-namespace glaiel {
-struct SQLSaveFile {
-  void* db;                             // 0x00
-  MsvcReleaseModeXString db_path_string; // 0x08
-  char padding[128];                    // 0x28 (safe padding)
-};
-}
-
 namespace MewSQL {
 
 // Signatures
