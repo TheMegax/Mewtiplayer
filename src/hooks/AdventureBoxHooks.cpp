@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <vector>
 
-static int g_adventureCapacity = 8;
+static int g_adventureCapacity = 4; // TODO: Pretty glitchy to have >4
 static HANDLE* g_pCRTHeap = nullptr;
 
 static HANDLE GetCRTHeap() {
@@ -248,7 +248,7 @@ void __fastcall Hook_LoadAdventure(LoadAdventureArgs *args) {
   }
 
   if (args && args->butchBox) {
-    ButchBox *self = args->butchBox;
+    const ButchBox *self = args->butchBox;
     int markedCount = 0;
     for (int i = 4; i < g_adventureCapacity; ++i) {
       if (self->cats.data_ && self->cats.data_[i]) {

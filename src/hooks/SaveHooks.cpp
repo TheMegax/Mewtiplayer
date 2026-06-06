@@ -6,73 +6,11 @@
 #include "Overlay.h"
 #include "Scanner.h"
 
-HOOK_DEFINE(InitializeSave, void, void*, void*)
 HOOK_DEFINE(CreateStrayCat, void*, void*)
 HOOK_DEFINE(GetCollarVector, int64_t*, int64_t*, int64_t, int64_t, int64_t)
 
 typedef void* (__fastcall *GameAllocate_t)(size_t size);
 static GameAllocate_t g_GameAllocate = nullptr;
-
-void __fastcall Hook_InitializeSave(void* gameStateMap, void* saveNameStr) {
-  if (GameUtils::g_injectCustomSaveData) {
-    MewSQL::CloseActiveSaveConnection(GameUtils::GetMewDirectorSingleton());
-    Overlay::Log("[SAVE] Wiping save file for Start New Run...");
-    MewSQL::DeleteSaveFile("mewtiplayer.sav");
-  }
-
-  // First, call the original function to create/open the DB.
-  if (g_origInitializeSave) {
-    g_origInitializeSave(gameStateMap, saveNameStr);
-  }
-
-  if (!GameUtils::g_injectCustomSaveData) {
-      return; // Do not inject custom data into other saves
-  }
-  GameUtils::g_injectCustomSaveData = false;
-  GameUtils::g_startCustomRunPending = true;
-
-  Overlay::Log("[SAVE] Committing custom data...");
-
-  std::vector<std::string> keys = {
-    "mapflag_BoneyardUnlocked",
-    "mapflag_BothObelisksUnlocked",
-    "mapflag_BunkerUnlocked",
-    "mapflag_CavesUnlocked",
-    "mapflag_CoreObeliskUnlocked",
-    "mapflag_CoreUnlocked",
-    "mapflag_CraterUnlocked",
-    "mapflag_DesertUnlocked",
-    "mapflag_DimensionXUnlocked",
-    "mapflag_HardPathUnlocked",
-    "mapflag_JunkyardUnlocked",
-    "mapflag_LabUnlocked",
-    "mapflag_MeatWorldUnlocked",
-    "mapflag_MeatWorldUnlockedFull",
-    "mapflag_MoonObeliskUnlocked",
-    "mapflag_MoonUnlocked",
-    "mapflag_SewersUnlocked",
-    "mapflag_ThrobbingArteryDone",
-    "mapflag_WallOfFleshDone",
-    "mapflag_TutorialUnlocked",
-    "mapflag_TutorialDone",
-    "game_began",
-  };
-
-  for (const auto& key : keys) {
-    GameUtils::SetSaveProperty(key, 1);
-  }
-
-  // Go away Tink >:(
-  GameUtils::ExecuteSQL("INSERT OR REPLACE INTO files VALUES "
-                        "('tutorial_tokens', "
-                        "X'02000000000000001f00000000000000636f6d626"
-                        "1745f7475746f7269616c2e676f6e2e686f7573655f"
-                        "696e74726f2200000000000000636f6d6261745f747"
-                        "5746f7269616c2e676f6e2e686f7573655f70617373"
-                        "5f646179');");
-
-  Overlay::Log("[SAVE] Custom SQL executed successfully!");
-}
 
 void* __fastcall Hook_CreateStrayCat(void* catsManager) {
   void* cat = nullptr;
@@ -147,8 +85,30 @@ int64_t* __fastcall Hook_GetCollarVector(int64_t* outVector, int64_t collarId, i
 }
 
 void SaveHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
-  HOOK_INSTALL(mj, gameBase, InitializeSave,
-      "48 8B C4 48 89 58 08 48 89 50 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 48 81 EC 20 01 00 00", 16);
+  GameUtils::InitializeSave_t initializeSave = nullptr;
+  SCAN_SET(mj, gameBase, InitializeSave,
+      "48 8B C4 48 89 58 08 48 89 50 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 48 81 EC 20 01 00 00",
+      initializeSave);
+  if (initializeSave) {
+    GameUtils::SetInitializeSavePtr(initializeSave);
+  }
+
+  // MewDirector_ctor resolver via InitTestSave scan
+  uintptr_t initTestSaveRva = ScanSignature(mj, gameBase, "InitTestSave",
+      "80 b9 b0 04 00 00 00 74 07 33 c0 e9 bd 01 00 00 48 8d 0d ?? ?? ?? ?? e8");
+  if (initTestSaveRva) {
+    uintptr_t callAddr = gameBase + initTestSaveRva + 0x3c;
+    if (*(uint8_t*)callAddr == 0xe8) {
+      int32_t relOffset = *(int32_t*)(callAddr + 1);
+      auto ctorPtr = (GameUtils::MewDirector_ctor_t)(callAddr + 5 + relOffset);
+      GameUtils::SetMewDirectorCtorPtr(ctorPtr);
+      Overlay::Log("[SAVE] Resolved MewDirector constructor: %p", ctorPtr);
+    } else {
+      Overlay::Log("[SAVE] Error: InitTestSave call opcode mismatch!");
+    }
+  } else {
+    Overlay::Log("[SAVE] Error: InitTestSave signature scan failed!");
+  }
 
   // ExecSQL - set to BOTH MewSQL and GameUtils
   MewSQL::ExecSQL_t execSql = nullptr;

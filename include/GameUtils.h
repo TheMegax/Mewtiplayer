@@ -11,6 +11,14 @@ namespace GameUtils {
 void SetMewDirectorSingletonPtr(MewDirector **ptr);
 MewDirector *GetMewDirectorSingleton();
 
+typedef void* (__fastcall *MewDirector_ctor_t)(void* thisPtr);
+typedef void (__fastcall *InitializeSave_t)(void* gameStateMap, void* saveNameStr);
+
+void SetMewDirectorCtorPtr(MewDirector_ctor_t ptr);
+void SetInitializeSavePtr(InitializeSave_t ptr);
+MewDirector_ctor_t GetMewDirectorCtorPtr();
+InitializeSave_t GetInitializeSavePtr();
+
 typedef void (__fastcall *ContinueFile_t)(void* saveSelection, int saveSlotIndex, bool bSkipIntro);
 void SetContinueFilePtr(ContinueFile_t ptr);
 
@@ -23,7 +31,6 @@ void ExecuteSQL(const char* query);
 std::string SanitizeSQLString(const std::string& input);
 void SetSaveProperty(const std::string& key, int value);
 
-extern bool g_injectCustomSaveData;
 extern int g_customTeamSize;
 extern int g_customDifficulty;
 extern int g_customCollarIndex;
@@ -31,6 +38,7 @@ extern bool g_useCustomCollarClasses;
 extern std::vector<std::string> g_customCollarClasses;
 void SetCustomCollarClasses(const std::string& input);
 extern bool g_startCustomRunPending;
+extern void* g_oldDirector;
 extern bool g_isLoadingCustomCats;
 extern int g_currentCustomCatIndex;
 
@@ -39,6 +47,8 @@ void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr);
 MewSaveFile_Load_t GetMewSaveFileLoadPtr();
 
 void LoadSaveFile(const char *saveName);
+void CreateSaveFile(const char *saveName);
+void CreateMewtiplayerSave(const char *saveName);
 
 typedef void (__fastcall *StartRun_t)(void* mewDirector, MsvcReleaseModeXString* mapNameStr, uint32_t collarId, uint32_t teamSize, char startFlag);
 void SetStartRunPtr(StartRun_t ptr);

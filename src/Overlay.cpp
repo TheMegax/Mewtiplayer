@@ -170,15 +170,7 @@ static void __cdecl WrappedMjLog(const char *owner, const char *fmt, ...) {
 
 void Overlay::ToggleVisible() { g_visible = !g_visible; }
 
-static bool g_pendingSaveLoad = false;
-void Overlay::RequestSaveLoad() { g_pendingSaveLoad = true; }
-bool Overlay::ConsumeSaveLoad() {
-  if (g_pendingSaveLoad) {
-    g_pendingSaveLoad = false;
-    return true;
-  }
-  return false;
-}
+
 
 static void RenderRemoteCursors() {
   std::lock_guard lock(g_cursorMutex);
@@ -571,7 +563,7 @@ static bool IsSaveOnAdventure() {
   }
 
   // If a save injection/load is currently pending, bypass background query to avoid locks
-  if (GameUtils::g_injectCustomSaveData || GameUtils::g_startCustomRunPending) {
+  if (GameUtils::g_startCustomRunPending) {
     return cachedResult;
   }
 
@@ -613,8 +605,10 @@ static void RenderSaveTab() {
 
   ImGui::Spacing();
   if (ImGui::Button("New Run")) {
-    GameUtils::g_injectCustomSaveData = true;
-    Overlay::RequestSaveLoad();
+    GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
+    GameUtils::CreateMewtiplayerSave("mewtiplayer.sav");
+    GameUtils::g_startCustomRunPending = true;
+    GameUtils::LoadSaveFile("mewtiplayer.sav");
   }
 
   ImGui::SameLine();
@@ -622,8 +616,7 @@ static void RenderSaveTab() {
   const bool canContinue = MewSQL::SaveFileExists("mewtiplayer.sav") && IsSaveOnAdventure();
   if (canContinue) {
     if (ImGui::Button("Continue Run")) {
-      GameUtils::g_injectCustomSaveData = false;
-      Overlay::RequestSaveLoad();
+      GameUtils::LoadSaveFile("mewtiplayer.sav");
     }
   } else {
     ImGui::TextDisabled("Continue Run");

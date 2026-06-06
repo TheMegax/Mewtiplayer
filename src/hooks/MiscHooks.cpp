@@ -8,7 +8,6 @@
 #include "Scanner.h"
 
 static bool g_networkInitialized = false;
-static bool g_loadMewtiplayerSave = false;
 
 HOOK_DEFINE(StevenSpawn, void*, void*, void*)
 HOOK_DEFINE(PauseGame, void, void*)
@@ -28,22 +27,23 @@ static void __fastcall Hook_PauseGame(void *pauseMenuScene) {
   if (g_origPauseGame) {
     g_origPauseGame(pauseMenuScene);
   }
+  // This invariably causes a crash when the (un)paused scene is destroyed
 
-  auto *pm = (PauseMenuScene *)pauseMenuScene;
-  if (pm && NetworkManager::Get().GetCurrentLobby().IsValid()) {
-    if (void *sceneManager = pm->sceneManager) {
-      void **start = *(void ***)((char *)sceneManager + 0x0);
-      void **end = *(void ***)((char *)sceneManager + 0x8);
-      if (start && end) {
-        for (void **p = start; p != end; ++p) {
-          if (void *scene = *p) {
-            *((char *)scene + 0x4d8) = 0;
-          }
-        }
-      }
-    }
-    pm->pauseTimer = 0;
-  }
+  // auto *pm = (PauseMenuScene *)pauseMenuScene;
+  // if (pm && NetworkManager::Get().GetCurrentLobby().IsValid()) {
+  //   if (void *sceneManager = pm->sceneManager) {
+  //     void **start = *(void ***)((char *)sceneManager + 0x0);
+  //     void **end = *(void ***)((char *)sceneManager + 0x8);
+  //     if (start && end) {
+  //       for (void **p = start; p != end; ++p) {
+  //         if (void *scene = *p) {
+  //           *((char *)scene + 0x4d8) = 0;
+  //         }
+  //       }
+  //     }
+  //   }
+  //   pm->pauseTimer = 0;
+  // }
 }
 
 static void Hook_RunFrame(void *rcx, void *rdx) {
@@ -63,15 +63,15 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     InputGhost::SetIsHost(NetworkManager::Get().IsHost());
   }
 
-  if (Overlay::ConsumeSaveLoad()) {
-    g_loadMewtiplayerSave = true;
-    GameUtils::LoadSaveFile("mewtiplayer.sav");
-  }
+
 
   if (GameUtils::g_startCustomRunPending) {
     MewDirector* dir = GameUtils::GetMewDirectorSingleton();
-    if (dir && dir->director && dir->house != nullptr) {
+    if (dir == nullptr) {
+      GameUtils::g_oldDirector = nullptr;
+    } else if (dir != GameUtils::g_oldDirector && dir->director && dir->house != nullptr) {
       GameUtils::g_startCustomRunPending = false;
+      GameUtils::g_oldDirector = nullptr;
       GameUtils::StartCustomRun(GameUtils::g_customTeamSize, GameUtils::g_customDifficulty, GameUtils::g_customCollarIndex);
     }
   }

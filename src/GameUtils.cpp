@@ -1,5 +1,6 @@
 #include "GameUtils.h"
 #include "Overlay.h"
+#include "MewSQL.h"
 #include <windows.h>
 
 #ifndef _MSC_VER
@@ -12,6 +13,13 @@ namespace GameUtils {
 static MewDirector **g_pMewDirectorPtr = nullptr;
 static TurnControl **g_pTurnControlPtr = nullptr;
 static DestructString_t g_DestructString = nullptr;
+static MewDirector_ctor_t g_MewDirector_ctor = nullptr;
+static InitializeSave_t g_InitializeSave = nullptr;
+
+void SetMewDirectorCtorPtr(MewDirector_ctor_t ptr) { g_MewDirector_ctor = ptr; }
+void SetInitializeSavePtr(InitializeSave_t ptr) { g_InitializeSave = ptr; }
+MewDirector_ctor_t GetMewDirectorCtorPtr() { return g_MewDirector_ctor; }
+InitializeSave_t GetInitializeSavePtr() { return g_InitializeSave; }
 
 void SetMewDirectorSingletonPtr(MewDirector **ptr) { g_pMewDirectorPtr = ptr; }
 void SetTurnControlPtr(TurnControl **ptr) { g_pTurnControlPtr = ptr; }
@@ -124,13 +132,13 @@ struct FakeSaveSelection {
 static FakeSaveSelection g_fakeSaveSelection = {};
 static MsvcReleaseModeXString g_fakeSaveStrings[4] = {};
 
-bool g_injectCustomSaveData = false;
 int g_customTeamSize = 4;
 int g_customDifficulty = 0;
 int g_customCollarIndex = 0;
 bool g_useCustomCollarClasses = false;
 std::vector<std::string> g_customCollarClasses;
 bool g_startCustomRunPending = false;
+void* g_oldDirector = nullptr;
 bool g_isLoadingCustomCats = false;
 int g_currentCustomCatIndex = 1;
 
@@ -159,6 +167,92 @@ static MewSaveFile_Load_t g_MewSaveFile_Load = nullptr;
 
 void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr) { g_MewSaveFile_Load = ptr; }
 MewSaveFile_Load_t GetMewSaveFileLoadPtr() { return g_MewSaveFile_Load; }
+
+void CreateSaveFile(const char *saveName) {
+  if (!g_MewDirector_ctor || !g_InitializeSave) {
+    Overlay::Log("[SAVE] Error: CreateSaveFile called but constructor (%p) or InitializeSave (%p) not resolved!", g_MewDirector_ctor, g_InitializeSave);
+    return;
+  }
+
+  Overlay::Log("[SAVE] Creating save file '%s'...", saveName);
+
+  void* tempDirector = malloc(0x790);
+  if (!tempDirector) {
+    Overlay::Log("[SAVE] Error: malloc failed for temporary MewDirector!");
+    return;
+  }
+  memset(tempDirector, 0, 0x790);
+
+  g_MewDirector_ctor(tempDirector);
+
+  MsvcReleaseModeXString saveNameXStr = {};
+  InitXString(saveNameXStr, saveName);
+
+  // Call original InitializeSave (offset +0x38 of tempDirector is GameStateMap)
+  g_InitializeSave((char*)tempDirector + 0x38, &saveNameXStr);
+
+  FreeXString(saveNameXStr);
+  MewSQL::CloseActiveSaveConnection(tempDirector);
+
+  if (g_DestructString) {
+    g_DestructString((MsvcReleaseModeXString*)((char*)tempDirector + 0x4B0));
+  }
+  free(tempDirector);
+
+  Overlay::Log("[SAVE] Save file '%s' created successfully.", saveName);
+}
+
+void CreateMewtiplayerSave(const char *saveName) {
+  MewSQL::DeleteSaveFile(saveName);
+  CreateSaveFile(saveName);
+
+  if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(saveName)) {
+    const std::vector<std::string> keys = {
+      "mapflag_BoneyardUnlocked",
+      "mapflag_BothObelisksUnlocked",
+      "mapflag_BunkerUnlocked",
+      "mapflag_CavesUnlocked",
+      "mapflag_CoreObeliskUnlocked",
+      "mapflag_CoreUnlocked",
+      "mapflag_CraterUnlocked",
+      "mapflag_DesertUnlocked",
+      "mapflag_DimensionXUnlocked",
+      "mapflag_HardPathUnlocked",
+      "mapflag_JunkyardUnlocked",
+      "mapflag_LabUnlocked",
+      "mapflag_MeatWorldUnlocked",
+      "mapflag_MeatWorldUnlockedFull",
+      "mapflag_MoonObeliskUnlocked",
+      "mapflag_MoonUnlocked",
+      "mapflag_SewersUnlocked",
+      "mapflag_ThrobbingArteryDone",
+      "mapflag_WallOfFleshDone",
+      "mapflag_TutorialUnlocked",
+      "mapflag_TutorialDone",
+      "game_began",
+    };
+
+    for (const auto& key : keys) {
+      char query[256];
+      snprintf(query, sizeof(query), "INSERT OR REPLACE INTO properties VALUES ('%s', 1);", key.c_str());
+      MewSQL::ExecSQLOnDatabase(db, query);
+    }
+
+    // Go away Tink >:(
+    MewSQL::ExecSQLOnDatabase(db, "INSERT OR REPLACE INTO files VALUES "
+                                  "('tutorial_tokens', "
+                                  "X'02000000000000001f00000000000000636f6d626"
+                                  "1745f7475746f7269616c2e676f6e2e686f7573655f"
+                                  "696e74726f2200000000000000636f6d6261745f747"
+                                  "5746f7269616c2e676f6e2e686f7573655f70617373"
+                                  "5f646179');");
+
+    MewSQL::CloseSaveDatabase(db);
+    Overlay::Log("[SAVE] Save custom properties initialized successfully!");
+  } else {
+    Overlay::Log("[SAVE] Error: Failed to open offline save for initialization!");
+  }
+}
 
 void LoadSaveFile(const char *saveName) {
   // This will initiate a fadeout sequence. At the end of it, it will initiate the save file with the given name,
