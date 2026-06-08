@@ -1,3 +1,4 @@
+// ReSharper disable CppDFANotInitializedField
 #pragma once
 #include "mewjector.h"
 #include "steam_api.h"
@@ -106,10 +107,20 @@ struct CatBlobHeader {
 #pragma pack(pop)
 
 #pragma pack(push, 1)
+struct CatResponseHeader {
+  uint32_t numCats;
+  uint32_t unlocksSize;
+  uint32_t inventorySize;
+  uint32_t mapFlagsSize;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
 struct SaveLoadSignalPacket {
   uint32_t teamSize;
   uint32_t difficulty;
   uint32_t collarIndex;
+  char customCollars[512];
 };
 #pragma pack(pop)
 
@@ -129,7 +140,7 @@ enum class SaveSyncState : uint8_t {
 };
 
 #pragma pack(push, 1)
-struct PacketHeader {
+struct PacketHeader { // NOLINT(*-pro-type-member-init)
   uint8_t magic1 = 'M';
   uint8_t magic2 = 'G';
   PacketType type;
@@ -159,9 +170,9 @@ public:
                   uint32_t size);
   void ReceivePackets();
 
-  CSteamID GetCurrentLobby() const { return m_CurrentLobby; }
-  bool IsHost() const;
-  CSteamID GetHostID() const;
+  [[nodiscard]] CSteamID GetCurrentLobby() const { return m_CurrentLobby; }
+  [[nodiscard]] bool IsHost() const;
+  [[nodiscard]] CSteamID GetHostID() const;
   void BroadcastPacket(PacketType type, const void *data, uint32_t size,
                        bool excludeSelf = true);
 
@@ -172,11 +183,11 @@ public:
 
   void StartCombat();
   void EndCombat();
-  bool IsCombatActive() const { return m_combatActive; }
-  uint32_t GetActiveNUID() const { return m_activeNUID; }
+  [[nodiscard]] bool IsCombatActive() const { return m_combatActive; }
+  [[nodiscard]] uint32_t GetActiveNUID() const { return m_activeNUID; }
   uint64_t GetCatOwner(int64_t uid);
   std::map<int64_t, uint64_t> &GetOwnershipMap() { return m_catOwnership; }
-  const std::map<int64_t, CatInfo> &GetDiscoveredCats() const {
+  [[nodiscard]] const std::map<int64_t, CatInfo> &GetDiscoveredCats() const {
     return m_discoveredCats;
   }
   std::map<uint32_t, std::pair<int, int>> &GetLastFacingMap() {
@@ -192,13 +203,14 @@ public:
   // Action Recording & Replay
   void RecordAction(const ActionPacket &pkt);
   void ClearRecordedActions();
-  const std::vector<ActionPacket> &GetRecordedActions() const;
+  [[nodiscard]] const std::vector<ActionPacket> &GetRecordedActions() const;
   void EnqueueReplayAction(const ActionPacket &pkt);
 
   bool SendPacketReliable(CSteamID target, PacketType type, const void *data, uint32_t size);
   void SendChunkedData(CSteamID target, PacketType type, const uint8_t* data, uint32_t totalSize, uint32_t transferId);
   void BeginMultiplayerSave();
-  SaveSyncState GetSaveSyncState() const { return m_saveSyncState; }
+  [[nodiscard]] SaveSyncState GetSaveSyncState() const;
+
   int GetTotalLobbyCatCount();
   int GetLobbyMemberCatCount(uint64_t steamID);
   void SendLocalCatCount();
@@ -241,11 +253,11 @@ private:
   void OnLobbyMatchList(LobbyMatchList_t *pCallback, bool bIOFailure);
 
   // Internal packet handlers
-  void HandleHandshake(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleHandshake(CSteamID remoteID);
 
-  static void HandleRNGSync(CSteamID remoteID, const void *data, uint32_t length);
-  void HandleMouseMove(CSteamID remoteID, const void *data, uint32_t length);
-  void HandleCatOwnershipSync(CSteamID remoteID, const void *data,
+  static void HandleRNGSync(const void *data, uint32_t length);
+  void HandleMouseMove(const void *data, uint32_t length);
+  void HandleCatOwnershipSync(const void *data,
                               uint32_t length);
 
   static void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
@@ -270,6 +282,10 @@ private:
     int32_t originalAge;
   };
   std::vector<PendingCatBlob> m_collectedCatBlobs;
+  std::vector<std::vector<uint8_t>> m_collectedUnlocksBlobs;
+  std::vector<std::vector<std::string>> m_collectedMapFlags;
+  std::vector<std::vector<uint8_t>> m_collectedInventoryBlobs;
+  
   std::set<uint64_t> m_pendingCatResponseFrom;
   std::set<uint64_t> m_pendingAcksFrom;
   std::map<uint64_t, int> m_lobbyMemberCatCounts;
@@ -292,7 +308,7 @@ private:
   };
   std::map<uint64_t, ClientTransferState> m_clientTransfers;
 
-  STEAM_CALLBACK(NetworkManager, OnGameLobbyJoinRequested,
+  STEAM_CALLBACK(NetworkManager, OnGameLobbyJoinRequested, // NOLINT(*-use-auto)
                  GameLobbyJoinRequested_t);
-  STEAM_CALLBACK(NetworkManager, OnP2PSessionRequest, P2PSessionRequest_t);
+  STEAM_CALLBACK(NetworkManager, OnP2PSessionRequest, P2PSessionRequest_t); // NOLINT(*-use-auto)
 };

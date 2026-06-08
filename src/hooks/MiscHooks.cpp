@@ -28,6 +28,7 @@ static void __fastcall Hook_PauseGame(void *pauseMenuScene) {
     g_origPauseGame(pauseMenuScene);
   }
   // This invariably causes a crash when the (un)paused scene is destroyed
+  // Plus input passes through the pause screen and is thus consumed, so its inconvenient
 
   // auto *pm = (PauseMenuScene *)pauseMenuScene;
   // if (pm && NetworkManager::Get().GetCurrentLobby().IsValid()) {
@@ -72,7 +73,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     } else if (dir != GameUtils::g_oldDirector && dir->director && dir->house != nullptr) {
       GameUtils::g_startCustomRunPending = false;
       GameUtils::g_oldDirector = nullptr;
-      GameUtils::StartCustomRun(GameUtils::g_customTeamSize, GameUtils::g_customDifficulty, GameUtils::g_customCollarIndex);
+      GameUtils::StartCustomRun(GameUtils::g_customTeamSize, GameUtils::g_customDifficulty, 4);
     }
   }
 
@@ -81,35 +82,30 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
 }
 
 void MiscHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
-    // MewDirector singleton
     MewDirector **pMewDirector = nullptr;
     SCAN_RESOLVE(mj, gameBase, MewDirectorSingleton,
         "48 89 5C 24 10 48 89 4C 24 08 57 48 83 EC 40 48 8B CA 48 8B 05 ?? ?? ?? ?? 48 8B B8 A8 05 00 00",
         pMewDirector, 18, 3, 7);
     if (pMewDirector) GameUtils::SetMewDirectorSingletonPtr(pMewDirector);
 
-    // ContinueFile
     GameUtils::ContinueFile_t continueFile = nullptr;
     SCAN_SET(mj, gameBase, ContinueFile,
         "48 89 5c 24 08 48 89 74 24 10 55 57 41 56 48 8d 6c 24 b9 48 81 ec b0 00 00 00 8b fa 48 8b f1",
         continueFile);
     if (continueFile) GameUtils::SetContinueFilePtr(continueFile);
 
-    // StartRun
     GameUtils::StartRun_t startRun = nullptr;
     SCAN_SET(mj, gameBase, StartRun,
         "48 8B C4 48 89 58 20 44 89 40 18 48 89 50 10 55",
         startRun);
     if (startRun) GameUtils::SetStartRunPtr(startRun);
 
-    // ActiveSceneFunc
     void **activeScenePtr = nullptr;
     SCAN_RESOLVE(mj, gameBase, ActiveSceneFunc,
         "48 89 5C 24 10 57 48 83 EC 20 33 FF 48 8B D9 48 85 C9 75 10 48 8B 1D",
         activeScenePtr, 20, 3, 7);
     if (activeScenePtr) GameUtils::SetActiveScenePtr(activeScenePtr);
 
-    // Hooks
     HOOK_INSTALL(mj, gameBase, RunFrame,
         "40 53 41 56 41 57 48 83 EC 40", 17);
 

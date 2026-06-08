@@ -5,6 +5,7 @@
 #include "MewSQL.h"
 #include "InputGhost.h"
 #include "NetworkManager.h"
+#include "hooks/AdventureBoxHooks.h"
 #include "imgui.h"
 #include <GL/gl.h>
 #include <chrono>
@@ -21,7 +22,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "external/stb_image.h"
 
-struct RemoteCursor {
+struct RemoteCursor { // NOLINT(*-pro-type-member-init)
   float x, y;
   uint8_t type;
   std::chrono::steady_clock::time_point lastUpdate;
@@ -76,9 +77,7 @@ void LoadCursorTextures() {
         std::string name, sx, sy;
         if (std::getline(lss, name, ',') && std::getline(lss, sx, ',') &&
             std::getline(lss, sy, ',')) {
-          hotspots[name] =
-              ImVec2((float)atof(sx.c_str()), (float)atof(sy.c_str()));
-        }
+          hotspots[name] = ImVec2(std::strtof(sx.c_str(), nullptr), std::strtof(sy.c_str(), nullptr));        }
       }
     }
   }
@@ -144,7 +143,7 @@ void Overlay::LogV(const char *fmt, const va_list args) {
 
   {
     std::lock_guard lock(g_logMutex);
-    g_logLines.push_back(std::string(buf));
+    g_logLines.emplace_back(buf);
     while (g_logLines.size() > MAX_LOG_LINES)
       g_logLines.pop_front();
   }
@@ -175,7 +174,8 @@ void Overlay::ToggleVisible() { g_visible = !g_visible; }
 static void RenderRemoteCursors() {
   std::lock_guard lock(g_cursorMutex);
   ImDrawList *drawList = ImGui::GetForegroundDrawList();
-  const HWND hWnd = ImGuiHook::GetHWND();
+  // ReSharper disable once CppLocalVariableMayBeConst
+  HWND hWnd = ImGuiHook::GetHWND();
   const auto now = std::chrono::steady_clock::now();
 
   for (auto it = g_RemoteCursors.begin(); it != g_RemoteCursors.end();) {
@@ -533,7 +533,7 @@ static void RenderActionManagerTab() {
       int anim = 0, force = 0;
 
       const int parsed =
-          sscanf(line.c_str(), "%31[^,],%u,%d,%63[^,],%d,%d,%d,%d,%d,%d,%d,%d",
+          sscanf(line.c_str(), "%31[^,],%u,%d,%63[^,],%d,%d,%d,%d,%d,%d,%d,%d", // NOLINT(*-err34-c)
                  typeStr, &actorNUID, &actionType,
                  abilityName, &targetX,
                  &targetY, &target2X,
@@ -568,7 +568,7 @@ static void RenderActionManagerTab() {
   }
 }
 
-static const char* g_collarNames[] = { "Basic", "All", "Random", "Freedom", "Custom" };
+static const char* g_departureModeNames[] = { "Shared Progress Only", "All Progress Combined" };
 
 static bool IsSaveOnAdventure() {
   static bool cachedResult = false;
@@ -608,30 +608,36 @@ static void RenderSaveTab() {
   ImGui::Text("Custom Run Configuration");
   ImGui::SliderInt("Team Size", &GameUtils::g_customTeamSize, 2, 8);
   ImGui::SliderInt("Difficulty Mod", &GameUtils::g_customDifficulty, 0, 10);
-  ImGui::Combo("Collar Type", &GameUtils::g_customCollarIndex, g_collarNames, IM_ARRAYSIZE(g_collarNames));
-
-  if (GameUtils::g_customCollarIndex == 4) {
-    static char s_customClassesBuf[512] = "Fighter, Tank, Necromancer, Psychic";
-    static bool s_firstParse = true;
-    if (s_firstParse) {
-      GameUtils::SetCustomCollarClasses(s_customClassesBuf);
-      s_firstParse = false;
-    }
-    ImGui::Spacing();
-    if (ImGui::InputText("Custom Classes", s_customClassesBuf, sizeof(s_customClassesBuf))) {
-      GameUtils::SetCustomCollarClasses(s_customClassesBuf);
-    }
-    GameUtils::g_useCustomCollarClasses = true;
-  } else {
-    GameUtils::g_useCustomCollarClasses = false;
-  }
+  ImGui::Combo("Departure Mode", &GameUtils::g_departureMode, g_departureModeNames, IM_ARRAYSIZE(g_departureModeNames));
 
   ImGui::Spacing();
-  if (ImGui::Button("New Run")) {
-    GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
-    GameUtils::CreateMewtiplayerSave(CUSTOM_SAVE_NAME.c_str());
-    GameUtils::g_startCustomRunPending = true;
-    GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
+  if (NetworkManager::Get().GetCurrentLobby().IsValid()) {
+    if (NetworkManager::Get().IsHost()) {
+      const int totalCats = NetworkManager::Get().GetTotalLobbyCatCount();
+      const bool canDepart = (totalCats == GameUtils::g_customTeamSize);
+
+      if (!canDepart) {
+        ImGui::BeginDisabled();
+      }
+      if (ImGui::Button("Multiplayer Depart")) {
+        NetworkManager::Get().BeginMultiplayerSave();
+      }
+      if (!canDepart) {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "(%d/%d cats placed)", totalCats, GameUtils::g_customTeamSize);
+      }
+    } else {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Waiting for host to depart...");
+      ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Placed %d cat(s)", GetLocalButchBoxCatCount());
+    }
+  } else {
+    if (ImGui::Button("Local Depart")) {
+      GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
+      GameUtils::CreateMewtiplayerSave(CUSTOM_SAVE_NAME.c_str());
+      GameUtils::g_startCustomRunPending = true;
+      GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
+    }
   }
 
   ImGui::SameLine();
@@ -644,26 +650,6 @@ static void RenderSaveTab() {
     }
   } else {
     ImGui::TextDisabled("Continue Run");
-  }
-
-  if (NetworkManager::Get().IsHost()) {
-    ImGui::SameLine();
-    const int totalCats = NetworkManager::Get().GetTotalLobbyCatCount();
-    const bool canDepart = (totalCats == GameUtils::g_customTeamSize);
-
-    if (!canDepart) {
-      ImGui::BeginDisabled();
-    }
-    if (ImGui::Button("Multiplayer Depart")) {
-      NetworkManager::Get().BeginMultiplayerSave();
-    }
-    if (!canDepart) {
-      ImGui::EndDisabled();
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                         "(%d/%d cats placed)",
-                         totalCats, GameUtils::g_customTeamSize);
-    }
   }
 
   static char testDbPath[256] = "test00.sav";
@@ -712,7 +698,7 @@ static void RenderSaveTab() {
   }
 }
 
-struct ListedScene {
+struct ListedScene { // NOLINT(*-pro-type-member-init)
   std::string name;
   uint32_t entityCount;
   uint32_t componentCount;

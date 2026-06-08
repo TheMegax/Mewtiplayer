@@ -2,6 +2,9 @@
 #include "Overlay.h"
 #include "MewSQL.h"
 #include <windows.h>
+#include <algorithm>
+#include <map>
+#include <set>
 
 #ifndef _MSC_VER
 #define __try try // NOLINT(*-reserved-identifier)
@@ -63,7 +66,8 @@ MewDirector *GetMewDirectorSingleton() {
 }
 
 static ExecSQL_t g_ExecSQL = nullptr;
-void SetExecSQLPtr(const ExecSQL_t ptr) {
+// ReSharper disable once CppParameterMayBeConst
+void SetExecSQLPtr(ExecSQL_t ptr) {
   g_ExecSQL = ptr;
 }
 ExecSQL_t GetExecSQLPtr() {
@@ -77,7 +81,7 @@ void ExecuteSQL(const char* query) {
 
   void* sqlSaveFile = dir->sqlSaveFile;
 
-  MsvcReleaseModeXString queryStr;
+  MsvcReleaseModeXString queryStr = {};
   InitXString(queryStr, query);
 
   void* dummyFunc[8] = {}; // Dummy std::function block (64 bytes)
@@ -104,12 +108,14 @@ void SetSaveProperty(const std::string& key, const int value) {
 }
 
 static ContinueFile_t g_ContinueFile = nullptr;
-void SetContinueFilePtr(const ContinueFile_t ptr) {
+// ReSharper disable once CppParameterMayBeConst
+void SetContinueFilePtr(ContinueFile_t ptr) {
   g_ContinueFile = ptr;
 }
 
 static StartRun_t g_StartRun = nullptr;
-void SetStartRunPtr(const StartRun_t ptr) {
+// ReSharper disable once CppParameterMayBeConst
+void SetStartRunPtr(StartRun_t ptr) {
   g_StartRun = ptr;
 }
 
@@ -119,11 +125,11 @@ void SetActiveScenePtr(void** ptr) {
 }
 
 struct FakeSaveSelection {
-  char pad0[0x18];    // 0x00
+  [[maybe_unused]] char pad0[0x18];    // 0x00
   Entity* entity;     // 0x18
   Scene* scene;       // 0x20
   Director* director; // 0x28
-  char pad3[0x8];     // 0x30
+  [[maybe_unused]] char pad1[0x8];     // 0x30
   MsvcReleaseModeXString* saveStrings_first; // 0x38
   MsvcReleaseModeXString* saveStrings_last;  // 0x40
   MsvcReleaseModeXString* saveStrings_end;   // 0x48
@@ -134,7 +140,7 @@ static MsvcReleaseModeXString g_fakeSaveStrings[4] = {};
 
 int g_customTeamSize = 4;
 int g_customDifficulty = 0;
-int g_customCollarIndex = 0;
+int g_departureMode = 0; // 0 = Shared Progress Only, 1 = All Progress Combined
 bool g_useCustomCollarClasses = false;
 std::vector<std::string> g_customCollarClasses;
 bool g_startCustomRunPending = false;
@@ -167,6 +173,328 @@ static MewSaveFile_Load_t g_MewSaveFile_Load = nullptr;
 
 void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr) { g_MewSaveFile_Load = ptr; }
 MewSaveFile_Load_t GetMewSaveFileLoadPtr() { return g_MewSaveFile_Load; }
+
+static std::string CleanCollarClassName(const std::string& str) {
+  std::string cleanStr;
+  for (const char c : str) {
+    if (isalnum((unsigned char)c) || c == '_' || c == ' ') {
+      cleanStr.push_back(c);
+    }
+  }
+  return cleanStr;
+}
+
+bool ParseUnlocksBlob(const std::vector<uint8_t>& blob, UnlocksData& outData) {
+  if (blob.size() < 4) {
+    Overlay::Log("[SAVE] [ERR] ParseUnlocksBlob: blob size %zu is too small for version", blob.size());
+    return false;
+  }
+  outData.version = *(const uint32_t*)&blob[0];
+  size_t offset = 4;
+
+  for (int i = 0; i < 7; ++i) {
+    if (offset + 8 > blob.size()) {
+      Overlay::Log("[SAVE] [ERR] ParseUnlocksBlob: unexpected EOF at category %d (offset %zu, blob size %zu)", i, offset, blob.size());
+      return false;
+    }
+    const uint64_t count = *(const uint64_t*)&blob[offset];
+    offset += 8;
+    outData.categories[i].reserve(count);
+
+    for (uint64_t j = 0; j < count; ++j) {
+      if (offset + 8 > blob.size()) {
+        Overlay::Log("[SAVE] [ERR] ParseUnlocksBlob: unexpected EOF reading string %llu length in category %d", j, i);
+        return false;
+      }
+      const uint64_t length = *(const uint64_t*)&blob[offset];
+      offset += 8;
+
+      if (offset + length > blob.size()) {
+        Overlay::Log("[SAVE] [ERR] ParseUnlocksBlob: unexpected EOF reading string %llu content (length %llu) in category %d", j, length, i);
+        return false;
+      }
+      std::string str((const char*)&blob[offset], length);
+      offset += length;
+      outData.categories[i].push_back(str);
+    }
+  }
+  return true;
+}
+
+std::vector<uint8_t> SerializeUnlocksBlob(const UnlocksData& data) {
+  std::vector<uint8_t> blob;
+  blob.insert(blob.end(), (const uint8_t*)&data.version, ((const uint8_t*)&data.version) + 4);
+
+  for (const auto & categorie : data.categories) {
+    uint64_t count = categorie.size();
+    blob.insert(blob.end(), (const uint8_t*)&count, ((const uint8_t*)&count) + 8);
+    for (const auto& str : categorie) {
+      uint64_t length = str.size();
+      blob.insert(blob.end(), (const uint8_t*)&length, ((const uint8_t*)&length) + 8);
+      blob.insert(blob.end(), str.begin(), str.end());
+    }
+  }
+  return blob;
+}
+
+void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const std::vector<std::vector<uint8_t>>& clientBlobs) {
+  Overlay::Log("[SAVE] Merging %zu unlocks blobs...", clientBlobs.size());
+  if (clientBlobs.empty()) return;
+
+  std::vector<UnlocksData> clientDataList;
+  clientDataList.reserve(clientBlobs.size());
+
+  uint32_t mergedVersion = 3;
+
+  for (const auto& blob : clientBlobs) {
+    UnlocksData data;
+    if (ParseUnlocksBlob(blob, data)) {
+      clientDataList.push_back(data);
+      mergedVersion = data.version;
+    } else {
+      Overlay::Log("[SAVE] [WARN] Failed to parse client unlocks blob (size %zu)", blob.size());
+    }
+  }
+
+  if (clientDataList.empty()) {
+    Overlay::Log("[SAVE] No valid unlocks blobs to merge.");
+    return;
+  }
+
+  UnlocksData mergedData;
+  mergedData.version = mergedVersion;
+
+  for (int catIdx = 0; catIdx < 7; ++catIdx) {
+    if (g_departureMode == 0) { // Shared Progress Only (Intersection)
+      std::vector<std::set<std::string>> otherClientSets;
+      otherClientSets.reserve(clientDataList.size() - 1);
+      for (size_t c = 1; c < clientDataList.size(); ++c) {
+        otherClientSets.emplace_back(clientDataList[c].categories[catIdx].begin(), clientDataList[c].categories[catIdx].end());
+      }
+
+      std::set<std::string> added;
+      for (const auto& item : clientDataList[0].categories[catIdx]) {
+        if (added.find(item) != added.end()) continue;
+        bool inAll = true;
+        for (const auto& otherSet : otherClientSets) {
+          if (otherSet.find(item) == otherSet.end()) {
+            inAll = false;
+            break;
+          }
+        }
+        if (inAll) {
+          added.insert(item);
+          mergedData.categories[catIdx].push_back(item);
+        }
+      }
+    } else { // All Progress Combined (Union)
+      std::set<std::string> added;
+      for (const auto&[version, categories] : clientDataList) {
+        for (const auto& item : categories[catIdx]) {
+          if (added.find(item) == added.end()) {
+            added.insert(item);
+            mergedData.categories[catIdx].push_back(item);
+          }
+        }
+      }
+    }
+    Overlay::Log("[SAVE] Category %d merged: %zu items", catIdx, mergedData.categories[catIdx].size());
+  }
+
+  std::vector<std::string> customCollars;
+  for (const auto& collar : mergedData.categories[0]) {
+    std::string clean = CleanCollarClassName(collar);
+    if (!clean.empty() && clean.find("Colorless") == std::string::npos && clean.find("Ethereal") == std::string::npos) {
+      customCollars.push_back(clean);
+    }
+  }
+
+  g_customCollarClasses = customCollars;
+  g_useCustomCollarClasses = true;
+  Overlay::Log("[SAVE] Merged collars into %zu custom classes for broadcast/hook.", g_customCollarClasses.size());
+
+  const std::vector<uint8_t> outBlob = SerializeUnlocksBlob(mergedData);
+
+  Overlay::Log("[SAVE] Writing merged unlocks blob (size %zu) to database...", outBlob.size());
+  std::string hexStr = "X'";
+  for (const uint8_t b : outBlob) {
+    char buf[3];
+    snprintf(buf, sizeof(buf), "%02x", b);
+    hexStr += buf;
+  }
+  hexStr += "'";
+
+  const std::string query = "INSERT OR REPLACE INTO files VALUES ('unlocks', " + hexStr + ");";
+  MewSQL::ExecSQLRaw(db, query);
+  Overlay::Log("[SAVE] Successfully merged and wrote unlocks blob!");
+}
+
+void MergeMapFlags(glaiel::SQLSaveFile* db, const std::vector<std::vector<std::string>>& clientFlagsList) {
+  Overlay::Log("[SAVE] Merging %zu map flags lists...", clientFlagsList.size());
+  if (clientFlagsList.empty()) return;
+  std::map<std::string, int> counts;
+  for (const auto& flags : clientFlagsList) {
+    for (const auto& flag : flags) {
+      counts[flag]++;
+    }
+  }
+  int mergedCount = 0;
+  for (const auto&[fst, snd] : counts) {
+    bool keep = false;
+    if (g_departureMode == 0) { // Shared Progress Only
+      if (snd == (int)clientFlagsList.size()) {
+        keep = true;
+      }
+    } else { // All Progress Combined
+      keep = true;
+    }
+    if (keep) {
+      std::string query = "INSERT OR REPLACE INTO properties VALUES ('" + fst + "', 1);";
+      MewSQL::ExecSQLOnDatabase(db, query);
+      mergedCount++;
+    }
+  }
+  Overlay::Log("[SAVE] Merged %d map flags into database.", mergedCount);
+}
+
+struct Equipment {
+    uint32_t version = 5;
+    bool has_equipment = false;
+    std::string name;
+    std::string aux_string;
+    int32_t uses_left = 0;
+    int32_t unknown_2 = 0;
+    int32_t unknown_3 = 0;
+    int32_t unknown_4 = 0;
+    uint8_t unknown_5 = 0;
+    uint8_t times_taken_on_adventure = 0;
+};
+
+static bool ParseEquipment(const std::vector<uint8_t>& blob, size_t& offset, Equipment& outEq) {
+    if (offset + 5 > blob.size()) {
+        return false;
+    }
+    outEq.version = *(const uint32_t*)&blob[offset];
+    outEq.has_equipment = blob[offset + 4] != 0;
+    offset += 5;
+
+    if (outEq.has_equipment) {
+        if (offset + 8 > blob.size()) return false;
+        const uint64_t name_len = *(const uint64_t*)&blob[offset];
+        offset += 8;
+        if (offset + name_len > blob.size()) return false;
+        outEq.name = std::string((const char*)&blob[offset], name_len);
+        offset += name_len;
+
+        if (offset + 8 > blob.size()) return false;
+        const uint64_t aux_len = *(const uint64_t*)&blob[offset];
+        offset += 8;
+        if (offset + aux_len > blob.size()) return false;
+        outEq.aux_string = std::string((const char*)&blob[offset], aux_len);
+        offset += aux_len;
+
+        if (offset + 18 > blob.size()) return false;
+        outEq.uses_left = *(const int32_t*)&blob[offset];
+        outEq.unknown_2 = *(const int32_t*)&blob[offset + 4];
+        outEq.unknown_3 = *(const int32_t*)&blob[offset + 8];
+        outEq.unknown_4 = *(const int32_t*)&blob[offset + 12];
+        outEq.unknown_5 = blob[offset + 16];
+        outEq.times_taken_on_adventure = blob[offset + 17];
+        offset += 18;
+    }
+    return true;
+}
+
+static void SerializeEquipment(std::vector<uint8_t>& blob, const Equipment& eq) {
+    blob.insert(blob.end(), (const uint8_t*)&eq.version, ((const uint8_t*)&eq.version) + 4);
+    const uint8_t has_eq = eq.has_equipment ? 1 : 0;
+    blob.push_back(has_eq);
+
+    if (eq.has_equipment) {
+        const uint64_t name_len = eq.name.size();
+        blob.insert(blob.end(), (const uint8_t*)&name_len, ((const uint8_t*)&name_len) + 8);
+        blob.insert(blob.end(), eq.name.begin(), eq.name.end());
+
+        const uint64_t aux_len = eq.aux_string.size();
+        blob.insert(blob.end(), (const uint8_t*)&aux_len, ((const uint8_t*)&aux_len) + 8);
+        blob.insert(blob.end(), eq.aux_string.begin(), eq.aux_string.end());
+
+        blob.insert(blob.end(), (const uint8_t*)&eq.uses_left, ((const uint8_t*)&eq.uses_left) + 4);
+        blob.insert(blob.end(), (const uint8_t*)&eq.unknown_2, ((const uint8_t*)&eq.unknown_2) + 4);
+        blob.insert(blob.end(), (const uint8_t*)&eq.unknown_3, ((const uint8_t*)&eq.unknown_3) + 4);
+        blob.insert(blob.end(), (const uint8_t*)&eq.unknown_4, ((const uint8_t*)&eq.unknown_4) + 4);
+
+        blob.push_back(eq.unknown_5);
+        blob.push_back(eq.times_taken_on_adventure);
+    }
+}
+
+void MergeInventoryBlobs(const glaiel::SQLSaveFile* db, const std::vector<std::vector<uint8_t>>& clientBlobs) {
+    Overlay::Log("[SAVE] Merging %zu inventory blobs...", clientBlobs.size());
+    if (clientBlobs.empty()) return;
+
+    std::vector<std::vector<Equipment>> clientInventories;
+    clientInventories.reserve(clientBlobs.size());
+
+    for (const auto& blob : clientBlobs) {
+        std::vector<Equipment> inv;
+        if (blob.size() >= 4) {
+            const uint32_t count = *(const uint32_t*)&blob[0];
+            size_t offset = 4;
+            inv.reserve(count);
+            for (uint32_t i = 0; i < count; ++i) {
+                Equipment eq;
+                if (ParseEquipment(blob, offset, eq)) {
+                    inv.push_back(eq);
+                } else {
+                    Overlay::Log("[SAVE] [WARN] ParseEquipment failed at item %u (offset %zu, blob size %zu)", i, offset, blob.size());
+                    break;
+                }
+            }
+        }
+        clientInventories.push_back(inv);
+        Overlay::Log("[SAVE] Parsed client inventory with %zu items", inv.size());
+    }
+
+    std::vector<Equipment> mergedItems;
+    for (const auto& inv : clientInventories) {
+        for (const auto& eq : inv) {
+            if (eq.has_equipment) {
+                mergedItems.push_back(eq);
+            }
+        }
+    }
+
+    int32_t inst_id = 1000;
+    for (auto& eq : mergedItems) {
+        if (eq.has_equipment) {
+            eq.unknown_4 = inst_id++;
+        }
+    }
+
+    Overlay::Log("[SAVE] Combined inventory has %zu items.", mergedItems.size());
+
+    std::vector<uint8_t> outBlob;
+    const uint32_t count = mergedItems.size();
+    outBlob.insert(outBlob.end(), (const uint8_t*)&count, (const uint8_t*)&count + 4);
+
+    for (const auto& eq : mergedItems) {
+        SerializeEquipment(outBlob, eq);
+    }
+
+    Overlay::Log("[SAVE] Writing combined inventory blob (size %zu) to database...", outBlob.size());
+    std::string hexStr = "X'";
+    for (const uint8_t b : outBlob) {
+        char buf[3];
+        snprintf(buf, sizeof(buf), "%02x", b);
+        hexStr += buf;
+    }
+    hexStr += "'";
+
+    const std::string query = "INSERT OR REPLACE INTO files VALUES ('inventory_storage', " + hexStr + ");";
+    MewSQL::ExecSQLRaw(db, query);
+    Overlay::Log("[SAVE] Successfully merged and wrote inventory!");
+}
 
 void CreateSaveFile(const char *saveName) {
   if (!g_MewDirector_ctor || !g_InitializeSave) {
@@ -208,25 +536,6 @@ void CreateMewtiplayerSave(const char *saveName) {
 
   if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(saveName)) {
     const std::vector<std::string> keys = {
-      "mapflag_BoneyardUnlocked",
-      "mapflag_BothObelisksUnlocked",
-      "mapflag_BunkerUnlocked",
-      "mapflag_CavesUnlocked",
-      "mapflag_CoreObeliskUnlocked",
-      "mapflag_CoreUnlocked",
-      "mapflag_CraterUnlocked",
-      "mapflag_DesertUnlocked",
-      "mapflag_DimensionXUnlocked",
-      "mapflag_HardPathUnlocked",
-      "mapflag_JunkyardUnlocked",
-      "mapflag_LabUnlocked",
-      "mapflag_MeatWorldUnlocked",
-      "mapflag_MeatWorldUnlockedFull",
-      "mapflag_MoonObeliskUnlocked",
-      "mapflag_MoonUnlocked",
-      "mapflag_SewersUnlocked",
-      "mapflag_ThrobbingArteryDone",
-      "mapflag_WallOfFleshDone",
       "mapflag_TutorialUnlocked",
       "mapflag_TutorialDone",
       "game_began",
@@ -234,12 +543,12 @@ void CreateMewtiplayerSave(const char *saveName) {
 
     for (const auto& key : keys) {
       char query[256];
-      snprintf(query, sizeof(query), "INSERT OR REPLACE INTO properties VALUES ('%s', 1);", key.c_str());
+      snprintf(query, sizeof(query), "INSERT OR IGNORE INTO properties VALUES ('%s', 1);", key.c_str());
       MewSQL::ExecSQLOnDatabase(db, query);
     }
 
     // Go away Tink >:(
-    MewSQL::ExecSQLOnDatabase(db, "INSERT OR REPLACE INTO files VALUES "
+    MewSQL::ExecSQLOnDatabase(db, "INSERT OR IGNORE INTO files VALUES "
                                   "('tutorial_tokens', "
                                   "X'02000000000000001f00000000000000636f6d626"
                                   "1745f7475746f7269616c2e676f6e2e686f7573655f"
@@ -331,19 +640,19 @@ void LoadSaveFile(const char *saveName) {
 
 void StartCustomRun(const int teamSize, const int difficulty, const int collarIndex) {
   if (!g_StartRun) {
-    Overlay::Log("[RUN] StartRun not hooked!");
+    Overlay::Log("[SAVE] StartRun not hooked!");
     return;
   }
 
   MewDirector* dir = GetMewDirectorSingleton();
   if (!dir) {
-    Overlay::Log("[RUN] MewDirector is null!");
+    Overlay::Log("[SAVE] MewDirector is null!");
     return;
   }
 
   House* progressState = dir->house;
   if (!progressState) {
-    Overlay::Log("[RUN] ProgressState is null!");
+    Overlay::Log("[SAVE] ProgressState is null!");
     return;
   }
 
@@ -354,16 +663,16 @@ void StartCustomRun(const int teamSize, const int difficulty, const int collarIn
 
   const auto mapName = "alley.gon";
 
-  MsvcReleaseModeXString mapStr;
+  MsvcReleaseModeXString mapStr = {};
   InitXString(mapStr, mapName);
 
-  Overlay::Log("[RUN] Starting custom run: TeamSize=%d, Difficulty=%d, CollarIndex=%d", teamSize, difficulty, collarIndex);
+  Overlay::Log("[SAVE] Starting custom run: TeamSize=%d, Difficulty=%d, CollarIndex=%d", teamSize, difficulty, collarIndex);
 
   g_isLoadingCustomCats = true;
   g_currentCustomCatIndex = 1;
 
   if (!g_activeScenePtr) {
-    Overlay::Log("[RUN] Warning: g_activeScenePtr is null, calling StartRun directly");
+    Overlay::Log("[SAVE] Warning: g_activeScenePtr is null, calling StartRun directly");
     g_StartRun(dir, &mapStr, collarIndex, teamSize, 1);
     g_isLoadingCustomCats = false;
     return;
@@ -504,7 +813,7 @@ std::string GetAbilityName(Ability *ability) {
 
   auto check_definition = [](void *p) -> std::string {
     if (!p || (uintptr_t)p <= 0x10000 || (uintptr_t)p >= 0x7FFFFFFFFFFF || ((uintptr_t)p & 0xF)) return "";
-    AbilityDefinition def;
+    AbilityDefinition def = {};
     SIZE_T bytesRead = 0;
     if (!ReadProcessMemory(GetCurrentProcess(), p, &def, sizeof(AbilityDefinition), &bytesRead) || bytesRead != sizeof(AbilityDefinition)) {
         return "";
@@ -604,7 +913,7 @@ std::vector<Component *> GetSceneComponents(const Scene *scene) {
   return result;
 }
 
-std::vector<Component *> GetEntityComponents(Entity *entity) {
+std::vector<Component *> GetEntityComponents(const Entity *entity) {
   std::vector<Component *> result;
   if (!entity)
     return result;
@@ -802,7 +1111,7 @@ uint32_t CalculateCRC32(const void *data, size_t size) {
   return ~crc;
 }
 
-std::vector<UIAbilitySlot *> GetUIAbilitySlots(CombatUISlotManager *em) {
+std::vector<UIAbilitySlot *> GetUIAbilitySlots(const CombatUISlotManager *em) {
   std::vector<UIAbilitySlot *> list;
   if (!em) return list;
 
@@ -825,48 +1134,3 @@ std::vector<UIAbilitySlot *> GetUIAbilitySlots(CombatUISlotManager *em) {
 }
 
 } // namespace GameUtils
-void *GameUtils::ResolveGridTile(const int x, const int y) {
-  // Unused!
-  const Scene *scene = GetSceneByName("Battle");
-  if (!scene)
-    return nullptr;
-
-  const std::vector<Component *> components = GetSceneComponents(scene);
-  std::vector<Component *> tiles;
-
-  for (Component *c : components) {
-    MsvcReleaseModeXString name = {};
-    if (!SafeGetComponentName(c, &name))
-      continue;
-    std::string_view nameStr = name.as_native_string_view();
-
-    const bool isTile = (nameStr.find("Tile") != std::string::npos);
-    FreeXString(name);
-
-    // Fuzzy search for tile-like components
-    if (isTile) {
-      tiles.push_back(c);
-    }
-  }
-
-  if (tiles.empty()) {
-    Overlay::Log("[GRID] [ERR] No tile-like components found in 'Battle'!");
-    return nullptr;
-  }
-
-  // Deterministic counting
-  const int idx = y * 10 + x;
-  if (idx >= 0 && idx < (int)tiles.size()) {
-    const Component *tile = tiles[idx];
-    MsvcReleaseModeXString name = {};
-    SafeGetComponentName(tile, &name);
-    Overlay::Log("[GRID] Resolved (%d, %d) via Index -> %d, name: %s", x, y,
-                 idx, name.as_native_string_view().data());
-    FreeXString(name);
-    return tiles[idx];
-  }
-
-  Overlay::Log("[GRID] [ERR] Failed to resolve (%d, %d) among %zu tiles!", x, y,
-               tiles.size());
-  return nullptr;
-}

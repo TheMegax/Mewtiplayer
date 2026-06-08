@@ -156,6 +156,37 @@ void SaveHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
     GameUtils::SetDestructStringPtr(destructStr);
   }
 
+  // sqlite3 functions
+  MewSQL::sqlite3Prepare_t sqlite3Prep = nullptr;
+  SCAN_SET(mj, gameBase, sqlite3Prepare,
+      "44 89 4C 24 20 44 89 44 24 18 53 55 56 41 56 41 57 48 83 EC 50 4C 8B BC 24 A8 00 00 00 33 F6 41",
+      sqlite3Prep);
+  if (sqlite3Prep) MewSQL::SetSqlite3PreparePtr(sqlite3Prep);
+
+  MewSQL::sqlite3_step_t sqlite3Step = nullptr;
+  SCAN_SET(mj, gameBase, sqlite3_step,
+      "40 53 41 56 41 57 48 81 EC 90 01 00 00 45 33 F6 48 8B D9 45 8B FE 48 85 C9 75 13 48 8D 15 ?? ?? ?? ??",
+      sqlite3Step);
+  if (sqlite3Step) MewSQL::SetSqlite3StepPtr(sqlite3Step);
+
+  MewSQL::sqlite3_column_text_t sqlite3ColText = nullptr;
+  SCAN_SET(mj, gameBase, sqlite3_column_text,
+      "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 63 FA 48 8B D9 48 85 C9 75 2C 48 8D 0D ?? ?? ?? ?? 0F B7 51 08 41 B8 02 02 00 00 0F B7 C2 33 F6 66 41 23 C0 66 41 3B C0 75 68 80 79 0A 01 75 62",
+      sqlite3ColText);
+  if (sqlite3ColText) MewSQL::SetSqlite3ColumnTextPtr(sqlite3ColText);
+
+  MewSQL::sqlite3_column_bytes_t sqlite3ColBytes = nullptr;
+  SCAN_SET(mj, gameBase, sqlite3_column_bytes,
+      "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 63 FA 48 8B D9 48 85 C9 74 4A 48 8B 01 48 8B 48 18 48 85 C9 74 06 FF 15 ?? ?? ?? ?? 48 8B 93 A8 00 00 00 48 85 D2 74 18 0F B7 83 C8 00 00 00 3B",
+      sqlite3ColBytes);
+  if (sqlite3ColBytes) MewSQL::SetSqlite3ColumnBytesPtr(sqlite3ColBytes);
+
+  MewSQL::sqlite3_finalize_t sqlite3Finalize = nullptr;
+  SCAN_SET(mj, gameBase, sqlite3_finalize,
+      "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 30 48 8B D9 48 85 C9 75 14 33 FF 8B C7 48 8B 5C 24 48",
+      sqlite3Finalize);
+  if (sqlite3Finalize) MewSQL::SetSqlite3FinalizePtr(sqlite3Finalize);
+
   // BaseSavePathLookup - RIP resolve
   MsvcReleaseModeXString *baseSavePath = nullptr;
   SCAN_RESOLVE(mj, gameBase, BaseSavePathLookup,

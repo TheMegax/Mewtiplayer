@@ -11,7 +11,7 @@
 #include <cstring>
 #include <algorithm>
 
-typedef void(__fastcall *FaceDirection_t)(void *character,
+using FaceDirection_t = void(__fastcall *)(void *character,
                                           uint64_t target_packed,
                                           bool play_animation, bool force);
 extern FaceDirection_t g_origFaceDirection;
@@ -20,9 +20,9 @@ void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
   m_mj = mj;
   m_ModID = modID;
   if (SteamAPI_Init()) {
-    Overlay::Log("SteamAPI initialized successfully!");
+    Overlay::Log("[NETWORK] SteamAPI initialized successfully!");
   } else {
-    Overlay::Log("SteamAPI failed to initialize. Make sure Steam is running.");
+    Overlay::Log("[NETWORK] SteamAPI failed to initialize. Make sure Steam is running.");
   }
 }
 
@@ -76,19 +76,19 @@ void NetworkManager::ReceivePackets() {
 
     switch (hdr->type) {
     case PacketType::Ping:
-      Overlay::Log("Received Ping from %llu", remoteID.ConvertToUint64());
+      Overlay::Log("[NETWORK] Received Ping from %llu", remoteID.ConvertToUint64());
       break;
     case PacketType::Handshake:
-      HandleHandshake(remoteID, payload, payloadLen);
+      HandleHandshake(remoteID);
       break;
     case PacketType::RNGSync:
-      HandleRNGSync(remoteID, payload, payloadLen);
+      HandleRNGSync(payload, payloadLen);
       break;
     case PacketType::MouseMove:
-      HandleMouseMove(remoteID, payload, payloadLen);
+      HandleMouseMove(payload, payloadLen);
       break;
     case PacketType::CatOwnershipSync:
-      HandleCatOwnershipSync(remoteID, payload, payloadLen);
+      HandleCatOwnershipSync(payload, payloadLen);
       break;
     case PacketType::CombatStart:
       StartCombat();
@@ -121,37 +121,27 @@ void NetworkManager::ReceivePackets() {
       HandleButchBoxCatCountSync(remoteID, payload, payloadLen);
       break;
     default:
-      Overlay::Log("Received unknown packet type %u from %llu", hdr->type,
+      Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
       break;
     }
   }
 }
 
-void NetworkManager::HandleHandshake(CSteamID remoteID, const void *data,
-                                     uint32_t length) {
-  Overlay::Log("Received Handshake from %llu", remoteID.ConvertToUint64());
-  if (SteamMatchmaking()->GetLobbyOwner(m_CurrentLobby) ==
-      SteamUser()->GetSteamID()) {
-    uint8_t rngState[32];
-    GameUtils::GetRNGState(rngState);
-    SendPacket(remoteID, PacketType::RNGSync, rngState, 32);
-    Overlay::Log("Sent RNG state to %llu", remoteID.ConvertToUint64());
-  }
+void NetworkManager::HandleHandshake(const CSteamID remoteID) {
+  Overlay::Log("[NETWORK] Received Handshake from %llu", remoteID.ConvertToUint64());
 }
 
-void NetworkManager::HandleRNGSync(CSteamID remoteID, const void *data,
-                                   const uint32_t length) {
+void NetworkManager::HandleRNGSync(const void *data, const uint32_t length) {
   if (length == 32) {
     GameUtils::SetRNGState(data);
-    Overlay::Log("RNG state synchronized with host.");
+    Overlay::Log("[NETWORK] RNG state synchronized with host.");
   } else {
-    Overlay::Log("Received invalid RNGSync packet (length %u)", length);
+    Overlay::Log("[NETWORK] [ERR] Received invalid RNGSync packet (length %u)", length);
   }
 }
 
-void NetworkManager::HandleMouseMove(CSteamID remoteID, const void *data,
-                                     const uint32_t length) {
+void NetworkManager::HandleMouseMove(const void *data, const uint32_t length) {
   if (length == sizeof(MouseMoveData)) {
     const MouseMoveData *move = (MouseMoveData *)data;
     if (IsHost()) {
@@ -162,7 +152,7 @@ void NetworkManager::HandleMouseMove(CSteamID remoteID, const void *data,
 
     // Only show the ghost cursor and name tag if it's NOT the local player
     if (actualSender != SteamUser()->GetSteamID().ConvertToUint64()) {
-      // Only simulate the move into the engine if we are NOT focused
+      // Only simulate the mouse moving around if we are NOT focused
       // AND it's that player's turn (or everyone can move outside combat).
       if (GetForegroundWindow() != ImGuiHook::GetHWND() &&
           !IsInputBlocked(actualSender)) {
@@ -174,13 +164,12 @@ void NetworkManager::HandleMouseMove(CSteamID remoteID, const void *data,
   }
 }
 
-void NetworkManager::HandleCatOwnershipSync(CSteamID remoteID, const void *data,
-                                            const uint32_t length) {
+void NetworkManager::HandleCatOwnershipSync(const void *data, const uint32_t length) {
   if (length == sizeof(CatOwnershipData)) {
     const auto sync = (const CatOwnershipData *)data;
     m_catOwnership[sync->catUID] = sync->ownerSteamID;
     const char *name = SteamFriends()->GetFriendPersonaName(sync->ownerSteamID);
-    Overlay::Log("Ownership Sync: Cat %lld is now owned by %s", sync->catUID,
+    Overlay::Log("[NETWORK] Ownership Sync: Cat %lld is now owned by %s", sync->catUID,
                  name ? name : "Unknown");
   }
 }
@@ -247,16 +236,16 @@ void NetworkManager::StartCombat() {
     m_combatActive = true;
     if (IsHost()) {
       BroadcastPacket(PacketType::CombatStart, nullptr, 0, true);
-      Overlay::Log("Combat Started (Host)");
+      Overlay::Log("[NETWORK] Combat Started (Host)");
     } else {
-      Overlay::Log("Combat Started (Client)");
+      Overlay::Log("[NETWORK] Combat Started (Client)");
     }
   }
 }
 
 void NetworkManager::EndCombat() {
   if (m_combatActive) {
-    Overlay::Log("Combat ended, unblocking input.");
+    Overlay::Log("[NETWORK] Combat ended, unblocking input.");
     m_combatActive = false;
     m_activeNUID = 0xFFFFFFFF;
     if (IsHost()) {
@@ -274,14 +263,14 @@ uint64_t NetworkManager::GetCatOwner(const int64_t uid) {
 
 void NetworkManager::HostLobby(const char *lobbyName) {
   m_PendingLobbyName = lobbyName;
-  Overlay::Log("Creating Steam Lobby '%s'...", lobbyName);
+  Overlay::Log("[NETWORK] Creating Steam Lobby '%s'...", lobbyName);
   const SteamAPICall_t call = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 4);
   m_LobbyCreatedCallResult.Set(call, this, &NetworkManager::OnLobbyCreated);
 }
 
 void NetworkManager::LeaveLobby() {
   if (m_CurrentLobby.IsValid()) {
-    Overlay::Log("Leaving lobby %llu...", m_CurrentLobby.ConvertToUint64());
+    Overlay::Log("[NETWORK] Leaving lobby %llu...", m_CurrentLobby.ConvertToUint64());
     SteamMatchmaking()->LeaveLobby(m_CurrentLobby);
     m_CurrentLobby.Clear();
     m_combatActive = false;
@@ -294,13 +283,13 @@ void NetworkManager::LeaveLobby() {
 }
 
 void NetworkManager::JoinLobby(const CSteamID lobbyID) {
-  Overlay::Log("Joining lobby %llu...", lobbyID.ConvertToUint64());
+  Overlay::Log("[NETWORK] Joining lobby %llu...", lobbyID.ConvertToUint64());
   const SteamAPICall_t call = SteamMatchmaking()->JoinLobby(lobbyID);
   m_LobbyEnterCallResult.Set(call, this, &NetworkManager::OnLobbyEnter);
 }
 
 void NetworkManager::JoinAnyLobby() {
-  Overlay::Log("Searching for lobbies...");
+  Overlay::Log("[NETWORK] Searching for lobbies...");
   m_AutoJoinSearch = true;
   RefreshLobbyList();
 }
@@ -342,11 +331,10 @@ void NetworkManager::BroadcastPacket(const PacketType type, const void *data,
   }
 }
 
-void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback,
-                                    const bool bIOFailure) {
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
+void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback, const bool bIOFailure) {
   if (bIOFailure || pCallback->m_eResult != k_EResultOK) {
-    Overlay::Log("[ERR] Failed to create lobby (Result: %d)",
-                 pCallback->m_eResult);
+    Overlay::Log("[NETWORK] [ERR] Failed to create lobby (Result: %d)", pCallback->m_eResult);
     return;
   }
   m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
@@ -359,13 +347,13 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback,
                                    m_PendingLobbyName.c_str());
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "mewtiplayer",
                                    m_ModID.c_str());
-  Overlay::Log("[OK] Lobby created: %llu", m_CurrentLobby.ConvertToUint64());
+  Overlay::Log("[NETWORK] [OK] Lobby created: %llu", m_CurrentLobby.ConvertToUint64());
 }
 
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
 void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure) {
-  if (bIOFailure ||
-      pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
-    Overlay::Log("[ERR] Failed to join lobby (Response: %d)",
+  if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
+    Overlay::Log("[NETWORK] [ERR] Failed to join lobby (Response: %d)",
                  pCallback->m_EChatRoomEnterResponse);
     return;
   }
@@ -382,11 +370,12 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   SendPacket(GetHostID(), PacketType::Handshake, nullptr, 0);
 }
 
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
 void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCallback,
                                       bool bIOFailure) {
   m_LobbyList.clear();
   for (uint32 i = 0; i < pCallback->m_nLobbiesMatching; i++) {
-    const CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i);
+    const CSteamID lobbyID = SteamMatchmaking()->GetLobbyByIndex(i); // NOLINT(*-narrowing-conversions)
     LobbyInfo info;
     info.id = lobbyID;
     const char *name = SteamMatchmaking()->GetLobbyData(lobbyID, "name");
@@ -403,13 +392,14 @@ void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCallback,
   m_AutoJoinSearch = false;
 }
 
-void NetworkManager::OnP2PSessionRequest(P2PSessionRequest_t *pCallback) {
-  SteamNetworking()->AcceptP2PSessionWithUser(pCallback->m_steamIDRemote);
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
+void NetworkManager::OnP2PSessionRequest(P2PSessionRequest_t *pParam) {
+  SteamNetworking()->AcceptP2PSessionWithUser(pParam->m_steamIDRemote);
 }
 
-void NetworkManager::OnGameLobbyJoinRequested(
-    GameLobbyJoinRequested_t *pCallback) {
-  JoinLobby(pCallback->m_steamIDLobby);
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
+void NetworkManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t *pParam) {
+  JoinLobby(pParam->m_steamIDLobby);
 }
 
 void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
@@ -471,7 +461,7 @@ const std::vector<ActionPacket> &NetworkManager::GetRecordedActions() const {
 }
 
 void NetworkManager::EnqueueReplayAction(const ActionPacket &pkt) {
-  extern std::deque<ActionPacket> g_pendingInjections;
+  extern std::deque<ActionPacket> g_pendingInjections; // NOLINT(*-redundant-declaration)
   g_pendingInjections.push_back(pkt);
   if (pkt.type == PacketType::TurnAction) {
     Overlay::Log("[REPLAY] Queued action: %s", pkt.data.action.abilityName);
@@ -607,6 +597,9 @@ void NetworkManager::BeginMultiplayerSave() {
 
   m_saveSyncState = SaveSyncState::WaitingForCatResponses;
   m_collectedCatBlobs.clear();
+  m_collectedUnlocksBlobs.clear();
+  m_collectedInventoryBlobs.clear();
+  m_collectedMapFlags.clear();
   m_pendingCatResponseFrom.clear();
   m_clientTransfers.clear();
 
@@ -647,6 +640,22 @@ void NetworkManager::BeginMultiplayerSave() {
         Overlay::Log("[ERR] Failed to read blob for host cat key %lld", key);
       }
     }
+
+    const std::vector<uint8_t> unlocksBlob = MewSQL::ReadBlobFromDatabaseStr(&tempDb, "files", "unlocks");
+    m_collectedUnlocksBlobs.push_back(unlocksBlob);
+
+    const std::vector<uint8_t> invBlob = MewSQL::ReadBlobFromDatabaseStr(&tempDb, "files", "inventory_storage");
+    m_collectedInventoryBlobs.push_back(invBlob);
+
+    std::vector<std::string> hostFlags;
+    const auto hostFlagsMap = MewSQL::QueryMapFlags(&tempDb);
+    for (const auto&[fst, snd] : hostFlagsMap) {
+        if (snd == 1 && fst != "mapflag_TutorialUnlocked" && fst != "mapflag_TutorialDone") {
+            hostFlags.push_back(fst);
+        }
+    }
+    m_collectedMapFlags.push_back(hostFlags);
+
   } else {
     Overlay::Log("[ERR] Host active save database connection is null!");
   }
@@ -664,6 +673,8 @@ void NetworkManager::BeginMultiplayerSave() {
   }
 }
 
+SaveSyncState NetworkManager::GetSaveSyncState() const { return m_saveSyncState; }
+
 void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
   Overlay::Log("[SAVE] Received SaveCatRequest from host %llu", remoteID.ConvertToUint64());
 
@@ -674,16 +685,19 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
   Overlay::Log("[SAVE] Client found %zu cats in ButchBox.", clientKeys.size());
 
   std::vector<uint8_t> responseBuffer;
+  responseBuffer.resize(sizeof(CatResponseHeader)); // Reserve header
+
   const CSteamID myID = SteamUser()->GetSteamID();
 
   if (activeDb) {
+    uint32_t numCats = 0;
     glaiel::SQLSaveFile tempDb = {};
     tempDb.db = activeDb;
 
     for (const int64_t key : clientKeys) {
       std::vector<uint8_t> blob = MewSQL::ReadBlobFromDatabase(&tempDb, "cats", key);
       if (!blob.empty()) {
-        CatBlobHeader header;
+        CatBlobHeader header = {};
         header.senderSteamID = myID.ConvertToUint64();
         header.sqlKey = key;
         header.blobSize = blob.size();
@@ -695,11 +709,40 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
         memcpy(responseBuffer.data() + oldSize, &header, sizeof(CatBlobHeader));
         memcpy(responseBuffer.data() + oldSize + sizeof(CatBlobHeader), blob.data(), blob.size());
 
+        numCats++;
         Overlay::Log("[SAVE] Added cat key %lld (size %zu, age %d) to response buffer.", key, blob.size(), header.originalAge);
       } else {
         Overlay::Log("[ERR] Client failed to read blob for cat key %lld", key);
       }
     }
+
+    std::vector<uint8_t> unlocksBlob = MewSQL::ReadBlobFromDatabaseStr(&tempDb, "files", "unlocks");
+    std::vector<uint8_t> invBlob = MewSQL::ReadBlobFromDatabaseStr(&tempDb, "files", "inventory_storage");
+
+    std::string mapFlagsStr;
+    auto clientFlagsMap = MewSQL::QueryMapFlags(&tempDb);
+    for (const auto& pair : clientFlagsMap) {
+        if (pair.second == 1 && pair.first != "mapflag_TutorialUnlocked" && pair.first != "mapflag_TutorialDone") {
+            mapFlagsStr += pair.first;
+            mapFlagsStr += '\0';
+        }
+    }
+
+    auto* hdr = (CatResponseHeader*)responseBuffer.data();
+    hdr->numCats = numCats;
+    hdr->unlocksSize = unlocksBlob.size();
+    hdr->inventorySize = invBlob.size();
+    hdr->mapFlagsSize = mapFlagsStr.size();
+
+    size_t offset = responseBuffer.size();
+    responseBuffer.resize(offset + unlocksBlob.size() + invBlob.size() + mapFlagsStr.size());
+
+    if (!unlocksBlob.empty()) memcpy(responseBuffer.data() + offset, unlocksBlob.data(), unlocksBlob.size());
+    offset += unlocksBlob.size();
+    if (!invBlob.empty()) memcpy(responseBuffer.data() + offset, invBlob.data(), invBlob.size());
+    offset += invBlob.size();
+    if (!mapFlagsStr.empty()) memcpy(responseBuffer.data() + offset, mapFlagsStr.data(), mapFlagsStr.size());
+
   } else {
     Overlay::Log("[ERR] Client active save database connection is null!");
   }
@@ -742,11 +785,13 @@ void NetworkManager::HandleSaveCatResponse(const CSteamID remoteID, const void *
       Overlay::Log("[SAVE] Completed cat response transfer from client %llu. Reassembling...", senderID);
 
       // Parse cats from reassembled buffer
-      uint32_t offset = 0;
+      uint32_t offset = sizeof(CatResponseHeader);
       const uint32_t bufferSize = buffer.size();
       uint32_t parsedCatsCount = 0;
+      const auto* respHdr = (CatResponseHeader*)buffer.data();
 
-      while (offset + sizeof(CatBlobHeader) <= bufferSize) {
+      for (uint32_t i = 0; i < respHdr->numCats; i++) {
+        if (offset + sizeof(CatBlobHeader) > bufferSize) break;
         const auto catHdr = (const CatBlobHeader*)(buffer.data() + offset);
         if (offset + sizeof(CatBlobHeader) + catHdr->blobSize > bufferSize) {
           Overlay::Log("[ERR] Corrupt cat response buffer from %llu: blob size goes out of bounds.", senderID);
@@ -765,7 +810,29 @@ void NetworkManager::HandleSaveCatResponse(const CSteamID remoteID, const void *
 
         offset += sizeof(CatBlobHeader) + catHdr->blobSize;
       }
-      Overlay::Log("[SAVE] Successfully parsed %u cats from client %llu.", parsedCatsCount, senderID);
+
+      if (offset + respHdr->unlocksSize <= bufferSize) {
+        std::vector<uint8_t> unlocksBlob(buffer.data() + offset, buffer.data() + offset + respHdr->unlocksSize);
+        m_collectedUnlocksBlobs.push_back(unlocksBlob);
+        offset += respHdr->unlocksSize;
+      }
+
+      if (offset + respHdr->inventorySize <= bufferSize) {
+        std::vector<uint8_t> invBlob(buffer.data() + offset, buffer.data() + offset + respHdr->inventorySize);
+        m_collectedInventoryBlobs.push_back(invBlob);
+        offset += respHdr->inventorySize;
+      }
+
+      std::vector<std::string> flags;
+      uint32_t flagsEnd = offset + respHdr->mapFlagsSize;
+      while (offset < flagsEnd && offset < bufferSize) {
+          std::string f((const char*)(buffer.data() + offset));
+          flags.push_back(f);
+          offset += f.length() + 1;
+      }
+      m_collectedMapFlags.push_back(flags);
+
+      Overlay::Log("[SAVE] Successfully parsed %u cats and extra data from client %llu.", parsedCatsCount, senderID);
       m_pendingCatResponseFrom.erase(senderID);
 
       // If all client responses have been received, build and distribute save file!
@@ -790,8 +857,12 @@ void NetworkManager::BuildAndDistributeSave() {
   // Create multiplayer save file
   GameUtils::CreateMewtiplayerSave(CUSTOM_SAVE_NAME.c_str());
 
-  // Open it and write all collected cat blobs
+  // Open it and write all collected cat blobs, and merge extra data
   if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME)) {
+    GameUtils::MergeMapFlags(db, m_collectedMapFlags);
+    GameUtils::MergeUnlocksBlobs(db, m_collectedUnlocksBlobs);
+    GameUtils::MergeInventoryBlobs(db, m_collectedInventoryBlobs);
+
     Overlay::Log("[SAVE] Inserting %zu cats into %s...", m_collectedCatBlobs.size(), CUSTOM_SAVE_NAME.c_str());
 
     for (size_t i = 0; i < m_collectedCatBlobs.size(); ++i) {
@@ -815,6 +886,9 @@ void NetworkManager::BuildAndDistributeSave() {
       MewSQL::ExecSQLOnDatabase(db, ageQuery);
       Overlay::Log("[SAVE] Wrote original age %d for cat %zu into properties", cat.originalAge, i + 1);
     }
+
+    // Add house storage upgrades to accommodate the merged inventory
+    MewSQL::ExecSQLOnDatabase(db, "INSERT OR REPLACE INTO properties VALUES ('house_storage_upgrades', 5000);");
 
     MewSQL::CloseSaveDatabase(db);
     Overlay::Log("[SAVE] Finished inserting cats into %s.", CUSTOM_SAVE_NAME.c_str());
@@ -854,10 +928,19 @@ void NetworkManager::BuildAndDistributeSave() {
     Overlay::Log("[SAVE] No clients to wait for. Sending Load Signal directly.");
     m_saveSyncState = SaveSyncState::Ready;
 
-    SaveLoadSignalPacket packet;
+    SaveLoadSignalPacket packet = {};
     packet.teamSize = GameUtils::g_customTeamSize;
     packet.difficulty = GameUtils::g_customDifficulty;
-    packet.collarIndex = GameUtils::g_customCollarIndex;
+    packet.collarIndex = 4;
+
+    std::string collarStr;
+    for (size_t i = 0; i < GameUtils::g_customCollarClasses.size(); ++i) {
+        collarStr += GameUtils::g_customCollarClasses[i];
+        if (i < GameUtils::g_customCollarClasses.size() - 1) {
+            collarStr += ", ";
+        }
+    }
+    strncpy(packet.customCollars, collarStr.c_str(), sizeof(packet.customCollars) - 1);
 
     HandleSaveLoadSignal(&packet, sizeof(packet));
   }
@@ -918,10 +1001,24 @@ void NetworkManager::HandleSaveFileAck(const CSteamID remoteID) {
     Overlay::Log("[SAVE] All client acks received! Signaling load save file...");
     m_saveSyncState = SaveSyncState::Ready;
 
-    SaveLoadSignalPacket packet;
+    SaveLoadSignalPacket packet = {};
+    memset(&packet, 0, sizeof(packet));
     packet.teamSize = GameUtils::g_customTeamSize;
     packet.difficulty = GameUtils::g_customDifficulty;
-    packet.collarIndex = GameUtils::g_customCollarIndex;
+    packet.collarIndex = 4;
+
+    Overlay::Log("[SAVE_DEBUG] g_customCollarClasses size before broadcast: %zu", GameUtils::g_customCollarClasses.size());
+    std::string collarStr;
+    for (size_t i = 0; i < GameUtils::g_customCollarClasses.size(); ++i) {
+        Overlay::Log("[SAVE_DEBUG] Class %zu: '%s'", i, GameUtils::g_customCollarClasses[i].c_str());
+        collarStr += GameUtils::g_customCollarClasses[i];
+        if (i < GameUtils::g_customCollarClasses.size() - 1) {
+            collarStr += ",";
+        }
+    }
+    Overlay::Log("[SAVE_DEBUG] Broadcast collarStr: '%s'", collarStr.c_str());
+    strncpy(packet.customCollars, collarStr.c_str(), sizeof(packet.customCollars) - 1);
+    packet.customCollars[sizeof(packet.customCollars) - 1] = '\0';
 
     const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
     const CSteamID myID = SteamUser()->GetSteamID();
@@ -941,19 +1038,25 @@ void NetworkManager::HandleSaveLoadSignal(const void *data, const uint32_t lengt
 
   uint32_t teamSize = GameUtils::g_customTeamSize;
   uint32_t difficulty = GameUtils::g_customDifficulty;
-  uint32_t collarIndex = GameUtils::g_customCollarIndex;
 
   if (length == sizeof(SaveLoadSignalPacket)) {
-    const SaveLoadSignalPacket* packet = (const SaveLoadSignalPacket*)data;
+    const auto packet = (const SaveLoadSignalPacket*)data;
     teamSize = packet->teamSize;
     difficulty = packet->difficulty;
-    collarIndex = packet->collarIndex;
   }
 
   // Set custom run globals so that StartCustomRun uses them
-  GameUtils::g_customTeamSize = teamSize;
-  GameUtils::g_customDifficulty = difficulty;
-  GameUtils::g_customCollarIndex = collarIndex;
+  GameUtils::g_customTeamSize = teamSize; // NOLINT(*-narrowing-conversions)
+  GameUtils::g_customDifficulty = difficulty; // NOLINT(*-narrowing-conversions)
+  // GameUtils::g_customCollarIndex = collarIndex; // Deprecated
+
+  if (length == sizeof(SaveLoadSignalPacket)) {
+    const auto* packet = (const SaveLoadSignalPacket*)data;
+    if (packet->customCollars[0] != '\0') {
+      GameUtils::SetCustomCollarClasses(packet->customCollars);
+      GameUtils::g_useCustomCollarClasses = true;
+    }
+  }
 
   // Initiate save file loading sequence
   GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
@@ -995,10 +1098,10 @@ int NetworkManager::GetLobbyMemberCatCount(const uint64_t steamID) {
 
 void NetworkManager::SendLocalCatCount() {
   if (!m_CurrentLobby.IsValid()) return;
-  ButchBoxCatCountPacket packet;
+  ButchBoxCatCountPacket packet = {};
   packet.catCount = GetLocalButchBoxCatCount();
 
-  m_lobbyMemberCatCounts[SteamUser()->GetSteamID().ConvertToUint64()] = packet.catCount;
+  m_lobbyMemberCatCounts[SteamUser()->GetSteamID().ConvertToUint64()] = packet.catCount; // NOLINT(*-narrowing-conversions)
 
   int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
   CSteamID myID = SteamUser()->GetSteamID();
@@ -1010,10 +1113,10 @@ void NetworkManager::SendLocalCatCount() {
   }
 }
 
-void NetworkManager::HandleButchBoxCatCountSync(CSteamID remoteID, const void *data, uint32_t length) {
+void NetworkManager::HandleButchBoxCatCountSync(const CSteamID remoteID, const void *data, const uint32_t length) {
   if (length == sizeof(ButchBoxCatCountPacket)) {
     const auto packet = (const ButchBoxCatCountPacket*)data;
-    m_lobbyMemberCatCounts[remoteID.ConvertToUint64()] = packet->catCount;
+    m_lobbyMemberCatCounts[remoteID.ConvertToUint64()] = packet->catCount; // NOLINT(*-narrowing-conversions)
   }
 }
 

@@ -35,7 +35,7 @@ void SetSaveProperty(const std::string& key, int value);
 
 extern int g_customTeamSize;
 extern int g_customDifficulty;
-extern int g_customCollarIndex;
+extern int g_departureMode; // 0 = Shared Progress Only (Intersection), 1 = All Progress Combined (Union)
 extern bool g_useCustomCollarClasses;
 extern std::vector<std::string> g_customCollarClasses;
 void SetCustomCollarClasses(const std::string& input);
@@ -43,6 +43,17 @@ extern bool g_startCustomRunPending;
 extern void* g_oldDirector;
 extern bool g_isLoadingCustomCats;
 extern int g_currentCustomCatIndex;
+
+// Blob parsers and mergers
+struct UnlocksData {
+    uint32_t version = 3;
+    std::vector<std::string> categories[7];
+};
+bool ParseUnlocksBlob(const std::vector<uint8_t>& blob, UnlocksData& outData);
+std::vector<uint8_t> SerializeUnlocksBlob(const UnlocksData& data);
+void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const std::vector<std::vector<uint8_t>>& clientBlobs);
+void MergeMapFlags(glaiel::SQLSaveFile* db, const std::vector<std::vector<std::string>>& clientFlagsList);
+void MergeInventoryBlobs(const glaiel::SQLSaveFile* db, const std::vector<std::vector<uint8_t>>& clientBlobs);
 
 typedef void (__fastcall *MewSaveFile_Load_t)(void* thisPtr, int64_t sql_id, void* catPtr);
 void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr);
@@ -69,7 +80,7 @@ Ability *FindCharacterAbility(const Character *actor, const std::string &targetN
 
 // Components
 std::vector<Component *> GetSceneComponents(const Scene *scene);
-std::vector<Component *> GetEntityComponents(Entity *entity);
+std::vector<Component *> GetEntityComponents(const Entity *entity);
 Component *FindComponentByTypeName(const Scene *scene, const char *typeName);
 
 // Component name lookup
@@ -137,9 +148,5 @@ void GetRNGState(void *outSeed32);
 // Simple CRC32 implementation for data verification and signatures.
 uint32_t CalculateCRC32(const void *data, size_t size);
 
-// Resolves a GridNode pointer for specific coordinates by getting the
-// TacticsTile component.
-void *ResolveGridTile(int x, int y);
-
-std::vector<UIAbilitySlot *> GetUIAbilitySlots(CombatUISlotManager *em);
+std::vector<UIAbilitySlot *> GetUIAbilitySlots(const CombatUISlotManager *em);
 } // namespace GameUtils
