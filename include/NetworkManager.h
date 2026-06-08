@@ -12,24 +12,29 @@
 struct Character;
 
 enum class PacketType : uint8_t {
+  // --- Connection ---
   Handshake,
   Ping,
-  GameStateSync,
-  ChatMessage,
+  // --- Misc ---
   RNGSync,
   MouseMove,
+  // --- Combat ---
   CatOwnershipSync,
   CombatStart,
   CombatEnd,
   TurnAction,
   TurnFacing,
-  // --- Multiplayer Save Protocol ---
-  SaveCatRequest,      // Host -> Clients: "Send me your ButchBox cat blobs"
-  SaveCatResponse,     // Client -> Host: cat blob data (chunked)
-  SaveFileTransfer,    // Host -> Clients: the complete mewtiplayer.sav file (chunked)
-  SaveFileAck,         // Client -> Host: "I received and wrote the save file"
-  SaveLoadSignal,      // Host -> Clients: "Load mewtiplayer.sav now"
-  ButchBoxCatCountSync,// Broadcast ButchBox count to other lobby members
+  // --- Save Protocol ---
+  SaveCatRequest,
+  SaveCatResponse,
+  SaveFileTransfer,
+  SaveFileAck,
+  SaveLoadSignal,
+  ButchBoxCatCountSync,
+  // --- Collar Chooser ---
+  CollarSync,
+  LobbyReady,
+  LobbyProceed,
 };
 
 #pragma pack(push, 1)
@@ -127,6 +132,18 @@ struct SaveLoadSignalPacket {
 #pragma pack(push, 1)
 struct ButchBoxCatCountPacket {
   uint32_t catCount;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct CollarSyncPacket {
+  int64_t catID;
+  char collarName[32];
+};
+
+struct LobbyReadyPacket {
+  uint64_t steamID;
+  bool isReady;
 };
 #pragma pack(pop)
 
@@ -270,6 +287,9 @@ private:
   void HandleSaveLoadSignal(const void *data, uint32_t length);
   void BuildAndDistributeSave();
   void HandleButchBoxCatCountSync(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleCollarSync(const void *data, uint32_t length);
+  void HandleLobbyReady(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleLobbyProceed();
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

@@ -8,6 +8,7 @@
 #include "mewjector.h"
 #include "MewSQL.h"
 #include "hooks/AdventureBoxHooks.h"
+#include "hooks/CatSelectorHooks.h"
 #include <cstring>
 #include <algorithm>
 
@@ -119,6 +120,15 @@ void NetworkManager::ReceivePackets() {
       break;
     case PacketType::ButchBoxCatCountSync:
       HandleButchBoxCatCountSync(remoteID, payload, payloadLen);
+      break;
+    case PacketType::CollarSync:
+      HandleCollarSync(payload, payloadLen);
+      break;
+    case PacketType::LobbyReady:
+      HandleLobbyReady(remoteID, payload, payloadLen);
+      break;
+    case PacketType::LobbyProceed:
+      HandleLobbyProceed();
       break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
@@ -278,6 +288,7 @@ void NetworkManager::LeaveLobby() {
     m_catOwnership.clear();
     m_discoveredCats.clear();
     m_lobbyMemberCatCounts.clear();
+    ResetLobbyReadyStates();
     RefreshLobbyList();
   }
 }
@@ -342,6 +353,7 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback, const bool bIOFai
   m_activeNUID = 0xFFFFFFFF;
   m_catOwnership.clear();
   m_discoveredCats.clear();
+  ResetLobbyReadyStates();
 
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "name",
                                    m_PendingLobbyName.c_str());
@@ -363,6 +375,7 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   m_catOwnership.clear();
   m_discoveredCats.clear();
   m_lobbyMemberCatCounts.clear();
+  ResetLobbyReadyStates();
 
   Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
 
@@ -884,6 +897,10 @@ void NetworkManager::BuildAndDistributeSave() {
       // We'll use it later to restore their original age once we send them back to their original saves
       std::string ageQuery = "INSERT OR REPLACE INTO properties VALUES ('cat_original_age_" + std::to_string(i + 1) + "', " + std::to_string(cat.originalAge) + ");";
       MewSQL::ExecSQLOnDatabase(db, ageQuery);
+
+      std::string ownerQuery = "INSERT OR REPLACE INTO properties VALUES ('cat_owner_steamid_" +
+                               std::to_string(i + 1) + "', " + std::to_string(cat.senderSteamID) + ");";
+      MewSQL::ExecSQLOnDatabase(db, ownerQuery);
       Overlay::Log("[SAVE] Wrote original age %d for cat %zu into properties", cat.originalAge, i + 1);
     }
 
@@ -1117,6 +1134,47 @@ void NetworkManager::HandleButchBoxCatCountSync(const CSteamID remoteID, const v
   if (length == sizeof(ButchBoxCatCountPacket)) {
     const auto packet = (const ButchBoxCatCountPacket*)data;
     m_lobbyMemberCatCounts[remoteID.ConvertToUint64()] = packet->catCount; // NOLINT(*-narrowing-conversions)
+  }
+}
+
+void NetworkManager::HandleCollarSync(const void *data, const uint32_t length) {
+  if (length != sizeof(CollarSyncPacket)) {
+    return;
+  }
+
+  const auto *packet = (const CollarSyncPacket *)data;
+  PersistentCharacter *cat = GetPersistentCharacterById(packet->catID);
+  if (!cat) {
+    Overlay::Log("[LOBBY] CollarSync: cat %lld not found", packet->catID);
+    return;
+  }
+
+  GameUtils::FreeXString(cat->className);
+  GameUtils::InitXString(cat->className, packet->collarName);
+  Overlay::Log("[LOBBY] CollarSync: updated cat %lld to %s", packet->catID, packet->collarName);
+
+  RefreshCatSelectorUI();
+}
+
+void NetworkManager::HandleLobbyReady(const CSteamID remoteID, const void *data, const uint32_t length) {
+  if (length != sizeof(LobbyReadyPacket)) {
+    return;
+  }
+
+  const auto *packet = (const LobbyReadyPacket *)data;
+  g_lobbyReadyStates[packet->steamID] = packet->isReady;
+  Overlay::Log("[LOBBY] Player %llu ready state: %s", packet->steamID,
+               packet->isReady ? "locked in" : "not ready");
+
+  if (IsHost() && AreAllLobbyMembersReady()) {
+    BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
+    CatSelectorHooks_TriggerLockInProceed();
+  }
+}
+
+void NetworkManager::HandleLobbyProceed() {
+  if (!IsHost()) {
+    CatSelectorHooks_TriggerLockInProceed();
   }
 }
 

@@ -123,10 +123,12 @@ add_library(Mewtiplayer SHARED
         include/hooks/CombatHooks.h
         include/hooks/SaveHooks.h
         include/hooks/AdventureBoxHooks.h
+        include/hooks/CatSelectorHooks.h
         include/hooks/MiscHooks.h
         src/hooks/CombatHooks.cpp
         src/hooks/SaveHooks.cpp
         src/hooks/AdventureBoxHooks.cpp
+        src/hooks/CatSelectorHooks.cpp
         src/hooks/MiscHooks.cpp
         Mewtiplayer.cpp)
 
