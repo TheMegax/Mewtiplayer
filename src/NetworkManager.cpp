@@ -125,7 +125,7 @@ void NetworkManager::ReceivePackets() {
       HandleCollarSync(payload, payloadLen);
       break;
     case PacketType::LobbyReady:
-      HandleLobbyReady(remoteID, payload, payloadLen);
+      HandleLobbyReady(payload, payloadLen);
       break;
     case PacketType::LobbyProceed:
       HandleLobbyProceed();
@@ -1135,25 +1135,10 @@ void NetworkManager::HandleButchBoxCatCountSync(const CSteamID remoteID, const v
 }
 
 void NetworkManager::HandleCollarSync(const void *data, const uint32_t length) {
-  if (length != sizeof(CollarSyncPacket)) {
-    return;
-  }
-
-  const auto *packet = (const CollarSyncPacket *)data;
-  PersistentCharacter *cat = GetPersistentCharacterById(packet->catID);
-  if (!cat) {
-    Overlay::Log("[LOBBY] CollarSync: cat %lld not found", packet->catID);
-    return;
-  }
-
-  GameUtils::FreeXString(cat->className);
-  GameUtils::InitXString(cat->className, packet->collarName);
-  Overlay::Log("[LOBBY] CollarSync: updated cat %lld to %s", packet->catID, packet->collarName);
-
-  RefreshCatSelectorUI();
+  HandleCollarSyncInternal(data, length);
 }
 
-void NetworkManager::HandleLobbyReady(const CSteamID remoteID, const void *data, const uint32_t length) {
+void NetworkManager::HandleLobbyReady(const void *data, const uint32_t length) {
   if (length != sizeof(LobbyReadyPacket)) {
     return;
   }
@@ -1169,9 +1154,8 @@ void NetworkManager::HandleLobbyReady(const CSteamID remoteID, const void *data,
   }
 }
 
-void NetworkManager::HandleLobbyProceed() {
+void NetworkManager::HandleLobbyProceed() const {
   if (!IsHost()) {
     CatSelectorHooks_TriggerLockInProceed();
   }
 }
-

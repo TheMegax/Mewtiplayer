@@ -288,8 +288,8 @@ private:
   void BuildAndDistributeSave();
   void HandleButchBoxCatCountSync(CSteamID remoteID, const void *data, uint32_t length);
   void HandleCollarSync(const void *data, uint32_t length);
-  void HandleLobbyReady(CSteamID remoteID, const void *data, uint32_t length);
-  void HandleLobbyProceed();
+  void HandleLobbyReady(const void *data, uint32_t length);
+  void HandleLobbyProceed() const;
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

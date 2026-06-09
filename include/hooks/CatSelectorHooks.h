@@ -16,3 +16,7 @@ void RefreshCatSelectorUI();
 PersistentCharacter *GetPersistentCharacterById(int64_t catID);
 void ResetLobbyReadyStates();
 void CatSelectorHooks_TriggerLockInProceed();
+void ApplyCollarToCharacter(PersistentCharacter *cat, const char *collarName);
+void RefreshClassChooserInventory();
+void UpdateClassChooserTagBoxes(int64_t catID, const char *collarName);
+void HandleCollarSyncInternal(const void *data, uint32_t length);
