@@ -29,6 +29,7 @@ std::map<uint64_t, bool> g_lobbyReadyStates;
 bool g_localReady = false;
 void *g_activeClassChooserLambdaThis = nullptr;
 void *g_activeCatSelector = nullptr;
+static bool g_hasTriggeredProceed = false;
 
 typedef void *(__fastcall *LookupPersistentCharacter_t)(void *pedigreeState, int64_t catID);
 typedef void (__fastcall *RefreshCatSelectorUI_t)(void *selector);
@@ -60,6 +61,18 @@ static void __fastcall Hook_CatSelector_init(void *self, const int64_t param2) {
   if (g_origCatSelector_init) {
     g_origCatSelector_init(self, param2);
   }
+}
+
+static uint8_t FindTagBoxIndex(const ClassTagBox *tagBox, const ClassChooser *classChooser) {
+  if (!classChooser->tagBoxes) {
+    return 0xFF;
+  }
+  for (uint32_t i = 0; i < classChooser->numTagBoxes; i++) {
+    if (classChooser->tagBoxes[i] == tagBox) {
+      return static_cast<uint8_t>(i);
+    }
+  }
+  return 0xFF;
 }
 
 static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
@@ -100,14 +113,19 @@ static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
     return;
   }
 
+  const char *className = cat->className.is_valid() ? cat->className.begin() : "Colorless";
+  const bool isColorless = strcmp(className, "Colorless") == 0;
+
+  const auto *box = static_cast<ClassTagBox *>(tagBox);
+  const auto *classChooser = static_cast<ClassChooser *>(box->classChooser);
+  const uint8_t collarIndex = isColorless ? 0xFF : FindTagBoxIndex(box, classChooser);
+
   CollarSyncPacket packet = {};
   packet.catID = catID;
-  const char *className = cat->className.is_valid() ? cat->className.begin() : "Colorless";
-  strncpy(packet.collarName, className, sizeof(packet.collarName) - 1);
-  packet.collarName[sizeof(packet.collarName) - 1] = '\0';
+  packet.collarIndex = collarIndex;
 
   NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &packet, sizeof(packet), false);
-  Overlay::Log("[LOBBY] Broadcast collar sync for cat %lld: %s", catID, packet.collarName);
+  Overlay::Log("[LOBBY] Broadcast collar sync for cat %lld: collar index %d", catID, collarIndex);
 }
 
 static void __fastcall Hook_ClassChooser_LockIn(void *lambdaThis) {
@@ -131,10 +149,12 @@ static void __fastcall Hook_ClassChooser_LockIn(void *lambdaThis) {
   Overlay::Log("[LOBBY] Local ready state: %s", g_localReady ? "locked in" : "not ready");
 
   if (NetworkManager::Get().IsHost() && AreAllLobbyMembersReady()) {
+    g_hasTriggeredProceed = true;
     NetworkManager::Get().BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
     if (g_origClassChooser_LockIn) {
       g_origClassChooser_LockIn(lambdaThis);
     }
+    g_activeClassChooserLambdaThis = nullptr;
   }
 }
 
@@ -203,11 +223,18 @@ void ResetLobbyReadyStates() {
   g_localReady = false;
   g_activeClassChooserLambdaThis = nullptr;
   g_activeCatSelector = nullptr;
+  g_hasTriggeredProceed = false;
 }
 
 void CatSelectorHooks_TriggerLockInProceed() {
+  if (g_hasTriggeredProceed) {
+    return;
+  }
+  g_hasTriggeredProceed = true;
+
   if (g_origClassChooser_LockIn && g_activeClassChooserLambdaThis) {
     g_origClassChooser_LockIn(g_activeClassChooserLambdaThis);
+    g_activeClassChooserLambdaThis = nullptr;
   }
 }
 
@@ -241,7 +268,7 @@ void RefreshClassChooserInventory() {
   }
 }
 
-void UpdateClassChooserTagBoxes(const int64_t catID, const char *collarName) {
+void UpdateClassChooserTagBoxes(const int64_t catID, const uint8_t collarIndex) {
   for (const Scene *scene : GameUtils::GetCurrentScenes()) {
     if (!scene) continue;
     for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
@@ -257,38 +284,58 @@ void UpdateClassChooserTagBoxes(const int64_t catID, const char *collarName) {
       const auto *classChooser = static_cast<ClassChooser *>(const_cast<Component *>(comp)); // NOLINT(*-pro-type-static-cast-downcast)
       if (!classChooser->tagBoxes || classChooser->numTagBoxes == 0) continue;
 
-      // ReSharper disable once CppTooWideScope
-      const bool isEquip = collarName[0] != '\0' && strcmp(collarName, "Colorless") != 0;
-
-      if (isEquip) {
-        for (uint32_t i = 0; i < classChooser->numTagBoxes; i++) {
-          ClassTagBox *box = classChooser->tagBoxes[i];
-          const char *boxNameStr = box->boxName.is_valid() ? box->boxName.begin() : "";
-          if (strcmp(boxNameStr, collarName) != 0) {
-            continue;
-          }
+      if (collarIndex != 0xFF) {
+        if (collarIndex < classChooser->numTagBoxes) {
+          // Remove this cat from any other tag box first
           for (uint32_t j = 0; j < classChooser->numTagBoxes; j++) {
             ClassTagBox *otherBox = classChooser->tagBoxes[j];
             if (otherBox->catID == catID) {
               otherBox->catID = -1;
             }
           }
-          box->catID = catID;
-          break;
+          classChooser->tagBoxes[collarIndex]->catID = catID;
         }
       } else {
+        // Clear any tag box that has this cat
         for (uint32_t i = 0; i < classChooser->numTagBoxes; i++) {
           ClassTagBox *box = classChooser->tagBoxes[i];
-          if (box->catID != catID) {
-            continue;
+          if (box->catID == catID) {
+            box->catID = -1;
+            break;
           }
-          box->catID = -1;
-          break;
         }
       }
       return;
     }
   }
+}
+
+static const char *ResolveCollarNameFromIndex(const uint8_t collarIndex) {
+  if (collarIndex == 0xFF) {
+    return "Colorless";
+  }
+
+  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
+    if (!scene) continue;
+    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
+      MsvcReleaseModeXString compName = {};
+      if (GameUtils::SafeGetComponentName(comp, &compName)) {
+        const bool match = compName.as_native_string_view() == "ClassChooser";
+        GameUtils::FreeXString(compName);
+        if (!match) continue;
+      } else {
+        continue;
+      }
+
+      const auto *classChooser = static_cast<ClassChooser *>(const_cast<Component *>(comp)); // NOLINT(*-pro-type-static-cast-downcast)
+      if (!classChooser->tagBoxes || collarIndex >= classChooser->numTagBoxes) {
+        return "Colorless";
+      }
+      const ClassTagBox *box = classChooser->tagBoxes[collarIndex];
+      return box->boxName.is_valid() ? box->boxName.begin() : "Colorless";
+    }
+  }
+  return "Colorless";
 }
 
 void HandleCollarSyncInternal(const void *data, const uint32_t length) {
@@ -303,10 +350,11 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
     return;
   }
 
-  ApplyCollarToCharacter(cat, packet->collarName);
-  Overlay::Log("[LOBBY] CollarSync: updated cat %lld to %s", packet->catID, packet->collarName);
+  const char *collarName = ResolveCollarNameFromIndex(packet->collarIndex);
+  ApplyCollarToCharacter(cat, collarName);
+  Overlay::Log("[LOBBY] CollarSync: updated cat %lld to %s (index %d)", packet->catID, collarName, packet->collarIndex);
 
-  UpdateClassChooserTagBoxes(packet->catID, packet->collarName);
+  UpdateClassChooserTagBoxes(packet->catID, packet->collarIndex);
   RefreshClassChooserInventory();
   RefreshCatSelectorUI();
 }

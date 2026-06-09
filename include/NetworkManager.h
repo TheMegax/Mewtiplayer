@@ -138,7 +138,7 @@ struct ButchBoxCatCountPacket {
 #pragma pack(push, 1)
 struct CollarSyncPacket {
   int64_t catID;
-  char collarName[32];
+  uint8_t collarIndex; // 0xFF = Colorless / unequip
 };
 
 struct LobbyReadyPacket {
