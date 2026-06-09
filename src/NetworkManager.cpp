@@ -1024,16 +1024,13 @@ void NetworkManager::HandleSaveFileAck(const CSteamID remoteID) {
     packet.difficulty = GameUtils::g_customDifficulty;
     packet.collarIndex = 4;
 
-    Overlay::Log("[SAVE_DEBUG] g_customCollarClasses size before broadcast: %zu", GameUtils::g_customCollarClasses.size());
     std::string collarStr;
     for (size_t i = 0; i < GameUtils::g_customCollarClasses.size(); ++i) {
-        Overlay::Log("[SAVE_DEBUG] Class %zu: '%s'", i, GameUtils::g_customCollarClasses[i].c_str());
         collarStr += GameUtils::g_customCollarClasses[i];
         if (i < GameUtils::g_customCollarClasses.size() - 1) {
             collarStr += ",";
         }
     }
-    Overlay::Log("[SAVE_DEBUG] Broadcast collarStr: '%s'", collarStr.c_str());
     strncpy(packet.customCollars, collarStr.c_str(), sizeof(packet.customCollars) - 1);
     packet.customCollars[sizeof(packet.customCollars) - 1] = '\0';
 

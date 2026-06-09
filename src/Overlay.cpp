@@ -601,8 +601,8 @@ static bool IsSaveOnAdventure() {
   return cachedResult;
 }
 
-static void RenderSaveTab() {
-  ImGui::Text("Mod Save Manager");
+static void RenderRunTab() {
+  ImGui::Text("Mewtiplayer Run");
   ImGui::Separator();
 
   ImGui::Text("Custom Run Configuration");
@@ -650,51 +650,6 @@ static void RenderSaveTab() {
     }
   } else {
     ImGui::TextDisabled("Continue Run");
-  }
-
-  static char testDbPath[256] = "test00.sav";
-  static char testPropKey[128] = "house_food";
-  static int testWriteValue = 0;
-  static int64_t testReadValue = -1;
-  static bool hasRead = false;
-
-  ImGui::Spacing();
-  ImGui::Separator();
-  ImGui::Text("Save Database I/O Test");
-  
-  ImGui::InputText("Test DB Path", testDbPath, sizeof(testDbPath));
-  ImGui::InputText("Test Key", testPropKey, sizeof(testPropKey));
-  
-  if (ImGui::Button("Read Key")) {
-    if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(testDbPath)) {
-      testReadValue = MewSQL::ReadIntFromDatabase(db, testPropKey, -999);
-      MewSQL::CloseSaveDatabase(db);
-      hasRead = true;
-      Overlay::Log("[SQL TEST] Read '%s' from '%s' -> %lld", testPropKey, testDbPath, testReadValue);
-    } else {
-      Overlay::Log("[SQL TEST] Failed to open database '%s'!", testDbPath);
-      hasRead = false;
-    }
-  }
-  
-  ImGui::SameLine();
-  ImGui::InputInt("Write Value", &testWriteValue);
-  ImGui::SameLine();
-  
-  if (ImGui::Button("Write Key")) {
-    if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(testDbPath)) {
-      char query[256];
-      snprintf(query, sizeof(query), "INSERT OR REPLACE INTO properties VALUES ('%s', %d);", testPropKey, testWriteValue);
-      MewSQL::ExecSQLOnDatabase(db, query);
-      MewSQL::CloseSaveDatabase(db);
-      Overlay::Log("[SQL TEST] Wrote '%s' = %d to '%s'", testPropKey, testWriteValue, testDbPath);
-    } else {
-      Overlay::Log("[SQL TEST] Failed to open database '%s'!", testDbPath);
-    }
-  }
-
-  if (hasRead) {
-    ImGui::Text("Read Value: %lld", testReadValue);
   }
 }
 
@@ -838,15 +793,16 @@ static void InternalRender() {
       ImGui::EndTabItem();
     }
 
-    if (ImGui::BeginTabItem("Save Manager")) {
-      RenderSaveTab();
-      ImGui::EndTabItem();
-    }
-
     if (ImGui::BeginTabItem("Scenes")) {
       RenderScenesTab();
       ImGui::EndTabItem();
     }
+
+    if (ImGui::BeginTabItem("Run Manager")) {
+      RenderRunTab();
+      ImGui::EndTabItem();
+    }
+
     ImGui::EndTabBar();
   }
 
