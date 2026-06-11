@@ -14,24 +14,53 @@ typedef void (__fastcall *RefreshInventoryScreen_t)(void *inventoryScreen);
 static RefreshInventoryScreen_t g_RefreshInventoryScreen = nullptr;
 
 HOOK_DEFINE(InventoryItemBox_Click, void, void *)
+HOOK_DEFINE(SceneManager_CreateScene, void *, void *, void *)
+HOOK_DEFINE(Scene_AddComponent, void, void *, void *)
+
+static std::vector<void *> g_storageItemBoxes;
+
+static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr) {
+  if (nameStr) {
+    const auto *xstr = static_cast<MsvcReleaseModeXString *>(nameStr);
+    if (xstr->is_valid() && xstr->as_native_string_view() == "StorageItems") {
+      g_storageItemBoxes.clear();
+      Overlay::Log("[STORAGE] StorageItems scene created, cleared item boxes map");
+    }
+  }
+  if (g_origSceneManager_CreateScene) {
+    return g_origSceneManager_CreateScene(self, nameStr);
+  }
+  return nullptr;
+}
+
+static void __fastcall Hook_Scene_AddComponent(void *scene, void *comp) {
+  if (g_origScene_AddComponent) {
+    g_origScene_AddComponent(scene, comp);
+  }
+
+  if (!scene || !comp) return;
+
+  const auto *s = static_cast<Scene *>(scene);
+  if (s->name.is_valid()) {
+    if (s->name.as_native_string_view() == "StorageItems") {
+      MsvcReleaseModeXString compName = {};
+      if (GameUtils::SafeGetComponentName(static_cast<Component *>(comp), &compName)) {
+        const bool isItemBox = compName.as_native_string_view() == "InventoryItemBox";
+        GameUtils::FreeXString(compName);
+        if (isItemBox) {
+          g_storageItemBoxes.push_back(comp);
+          Overlay::Log("[STORAGE] Registered InventoryItemBox %p (total: %d)", comp, g_storageItemBoxes.size());
+        }
+      }
+    }
+  }
+}
 
 
 static int32_t FindStorageSlotIndex(const void *clickedBox) {
-  int32_t index = 0;
-  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
-    if (!scene) continue;
-    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
-      MsvcReleaseModeXString name = {};
-      if (GameUtils::SafeGetComponentName(comp, &name)) {
-        const bool match = name.as_native_string_view() == "InventoryItemBox";
-        GameUtils::FreeXString(name);
-        if (match) {
-          if (comp == clickedBox) {
-            return index;
-          }
-          index++;
-        }
-      }
+  for (size_t i = 0; i < g_storageItemBoxes.size(); i++) {
+    if (g_storageItemBoxes[i] == clickedBox) {
+      return static_cast<int32_t>(i);
     }
   }
   return -1;
@@ -87,53 +116,24 @@ static void __fastcall Hook_InventoryItemBox_Click(void *self) {
   Overlay::Log("[STORAGE] Broadcast storage item sync: slot %d (cat %lld)", slotIndex, packet.catID);
 }
 
-bool IsStorageItemsSceneValid() {
-  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
-    if (!scene) continue;
-    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
-      MsvcReleaseModeXString name = {};
-      if (GameUtils::SafeGetComponentName(comp, &name)) {
-        const bool match = name.as_native_string_view() == "StorageItems";
-        GameUtils::FreeXString(name);
-        if (match) return true;
-      }
-    }
-  }
-  return false;
-}
-
 void UpdateStorageItemSlot(const int32_t slotIndex, const int64_t catID) {
-  int32_t index = 0;
-  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
-    if (!scene) continue;
-    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
-      MsvcReleaseModeXString name = {};
-      if (GameUtils::SafeGetComponentName(comp, &name)) {
-        const bool match = name.as_native_string_view() == "InventoryItemBox";
-        GameUtils::FreeXString(name);
-        if (match) {
-          if (index == slotIndex) {
-            if (g_origInventoryItemBox_Click) {
-              if (void *inventoryScreen = *reinterpret_cast<void **>(reinterpret_cast<char *>(const_cast<Component *>(comp)) + 0x38)) {
-                const auto screenCatIDPtr = reinterpret_cast<int64_t *>(static_cast<char *>(inventoryScreen) + 0x108);
-                const int64_t origCatID = *screenCatIDPtr;
-                *screenCatIDPtr = catID;
-                g_origInventoryItemBox_Click(const_cast<Component *>(comp));
-                *screenCatIDPtr = origCatID;
-                if (g_RefreshInventoryScreen) {
-                  g_RefreshInventoryScreen(inventoryScreen);
-                }
-              } else {
-                g_origInventoryItemBox_Click(const_cast<Component *>(comp));
-              }
-            }
-            Overlay::Log("[STORAGE] Updated storage slot %d for cat %lld", slotIndex, catID);
-            return;
-          }
-          index++;
+  if (slotIndex >= 0 && static_cast<size_t>(slotIndex) < g_storageItemBoxes.size()) {
+    void *comp = g_storageItemBoxes[slotIndex];
+    if (g_origInventoryItemBox_Click) {
+      if (void *inventoryScreen = *reinterpret_cast<void **>(reinterpret_cast<char *>(comp) + 0x38)) {
+        const auto screenCatIDPtr = reinterpret_cast<int64_t *>(static_cast<char *>(inventoryScreen) + 0x108);
+        const int64_t origCatID = *screenCatIDPtr;
+        *screenCatIDPtr = catID;
+        g_origInventoryItemBox_Click(comp);
+        *screenCatIDPtr = origCatID;
+        if (g_RefreshInventoryScreen) {
+          g_RefreshInventoryScreen(inventoryScreen);
         }
+      } else {
+        g_origInventoryItemBox_Click(comp);
       }
     }
+    Overlay::Log("[STORAGE] Updated storage slot %d for cat %lld using map", slotIndex, catID);
   }
 }
 
@@ -211,6 +211,14 @@ void StorageHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
 
   HOOK_INSTALL(mj, gameBase, InventoryScreen2_Close,
     "48 89 5C 24 08 57 48 81 EC 80 00 00 00 48 8B F9 E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ??",
+    0);
+
+  HOOK_INSTALL(mj, gameBase, SceneManager_CreateScene,
+    "48 89 5C 24 18 48 89 74 24 20 48 89 54 24 10 57 48 83 ec 20 48 8b fa 48 8b f1 48 8d 0d",
+    0);
+
+  HOOK_INSTALL(mj, gameBase, Scene_AddComponent,
+    "48 89 5C 24 18 48 89 6c 24 20 48 89 54 24 10 56 57 41 56 48 83 ec 20 48 8b 02 48 8b f1 48 8b ca",
     0);
 }
 
