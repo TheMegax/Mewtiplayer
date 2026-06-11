@@ -1,4 +1,5 @@
-#include "hooks/CatSelectorHooks.h"
+#include "hooks/ClassChooserHooks.h"
+#include "hooks/StorageHooks.h"
 #include "hooks/SaveHooks.h"
 #include "hooks/HookMacros.h"
 #include "hooks/ModState.h"
@@ -29,7 +30,7 @@ std::map<uint64_t, bool> g_lobbyReadyStates;
 bool g_localReady = false;
 void *g_activeClassChooserLambdaThis = nullptr;
 void *g_activeCatSelector = nullptr;
-static bool g_hasTriggeredProceed = false;
+bool g_hasTriggeredProceed = false;
 
 typedef void *(__fastcall *LookupPersistentCharacter_t)(void *pedigreeState, int64_t catID);
 typedef void (__fastcall *RefreshCatSelectorUI_t)(void *selector);
@@ -225,6 +226,7 @@ void ResetLobbyReadyStates() {
   g_lobbyReadyStates.clear();
   g_localReady = false;
   g_activeClassChooserLambdaThis = nullptr;
+  g_activeInventoryScreenThis = nullptr;
   g_activeCatSelector = nullptr;
   g_hasTriggeredProceed = false;
 }
@@ -239,6 +241,13 @@ void CatSelectorHooks_TriggerLockInProceed() {
     g_origClassChooser_LockIn(g_activeClassChooserLambdaThis);
     g_activeClassChooserLambdaThis = nullptr;
   }
+
+  StorageHooks_TriggerEmbarkProceed();
+
+  // Clear ready states for the next screen/combat transition
+  g_lobbyReadyStates.clear();
+  g_localReady = false;
+  g_hasTriggeredProceed = false;
 }
 
 void ApplyCollarToCharacter(PersistentCharacter *cat, const char *collarName) {

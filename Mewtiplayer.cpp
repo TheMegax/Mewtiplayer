@@ -2,7 +2,8 @@
 #include "hooks/CombatHooks.h"
 #include "hooks/SaveHooks.h"
 #include "hooks/AdventureBoxHooks.h"
-#include "hooks/CatSelectorHooks.h"
+#include "hooks/ClassChooserHooks.h"
+#include "hooks/StorageHooks.h"
 #include "hooks/MiscHooks.h"
 #include "CrashHandler.h"
 #include "ImGuiHook.h"
@@ -48,6 +49,7 @@ static void Initialize() {
   SaveHooks_Init(&mj, g_modState.gameBase);
   AdventureBoxHooks_Init(&mj, g_modState.gameBase);
   CatSelectorHooks_Init(&mj, g_modState.gameBase);
+  StorageHooks_Init(&mj, g_modState.gameBase);
   MiscHooks_Init(&mj, g_modState.gameBase);
 }
 

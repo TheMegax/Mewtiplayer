@@ -35,6 +35,8 @@ enum class PacketType : uint8_t {
   CollarSync,
   LobbyReady,
   LobbyProceed,
+  // --- Storage ---
+  StorageItemSync,
 };
 
 #pragma pack(push, 1)
@@ -140,10 +142,18 @@ struct CollarSyncPacket {
   int64_t catID;
   uint8_t collarIndex; // 0xFF = Colorless / unequip
 };
+#pragma pack(pop)
 
 struct LobbyReadyPacket {
   uint64_t steamID;
   bool isReady;
+};
+
+#pragma pack(push, 1)
+struct StorageItemSyncPacket {
+  uint64_t steamID;
+  int64_t catID;
+  int32_t slotIndex;
 };
 #pragma pack(pop)
 
@@ -290,6 +300,7 @@ private:
   void HandleCollarSync(const void *data, uint32_t length);
   void HandleLobbyReady(const void *data, uint32_t length);
   void HandleLobbyProceed() const;
+  void HandleStorageItemSync(const void *data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

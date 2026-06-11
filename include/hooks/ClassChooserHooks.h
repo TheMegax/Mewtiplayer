@@ -6,6 +6,7 @@
 
 extern std::map<uint64_t, bool> g_lobbyReadyStates;
 extern bool g_localReady;
+extern bool g_hasTriggeredProceed;
 extern void *g_activeClassChooserLambdaThis;
 extern void *g_activeCatSelector;
 

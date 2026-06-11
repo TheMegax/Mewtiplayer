@@ -8,7 +8,8 @@
 #include "mewjector.h"
 #include "MewSQL.h"
 #include "hooks/AdventureBoxHooks.h"
-#include "hooks/CatSelectorHooks.h"
+#include "hooks/ClassChooserHooks.h"
+#include "hooks/StorageHooks.h"
 #include <cstring>
 #include <algorithm>
 
@@ -129,6 +130,9 @@ void NetworkManager::ReceivePackets() {
       break;
     case PacketType::LobbyProceed:
       HandleLobbyProceed();
+      break;
+    case PacketType::StorageItemSync:
+      HandleStorageItemSync(payload, payloadLen);
       break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
@@ -1158,4 +1162,8 @@ void NetworkManager::HandleLobbyProceed() const {
   if (!IsHost()) {
     CatSelectorHooks_TriggerLockInProceed();
   }
+}
+
+void NetworkManager::HandleStorageItemSync(const void *data, const uint32_t length) {
+  HandleStorageItemSyncInternal(data, length);
 }
