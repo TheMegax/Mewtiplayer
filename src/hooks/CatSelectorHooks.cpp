@@ -89,6 +89,11 @@ static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
     }
   }
 
+  // Resolve the index of the clicked tag box BEFORE the click handler runs,
+  const auto *box = static_cast<ClassTagBox *>(tagBox);
+  const auto *classChooser = box ? static_cast<ClassChooser *>(box->classChooser) : nullptr;
+  const uint8_t clickedIndex = classChooser ? FindTagBoxIndex(box, classChooser) : 0xFF;
+
   if (g_origClassTagBox_Click) {
     g_origClassTagBox_Click(tagBox);
   }
@@ -116,15 +121,13 @@ static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
   const char *className = cat->className.is_valid() ? cat->className.begin() : "Colorless";
   const bool isColorless = strcmp(className, "Colorless") == 0;
 
-  const auto *box = static_cast<ClassTagBox *>(tagBox);
-  const auto *classChooser = static_cast<ClassChooser *>(box->classChooser);
-  const uint8_t collarIndex = isColorless ? 0xFF : FindTagBoxIndex(box, classChooser);
+  const uint8_t collarIndex = isColorless ? 0xFF : clickedIndex;
 
   CollarSyncPacket packet = {};
   packet.catID = catID;
   packet.collarIndex = collarIndex;
 
-  NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &packet, sizeof(packet), false);
+  NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &packet, sizeof(packet), true);
   Overlay::Log("[LOBBY] Broadcast collar sync for cat %lld: collar index %d", catID, collarIndex);
 }
 
@@ -361,30 +364,30 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
 
 void CatSelectorHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
   SCAN_SET(mj, gameBase, RefreshInventoryGrid,
-           "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 28 FF FF FF",
-           g_RefreshInventoryGrid);
+    "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 28 FF FF FF",
+    g_RefreshInventoryGrid);
 
   SCAN_SET(mj, gameBase, ApplyCollar,
-           "48 89 5C 24 18 48 89 54 24 10 55 56 57 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0 00 00 00",
-           g_ApplyCollar);
+    "48 89 5C 24 18 48 89 54 24 10 55 56 57 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0 00 00 00",
+    g_ApplyCollar);
 
   SCAN_SET(mj, gameBase, LookupPersistentCharacter,
-           "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 40 4C 8B C2 48 8B F9 48 83 FA FF 0F 84",
-           g_LookupPersistentCharacter);
+    "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 40 4C 8B C2 48 8B F9 48 83 FA FF 0F 84",
+    g_LookupPersistentCharacter);
 
   SCAN_SET(mj, gameBase, RefreshCatSelectorUI,
-           "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 48 FF FF FF 48 81 EC B8 01 00 00 48 8B D9",
-           g_RefreshCatSelectorUI);
+    "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 48 FF FF FF 48 81 EC B8 01 00 00 48 8B D9",
+    g_RefreshCatSelectorUI);
 
   HOOK_INSTALL(mj, gameBase, CatSelector_init,
-      "48 8B C4 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 98 FE FF FF 48 81 EC 28 02 00 00 0F 29 70 A8 0F 29 78 98",
-      0);
+    "48 8B C4 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 98 FE FF FF 48 81 EC 28 02 00 00 0F 29 70 A8 0F 29 78 98",
+    0);
 
   HOOK_INSTALL(mj, gameBase, ClassTagBox_Click,
-      "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 38 FF FF FF",
-      0);
+    "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 38 FF FF FF",
+    0);
 
   HOOK_INSTALL(mj, gameBase, ClassChooser_LockIn,
-      "40 53 55 56 57 41 54 41 56 41 57 48 81 EC C0 00 00 00",
-      0);
+    "40 53 55 56 57 41 54 41 56 41 57 48 81 EC C0 00 00 00",
+    0);
 }
