@@ -120,7 +120,7 @@ void UpdateStorageItemSlot(const int32_t slotIndex, const int64_t catID) {
   if (slotIndex >= 0 && static_cast<size_t>(slotIndex) < g_storageItemBoxes.size()) {
     void *comp = g_storageItemBoxes[slotIndex];
     if (g_origInventoryItemBox_Click) {
-      if (void *inventoryScreen = *reinterpret_cast<void **>(reinterpret_cast<char *>(comp) + 0x38)) {
+      if (void *inventoryScreen = *reinterpret_cast<void **>(static_cast<char *>(comp) + 0x38)) {
         const auto screenCatIDPtr = reinterpret_cast<int64_t *>(static_cast<char *>(inventoryScreen) + 0x108);
         const int64_t origCatID = *screenCatIDPtr;
         *screenCatIDPtr = catID;
@@ -155,16 +155,6 @@ HOOK_DEFINE(InventoryScreen2_Close, void, void *)
 
 static void __fastcall Hook_InventoryScreen2_Close(void *self) {
   if (!NetworkManager::Get().GetCurrentLobby().IsValid()) {
-    if (g_origInventoryScreen2_Close) {
-      g_origInventoryScreen2_Close(self);
-    }
-    return;
-  }
-
-  const auto *actionStr = reinterpret_cast<const MsvcReleaseModeXString *>(reinterpret_cast<const char *>(self) + 0x110);
-  const bool isEmbark = actionStr && actionStr->is_valid() && actionStr->as_native_string_view() == "embark";
-
-  if (!isEmbark) {
     if (g_origInventoryScreen2_Close) {
       g_origInventoryScreen2_Close(self);
     }
