@@ -64,16 +64,16 @@ static void __fastcall Hook_CatSelector_init(void *self, const int64_t param2) {
   }
 }
 
-static uint8_t FindTagBoxIndex(const ClassTagBox *tagBox, const ClassChooser *classChooser) {
-  if (!classChooser->tagBoxes) {
-    return 0xFF;
+static int32_t FindTagBoxIndex(const ClassTagBox *tagBox, const ClassChooser *classChooser) {
+  if (!classChooser || !classChooser->tagBoxes) {
+    return -1;
   }
   for (uint32_t i = 0; i < classChooser->numTagBoxes; i++) {
     if (classChooser->tagBoxes[i] == tagBox) {
-      return static_cast<uint8_t>(i);
+      return static_cast<int32_t>(i);
     }
   }
-  return 0xFF;
+  return -1;
 }
 
 static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
@@ -93,7 +93,7 @@ static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
   // Resolve the index of the clicked tag box BEFORE the click handler runs,
   const auto *box = static_cast<ClassTagBox *>(tagBox);
   const auto *classChooser = box ? static_cast<ClassChooser *>(box->classChooser) : nullptr;
-  const uint8_t clickedIndex = classChooser ? FindTagBoxIndex(box, classChooser) : 0xFF;
+  const int32_t clickedIndex = classChooser ? FindTagBoxIndex(box, classChooser) : -1;
 
   if (g_origClassTagBox_Click) {
     g_origClassTagBox_Click(tagBox);
@@ -122,7 +122,7 @@ static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
   const char *className = cat->className.is_valid() ? cat->className.begin() : "Colorless";
   const bool isColorless = strcmp(className, "Colorless") == 0;
 
-  const uint8_t collarIndex = isColorless ? 0xFF : clickedIndex;
+  const int32_t collarIndex = isColorless ? -1 : clickedIndex;
 
   CollarSyncPacket packet = {};
   packet.catID = catID;
@@ -280,7 +280,7 @@ void RefreshClassChooserInventory() {
   }
 }
 
-void UpdateClassChooserTagBoxes(const int64_t catID, const uint8_t collarIndex) {
+void UpdateClassChooserTagBoxes(const int64_t catID, const int32_t collarIndex) {
   for (const Scene *scene : GameUtils::GetCurrentScenes()) {
     if (!scene) continue;
     for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
@@ -296,8 +296,8 @@ void UpdateClassChooserTagBoxes(const int64_t catID, const uint8_t collarIndex) 
       const auto *classChooser = static_cast<ClassChooser *>(const_cast<Component *>(comp)); // NOLINT(*-pro-type-static-cast-downcast)
       if (!classChooser->tagBoxes || classChooser->numTagBoxes == 0) continue;
 
-      if (collarIndex != 0xFF) {
-        if (collarIndex < classChooser->numTagBoxes) {
+      if (collarIndex != -1) {
+        if (collarIndex >= 0 && static_cast<uint32_t>(collarIndex) < classChooser->numTagBoxes) {
           // Remove this cat from any other tag box first
           for (uint32_t j = 0; j < classChooser->numTagBoxes; j++) {
             ClassTagBox *otherBox = classChooser->tagBoxes[j];
@@ -322,8 +322,8 @@ void UpdateClassChooserTagBoxes(const int64_t catID, const uint8_t collarIndex) 
   }
 }
 
-static const char *ResolveCollarNameFromIndex(const uint8_t collarIndex) {
-  if (collarIndex == 0xFF) {
+static const char *ResolveCollarNameFromIndex(const int32_t collarIndex) {
+  if (collarIndex == -1) {
     return "Colorless";
   }
 
@@ -340,7 +340,7 @@ static const char *ResolveCollarNameFromIndex(const uint8_t collarIndex) {
       }
 
       const auto *classChooser = static_cast<ClassChooser *>(const_cast<Component *>(comp)); // NOLINT(*-pro-type-static-cast-downcast)
-      if (!classChooser->tagBoxes || collarIndex >= classChooser->numTagBoxes) {
+      if (!classChooser->tagBoxes || collarIndex < 0 || static_cast<uint32_t>(collarIndex) >= classChooser->numTagBoxes) {
         return "Colorless";
       }
       const ClassTagBox *box = classChooser->tagBoxes[collarIndex];
