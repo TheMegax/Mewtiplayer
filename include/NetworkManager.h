@@ -207,12 +207,16 @@ public:
   void SyncOwnership(int64_t uid, uint64_t steamID);
   void SetActiveNUID(uint32_t nuid);
   void RegisterCat(int64_t uid, const char *name, const char *className);
+  void UpdateNUIDOwnership();
 
   void StartCombat();
   void EndCombat();
   [[nodiscard]] bool IsCombatActive() const { return m_combatActive; }
   [[nodiscard]] uint32_t GetActiveNUID() const { return m_activeNUID; }
   uint64_t GetCatOwner(int64_t uid);
+  [[nodiscard]] uint64_t GetNUIDOwner(uint32_t nuid) const;
+  [[nodiscard]] uint32_t GetNextNuid() const { return m_nextNuid; }
+  [[nodiscard]] uint64_t GetLastControllingPlayer() const { return m_lastControllingPlayer; }
   std::map<int64_t, uint64_t> &GetOwnershipMap() { return m_catOwnership; }
   [[nodiscard]] const std::map<int64_t, CatInfo> &GetDiscoveredCats() const {
     return m_discoveredCats;
@@ -257,6 +261,8 @@ private:
   uint32_t m_activeNUID = 0xFFFFFFFF;
   std::map<int64_t, uint64_t> m_catOwnership;
   std::map<int64_t, CatInfo> m_discoveredCats;
+  std::map<uint32_t, uint64_t> m_nuidOwnership;
+  uint64_t m_lastControllingPlayer = 0;
 
   // NUID Mapping
   std::map<Character *, uint32_t> m_charToNuid;

@@ -302,9 +302,9 @@ static_assert(sizeof(MewDirector) == 0x790, "MewDirector size mismatch");
 
 namespace glaiel {
 struct SQLSaveFile {
-  void* db;                             // 0x00
+  void* db;                              // 0x00
   MsvcReleaseModeXString db_path_string; // 0x08
-  char padding[128];                    // 0x28 (safe padding)
+  char padding[128];                     // 0x28 (safe padding)
 };
 }
 
@@ -483,7 +483,7 @@ struct Character {
   bool isChampion;                      // 0xCDE
   bool isElite;                         // 0xCDF
   char _padding_12[0x14];               // 0xCE0
-  int32_t characterType;                // 0xCF4
+  int32_t characterType;                // 0xCF4 (Enemy, Small, Boss, Cat, Object)
 };
 static_assert(offsetof(Character, name) == 0x290, "Character offset mismatch");
 static_assert(offsetof(Character, currentHP) == 0x4B0, "Character offset mismatch");

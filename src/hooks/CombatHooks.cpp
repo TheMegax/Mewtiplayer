@@ -86,12 +86,10 @@ static void Hook_BeginTurn(Character *character, int kind) {
         NetworkManager::Get().ClearRecordedActions();
         NetworkManager::Get().InitializeEntityMapping();
       }
-
-      const uint32_t nuid = NetworkManager::Get().GetNUID(character);
-      if (isPlayerCat == 1 && nuid != 0xFFFFFFFF) {
-        NetworkManager::Get().SetActiveNUID(nuid);
-      }
     }
+
+    const uint32_t nuid = NetworkManager::Get().GetNUID(character);
+    NetworkManager::Get().SetActiveNUID(nuid);
   }
 
   if (g_origBeginTurn)

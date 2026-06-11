@@ -10,6 +10,7 @@
 #include "hooks/AdventureBoxHooks.h"
 #include "hooks/ClassChooserHooks.h"
 #include "hooks/StorageHooks.h"
+#include "hooks/SaveHooks.h"
 #include <cstring>
 #include <algorithm>
 
@@ -182,9 +183,39 @@ void NetworkManager::HandleCatOwnershipSync(const void *data, const uint32_t len
   if (length == sizeof(CatOwnershipData)) {
     const auto sync = (const CatOwnershipData *)data;
     m_catOwnership[sync->catUID] = sync->ownerSteamID;
+    UpdateNUIDOwnership();
     const char *name = SteamFriends()->GetFriendPersonaName(sync->ownerSteamID);
     Overlay::Log("[NETWORK] Ownership Sync: Cat %lld is now owned by %s", sync->catUID,
                  name ? name : "Unknown");
+  }
+}
+
+void NetworkManager::UpdateNUIDOwnership() {
+  for (const auto &[character, nuid] : m_charToNuid) {
+    if (!character)
+      continue;
+
+    uint64_t ownerSteamID = 0;
+
+    if (character->persistentChar) {
+      const int64_t sqlKey = character->persistentChar->sql_key;
+      const auto it = m_catOwnership.find(sqlKey);
+      if (it != m_catOwnership.end()) {
+        ownerSteamID = it->second;
+      }
+    }
+
+    if (ownerSteamID == 0 && character->persistentChar) {
+      const int64_t catID = character->persistentChar->catID;
+      const auto it = g_catIdToOwnerSteamID.find(catID);
+      if (it != g_catIdToOwnerSteamID.end()) {
+        ownerSteamID = it->second;
+      }
+    }
+
+    if (ownerSteamID != 0) {
+      m_nuidOwnership[nuid] = ownerSteamID;
+    }
   }
 }
 
@@ -199,14 +230,8 @@ bool NetworkManager::IsInputBlocked(const uint64_t steamID) {
     return steamID != GetHostID().ConvertToUint64();
   }
 
-  const Character *activeChar = GetCharacter(m_activeNUID);
-  if (!activeChar || !activeChar->persistentChar) {
-    return steamID != GetHostID().ConvertToUint64();
-  }
-
-  const auto it = m_catOwnership.find(activeChar->persistentChar->sql_key);
-  if (it == m_catOwnership.end()) {
-    // If nobody owns this cat, only the host can move it
+  const auto it = m_nuidOwnership.find(m_activeNUID);
+  if (it == m_nuidOwnership.end() || it->second == 0) {
     return steamID != GetHostID().ConvertToUint64();
   }
 
@@ -222,6 +247,8 @@ void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
   data.ownerSteamID = steamID;
 
   m_catOwnership[uid] = steamID;
+  UpdateNUIDOwnership();
+
   BroadcastPacket(PacketType::CatOwnershipSync, &data, sizeof(data),
                   false); // Include self to update map
 }
@@ -229,6 +256,10 @@ void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
 void NetworkManager::SetActiveNUID(const uint32_t nuid) {
   if (nuid != 0xFFFFFFFF) {
     m_combatActive = true;
+    const auto it = m_nuidOwnership.find(nuid);
+    if (it != m_nuidOwnership.end() && it->second != 0) {
+      m_lastControllingPlayer = it->second;
+    }
   }
   m_activeNUID = nuid;
 }
@@ -271,6 +302,13 @@ void NetworkManager::EndCombat() {
 uint64_t NetworkManager::GetCatOwner(const int64_t uid) {
   const auto it = m_catOwnership.find(uid);
   if (it != m_catOwnership.end())
+    return it->second;
+  return 0;
+}
+
+uint64_t NetworkManager::GetNUIDOwner(const uint32_t nuid) const {
+  const auto it = m_nuidOwnership.find(nuid);
+  if (it != m_nuidOwnership.end())
     return it->second;
   return 0;
 }
@@ -507,11 +545,17 @@ void NetworkManager::InitializeEntityMapping() {
     Overlay::Log("NUID: Map [%d] -> Character %p (%s)", nuid, c,
                  c->name.to_utf8().c_str());
   }
+
+  UpdateNUIDOwnership();
 }
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 uint32_t NetworkManager::GetNUID(Character *character) {
-  const auto it = m_charToNuid.find(character);
+  auto it = m_charToNuid.find(character);
+  if (it == m_charToNuid.end()) {
+    UpdateDynamicEntities();
+    it = m_charToNuid.find(character);
+  }
   if (it != m_charToNuid.end()) {
     return it->second;
   }
@@ -535,16 +579,26 @@ void NetworkManager::UpdateDynamicEntities() {
       uint32_t nuid = m_nextNuid++;
       m_charToNuid[c] = nuid;
       m_nuidToChar[nuid] = c;
+
+      if (m_lastControllingPlayer != 0) {
+        m_nuidOwnership[nuid] = m_lastControllingPlayer;
+        Overlay::Log("NUID: Auto assigned dynamic NUID %u to player %llu", nuid, m_lastControllingPlayer);
+      }
+
       Overlay::Log("NUID: Dynamic Map [%d] -> Character %p (%s)", nuid, c,
                    c->name.to_utf8().c_str());
     }
   }
+
+  UpdateNUIDOwnership();
 }
 
 void NetworkManager::ResetEntityMapping() {
   m_charToNuid.clear();
   m_nuidToChar.clear();
   m_nextNuid = 0;
+  m_nuidOwnership.clear();
+  m_lastControllingPlayer = 0;
 }
 
 bool NetworkManager::SendPacketReliable(const CSteamID target, const PacketType type, const void *data, const uint32_t size) {

@@ -391,16 +391,19 @@ static void RenderCombatTab() {
 
   ImGui::Text("Combat Mode: %s", active ? "ACTIVE" : "INACTIVE");
   if (active) {
-    auto &discovered = nm.GetDiscoveredCats();
-    const Character *activeChar = nm.GetCharacter(activeNUID);
-    if (activeChar && activeChar->persistentChar &&
-        discovered.count(activeChar->persistentChar->sql_key)) {
-      ImGui::Text(
-          "Active Turn: %s (NUID: %u)",
-          discovered.at(activeChar->persistentChar->sql_key).name.c_str(),
-          activeNUID);
+    if (const Character *activeChar = nm.GetCharacter(activeNUID)) {
+      ImGui::Text("Active Turn: %s (NUID: %u)", activeChar->name.to_utf8().c_str(), activeNUID);
     } else {
       ImGui::Text("Active Turn: NUID %u", activeNUID);
+    }
+
+    const uint64_t lastController = nm.GetLastControllingPlayer();
+    if (lastController != 0) {
+      const char *controllerName = SteamFriends()->GetFriendPersonaName(lastController);
+      ImGui::Text("Last Controlling Player: %s (%llu)",
+                  controllerName ? controllerName : "Unknown", lastController);
+    } else {
+      ImGui::Text("Last Controlling Player: None");
     }
   }
 
@@ -465,6 +468,53 @@ static void RenderCombatTab() {
       }
     }
     ImGui::EndTable();
+  }
+
+  if (active) {
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Active Combat NUID Assignments:");
+
+    if (ImGui::BeginTable("##nuids", 4,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+      ImGui::TableSetupColumn("NUID");
+      ImGui::TableSetupColumn("Character");
+      ImGui::TableSetupColumn("Owner");
+      ImGui::TableSetupColumn("Status");
+      ImGui::TableHeadersRow();
+
+      const uint32_t nextNuid = nm.GetNextNuid();
+      for (uint32_t nuid = 0; nuid < nextNuid; nuid++) {
+        const Character *c = nm.GetCharacter(nuid);
+        if (!c)
+          continue;
+
+        ImGui::TableNextRow();
+
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("%u", nuid);
+
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("%s", c->name.to_utf8().c_str());
+
+        ImGui::TableSetColumnIndex(2);
+        const uint64_t ownerID = nm.GetNUIDOwner(nuid);
+        if (ownerID == 0) {
+          ImGui::TextDisabled("Host (Default/NPC)");
+        } else {
+          const char *ownerName = SteamFriends()->GetFriendPersonaName(ownerID);
+          ImGui::Text("%s", ownerName ? ownerName : "Unknown");
+        }
+
+        ImGui::TableSetColumnIndex(3);
+        if (nuid == activeNUID) {
+          ImGui::TextColored(ImVec4(0, 1, 0, 1), "ACTIVE TURN");
+        } else {
+          ImGui::Text("-");
+        }
+      }
+      ImGui::EndTable();
+    }
   }
 }
 
