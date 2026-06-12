@@ -728,7 +728,6 @@ std::vector<Character *> GetAllEntities() {
 
   const TurnControl *tc = GetTurnControl();
   if (!tc) {
-    Overlay::Log("GetFighters: TurnControl is null");
     return result;
   }
 
@@ -943,6 +942,21 @@ Component *FindComponentByTypeName(const Scene *scene, const char *typeName) {
     }
   }
   return nullptr;
+}
+
+bool IsComponentValid(void *component) {
+  if (!component) return false;
+  const auto *comp = static_cast<const Component *>(component);
+  if (comp->deleted) return false;
+  if (!comp->scene || comp->scene->doing_scene_destruction) return false;
+
+  const auto scenes = GetCurrentScenes();
+  for (const auto *s : scenes) {
+    if (s == comp->scene) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool SafeGetComponentName(const Component *p_component,

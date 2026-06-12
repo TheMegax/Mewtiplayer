@@ -37,6 +37,8 @@ enum class PacketType : uint8_t {
   LobbyProceed,
   // --- Storage ---
   StorageItemSync,
+  // --- Map ---
+  MapNodeSync,
 };
 
 #pragma pack(push, 1)
@@ -154,6 +156,12 @@ struct StorageItemSyncPacket {
   uint64_t steamID;
   int64_t catID;
   int32_t slotIndex;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct MapNodeSyncPacket {
+  uint32_t nodeIndex;
 };
 #pragma pack(pop)
 
@@ -307,6 +315,7 @@ private:
   void HandleLobbyReady(const void *data, uint32_t length);
   void HandleLobbyProceed() const;
   void HandleStorageItemSync(const void *data, uint32_t length);
+  void HandleMapNodeSync(const void *data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

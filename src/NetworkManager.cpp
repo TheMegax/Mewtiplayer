@@ -135,6 +135,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::StorageItemSync:
       HandleStorageItemSync(payload, payloadLen);
       break;
+    case PacketType::MapNodeSync:
+      HandleMapNodeSync(payload, payloadLen);
+      break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -1220,4 +1223,15 @@ void NetworkManager::HandleLobbyProceed() const {
 
 void NetworkManager::HandleStorageItemSync(const void *data, const uint32_t length) {
   HandleStorageItemSyncInternal(data, length);
+}
+
+void NetworkManager::HandleMapNodeSync(const void *data, const uint32_t length) {
+  if (length != sizeof(MapNodeSyncPacket)) {
+    return;
+  }
+  const auto *packet = (const MapNodeSyncPacket *)data;
+  Overlay::Log("[MAP] Received MapNodeSync: index %u", packet->nodeIndex);
+
+  extern void TriggerMapNodeSync(uint32_t nodeIndex);
+  TriggerMapNodeSync(packet->nodeIndex);
 }

@@ -18,13 +18,21 @@ HOOK_DEFINE(SceneManager_CreateScene, void *, void *, void *)
 HOOK_DEFINE(Scene_AddComponent, void, void *, void *)
 
 static std::vector<void *> g_storageItemBoxes;
+extern void *g_MapScreen;
 
 static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr) {
   if (nameStr) {
     const auto *xstr = static_cast<MsvcReleaseModeXString *>(nameStr);
-    if (xstr->is_valid() && xstr->as_native_string_view() == "StorageItems") {
-      g_storageItemBoxes.clear();
-      Overlay::Log("[STORAGE] StorageItems scene created, cleared item boxes map");
+    if (xstr->is_valid()) {
+      const auto view = xstr->as_native_string_view();
+      if (view == "StorageItems") {
+        g_storageItemBoxes.clear();
+      }
+      if (view == "House" || view == "StorageItems" || view == "Combat" || view == "MainMenu" || view == "ClassChooser") {
+        // ReSharper disable once CppEntityAssignedButNoRead
+        extern uint32_t g_pendingMapNodeSyncIndex;
+        g_pendingMapNodeSyncIndex = 0xFFFFFFFF;
+      }
     }
   }
   if (g_origSceneManager_CreateScene) {
@@ -42,16 +50,24 @@ static void __fastcall Hook_Scene_AddComponent(void *scene, void *comp) {
 
   const auto *s = static_cast<Scene *>(scene);
   if (s->name.is_valid()) {
-    if (s->name.as_native_string_view() == "StorageItems") {
-      MsvcReleaseModeXString compName = {};
-      if (GameUtils::SafeGetComponentName(static_cast<Component *>(comp), &compName)) {
-        const bool isItemBox = compName.as_native_string_view() == "InventoryItemBox";
-        GameUtils::FreeXString(compName);
-        if (isItemBox) {
-          g_storageItemBoxes.push_back(comp);
-          Overlay::Log("[STORAGE] Registered InventoryItemBox %p (total: %d)", comp, g_storageItemBoxes.size());
+    MsvcReleaseModeXString compName = {};
+    if (GameUtils::SafeGetComponentName(static_cast<Component *>(comp), &compName)) {
+      const auto compView = compName.as_native_string_view();
+      if (s->name.as_native_string_view() == "StorageItems" && compView == "InventoryItemBox") {
+        g_storageItemBoxes.push_back(comp);
+      } else if (compView == "MapScreen") {
+        g_MapScreen = comp;
+        Overlay::Log("[MAP] Registered MapScreen %p", comp);
+        extern uint32_t g_pendingMapNodeSyncIndex;
+        extern void TriggerMapNodeSync(uint32_t nodeIndex);
+        if (g_pendingMapNodeSyncIndex != 0xFFFFFFFF) {
+          Overlay::Log("[MAP] Processing pending MapNodeSync for index %u", g_pendingMapNodeSyncIndex);
+          const uint32_t index = g_pendingMapNodeSyncIndex;
+          g_pendingMapNodeSyncIndex = 0xFFFFFFFF;
+          TriggerMapNodeSync(index);
         }
       }
+      GameUtils::FreeXString(compName);
     }
   }
 }
@@ -171,7 +187,7 @@ static void __fastcall Hook_InventoryScreen2_Close(void *self) {
   packet.steamID = localSteamID;
   packet.isReady = g_localReady;
   NetworkManager::Get().BroadcastPacket(PacketType::LobbyReady, &packet, sizeof(packet), false);
-  Overlay::Log("[STORAGE] LockIn: Local ready state: %s", g_localReady ? "locked in" : "not ready");
+  Overlay::Log("[LOBBY] LockIn: Local ready state: %s", g_localReady ? "locked in" : "not ready");
 
   if (NetworkManager::Get().IsHost() && AreAllLobbyMembersReady()) {
     g_hasTriggeredProceed = true;

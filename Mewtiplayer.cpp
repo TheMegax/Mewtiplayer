@@ -5,6 +5,7 @@
 #include "hooks/ClassChooserHooks.h"
 #include "hooks/StorageHooks.h"
 #include "hooks/MiscHooks.h"
+#include "hooks/MapHooks.h"
 #include "CrashHandler.h"
 #include "ImGuiHook.h"
 #include "Overlay.h"
@@ -51,6 +52,7 @@ static void Initialize() {
   CatSelectorHooks_Init(&mj, g_modState.gameBase);
   StorageHooks_Init(&mj, g_modState.gameBase);
   MiscHooks_Init(&mj, g_modState.gameBase);
+  MapHooks_Init(&mj, g_modState.gameBase);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {

@@ -126,12 +126,14 @@ add_library(Mewtiplayer SHARED
         include/hooks/ClassChooserHooks.h
         include/hooks/StorageHooks.h
         include/hooks/MiscHooks.h
+        include/hooks/MapHooks.h
         src/hooks/CombatHooks.cpp
         src/hooks/SaveHooks.cpp
         src/hooks/AdventureBoxHooks.cpp
         src/hooks/ClassChooserHooks.cpp
         src/hooks/StorageHooks.cpp
         src/hooks/MiscHooks.cpp
+        src/hooks/MapHooks.cpp
         Mewtiplayer.cpp)
 
 target_compile_options(Mewtiplayer PRIVATE -fms-extensions)

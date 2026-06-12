@@ -82,6 +82,7 @@ Ability *FindCharacterAbility(const Character *actor, const std::string &targetN
 std::vector<Component *> GetSceneComponents(const Scene *scene);
 std::vector<Component *> GetEntityComponents(const Entity *entity);
 Component *FindComponentByTypeName(const Scene *scene, const char *typeName);
+bool IsComponentValid(void *component);
 
 // Component name lookup
 bool SafeGetComponentName(const Component *p_component,
