@@ -94,47 +94,7 @@ void SetDestructStringPtr(DestructString_t ptr);
 void InitXString(MsvcReleaseModeXString& xstr, const std::string& str);
 void FreeXString(MsvcReleaseModeXString& xstr);
 
-// Button interaction state at offset +0x2F0
-enum ButtonState : int32_t {
-  ButtonState_Idle = 0,
-  ButtonState_Hovered = 1,
-  ButtonState_Pressed = 2,
-  ButtonState_Unknown = 3, // Unused?
-  ButtonState_Disabled = 4,
-  ButtonState_Invalid = -1,
-};
 
-// Find a single Button component by its role name
-Component *FindButton(const Scene *scene, const char *roleName);
-
-// Find ALL Button components sharing a role name (e.g. "Combat_SpellButton")
-std::vector<Component *> FindAllButtons(const Scene *scene, const char *roleName);
-
-// Read the button interaction state (+0x2F0). Returns ButtonState_Invalid on
-// failure.
-ButtonState GetButtonState(Component *button);
-
-// Read the button's role name string at +0x1F8
-bool GetButtonRoleName(Component *button, char *outBuf, size_t bufSize);
-
-struct ButtonChange {
-  int index;
-  ButtonState oldState;
-  ButtonState newState;
-};
-
-// Tracks state changes across a group of buttons sharing a role name.
-// Call Init() once when combat starts, Poll() each frame.
-struct ButtonGroupTracker {
-  const char *roleName = nullptr;
-  std::vector<Component *> buttons;
-  std::vector<ButtonState> lastStates;
-
-  void Init(const Scene *scene, const char *role);
-  // Returns details for buttons whose state changed this frame.
-  std::vector<ButtonChange> Poll();
-  void Reset();
-};
 
 // Returns the base address of the game's TLS block.
 // Assumes slot 0 for the main executable.

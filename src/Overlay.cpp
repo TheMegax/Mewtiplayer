@@ -7,6 +7,7 @@
 #include "NetworkManager.h"
 #include "hooks/AdventureBoxHooks.h"
 #include "imgui.h"
+#include "mew_ui_api.h"
 #include <GL/gl.h>
 #include <chrono>
 #include <deque>
@@ -703,11 +704,21 @@ static void RenderRunTab() {
   }
 }
 
+struct ListedComponent {
+  std::string roleName;
+  std::vector<std::string> subcomponents;
+};
+
+struct ComponentTypeGroup {
+  std::string typeName;
+  std::vector<ListedComponent> instances;
+};
+
 struct ListedScene { // NOLINT(*-pro-type-member-init)
   std::string name;
   uint32_t entityCount;
   uint32_t componentCount;
-  std::vector<std::string> componentTypes;
+  std::vector<ComponentTypeGroup> componentTypes;
 };
 
 static std::vector<ListedScene> g_listedScenes;
@@ -732,16 +743,44 @@ static void RenderScenesTab() {
         ls.componentCount = comps.size();
         
         // Group components by type
-        std::map<std::string, int> compCount;
+        std::map<std::string, std::vector<ListedComponent>> compCount;
         for (const Component *c : comps) {
+          ListedComponent lc;
           MsvcReleaseModeXString typeName = {};
+          std::string tName = "Unknown";
           if (GameUtils::SafeGetComponentName(c, &typeName)) {
-            compCount[typeName.copy_to_native_string()]++;
+            tName = typeName.copy_to_native_string();
             GameUtils::FreeXString(typeName);
           }
+          
+          if (tName == "Button") {
+              char roleBuf[256] = {};
+              if (MewUI_GetButtonRoleName((Component*)c, roleBuf, sizeof(roleBuf))) {
+                  lc.roleName = roleBuf;
+              }
+          }
+          
+          if (c->entity) {
+              std::vector<Component*> entityComps = GameUtils::GetEntityComponents(c->entity);
+              for (const Component* ec : entityComps) {
+                  if (ec != c) {
+                      MsvcReleaseModeXString ecName = {};
+                      if (GameUtils::SafeGetComponentName(ec, &ecName)) {
+                          lc.subcomponents.push_back(ecName.copy_to_native_string());
+                          GameUtils::FreeXString(ecName);
+                      } else {
+                          lc.subcomponents.push_back("Unknown");
+                      }
+                  }
+              }
+          }
+          compCount[tName].push_back(lc);
         }
-        for (const auto &[fst, snd] : compCount) {
-          ls.componentTypes.push_back(fst + " (" + std::to_string(snd) + ")");
+        for (auto &[fst, snd] : compCount) {
+          ComponentTypeGroup group;
+          group.typeName = fst;
+          group.instances = std::move(snd);
+          ls.componentTypes.push_back(std::move(group));
         }
         g_listedScenes.push_back(ls);
       }
@@ -794,8 +833,28 @@ static void RenderScenesTab() {
       ImGui::Separator();
       
       ImGui::BeginChild("##comp_list", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
-      for (const auto &compType : componentTypes) {
-        ImGui::BulletText("%s", compType.c_str());
+      for (const auto &group : componentTypes) {
+        std::string groupLabel = group.typeName + " (" + std::to_string(group.instances.size()) + ")";
+        if (ImGui::TreeNode(group.typeName.c_str(), "%s", groupLabel.c_str())) {
+            int instanceIdx = 0;
+            for (const auto &inst : group.instances) {
+                std::string instLabel = "Instance " + std::to_string(instanceIdx++);
+                if (!inst.roleName.empty()) {
+                    instLabel += " - Role: " + inst.roleName;
+                }
+                if (inst.subcomponents.empty()) {
+                    ImGui::BulletText("%s", instLabel.c_str());
+                } else {
+                    if (ImGui::TreeNode((void*)&inst, "%s", instLabel.c_str())) {
+                        for (const auto &sub : inst.subcomponents) {
+                            ImGui::BulletText("%s", sub.c_str());
+                        }
+                        ImGui::TreePop();
+                    }
+                }
+            }
+            ImGui::TreePop();
+        }
       }
       ImGui::EndChild();
     } else {

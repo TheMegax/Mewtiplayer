@@ -9,6 +9,7 @@
 #include "CrashHandler.h"
 #include "ImGuiHook.h"
 #include "Overlay.h"
+#include "mew_ui_api.h"
 
 #include <string>
 
@@ -53,6 +54,7 @@ static void Initialize() {
   StorageHooks_Init(&mj, g_modState.gameBase);
   MiscHooks_Init(&mj, g_modState.gameBase);
   MapHooks_Init(&mj, g_modState.gameBase);
+  MewUI_Init(&mj, "Mewtiplayer", 0);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {
@@ -66,6 +68,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {
     CrashHandler::Unregister();
     if (MJ_Resolve(&mj)) {
       Overlay::Log("Unloading!");
+      MewUI_Shutdown();
       ImGuiHook::Unload();
     }
   }

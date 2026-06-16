@@ -18,6 +18,7 @@ include_directories(external/kiero/minhook/include)
 include_directories(external/kiero/minhook/src)
 include_directories(external/kiero/minhook/src/hde)
 include_directories(external/mewjector)
+include_directories(external/mew-ui-api)
 include_directories(external/steam)
 include_directories(include)
 
@@ -54,6 +55,8 @@ add_library(Mewtiplayer SHARED
         external/kiero/minhook/src/trampoline.h
         external/kiero/kiero.cpp
         external/kiero/kiero.h
+        external/mew-ui-api/mew_ui_api.c
+        external/mew-ui-api/mew_ui_api.h
         external/mewjector/mewjector.h
         external/steam/isteamapps.h
         external/steam/isteamappticket.h
@@ -137,6 +140,8 @@ add_library(Mewtiplayer SHARED
         Mewtiplayer.cpp)
 
 target_compile_options(Mewtiplayer PRIVATE -fms-extensions)
+
+set_source_files_properties(external/mew-ui-api/mew_ui_api.c PROPERTIES LANGUAGE CXX)
 
 # Ensure debug symbols are always generated and compatible with Wine's parser
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
