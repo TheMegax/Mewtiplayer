@@ -131,6 +131,7 @@ add_library(Mewtiplayer SHARED
         include/hooks/MiscHooks.h
         include/hooks/MapHooks.h
         include/hooks/ActSelectionHooks.h
+        include/hooks/LevelUpHooks.h
         src/hooks/CombatHooks.cpp
         src/hooks/SaveHooks.cpp
         src/hooks/AdventureBoxHooks.cpp
@@ -139,6 +140,7 @@ add_library(Mewtiplayer SHARED
         src/hooks/MiscHooks.cpp
         src/hooks/MapHooks.cpp
         src/hooks/ActSelectionHooks.cpp
+        src/hooks/LevelUpHooks.cpp
         Mewtiplayer.cpp)
 
 target_compile_options(Mewtiplayer PRIVATE -fms-extensions)

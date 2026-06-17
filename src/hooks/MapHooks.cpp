@@ -3,6 +3,7 @@
 #include "NetworkManager.h"
 #include "Overlay.h"
 #include "GameUtils.h"
+#include "MewgenicsTypes.h"
 #include "../../include/ModState.h"
 #include "Scanner.h"
 #include "SteamABICompat.h"
@@ -30,8 +31,9 @@ static void __fastcall Hook_MapScreen_EnterNode(void *self, void *node) {
     uint32_t nodeIndex = 0xFFFFFFFF;
     if (self && node) {
       // Find the index of the node in the MapScreen's podvector
-      const auto vectorSize = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(self) + 0x7c);
-      auto **nodes = *reinterpret_cast<void***>(reinterpret_cast<char*>(self) + 0x80);
+      const auto *mapScreen = static_cast<const glaiel::MapScreen*>(self);
+      const uint32_t vectorSize = mapScreen->nodes.size_;
+      void **nodes = mapScreen->nodes.data_;
       if (nodes) {
         for (uint32_t i = 0; i < vectorSize; i++) {
           if (nodes[i] == node) {
@@ -64,8 +66,9 @@ void TriggerMapNodeSync(uint32_t nodeIndex) {
     return;
   }
 
-  const auto vectorSize = *reinterpret_cast<uint32_t*>(static_cast<char*>(g_MapScreen) + 0x7c);
-  auto **nodes = *reinterpret_cast<void***>(static_cast<char*>(g_MapScreen) + 0x80);
+  const auto *mapScreen = static_cast<const glaiel::MapScreen*>(g_MapScreen);
+  const uint32_t vectorSize = mapScreen->nodes.size_;
+  void **nodes = mapScreen->nodes.data_;
 
   if (!nodes || nodeIndex >= vectorSize) {
     Overlay::Log("[MAP] [ERR] Invalid node index %u (vector size %u)", nodeIndex, vectorSize);

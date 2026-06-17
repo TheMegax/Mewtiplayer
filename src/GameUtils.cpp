@@ -79,7 +79,7 @@ void ExecuteSQL(const char* query) {
   MewDirector* dir = GetMewDirectorSingleton();
   if (!dir) return;
 
-  void* sqlSaveFile = dir->sqlSaveFile;
+  void* sqlSaveFile = &dir->sqlSaveFile;
 
   MsvcReleaseModeXString queryStr = {};
   InitXString(queryStr, query);
@@ -523,7 +523,7 @@ void CreateSaveFile(const char *saveName) {
   MewSQL::CloseActiveSaveConnection(tempDirector);
 
   if (g_DestructString) {
-    g_DestructString(&tempDirector->saveNameStr);
+    g_DestructString(&tempDirector->sqlSaveFile.db_path_string);
   }
   free(tempDirector);
 

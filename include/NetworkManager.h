@@ -40,6 +40,10 @@ enum class PacketType : uint8_t {
   // --- Map ---
   MapNodeSync,
   ActSelectSync,
+  // --- Level Up / Ability Chooser ---
+  LevelUpSelectOption,
+  LevelUpReroll,
+  AbilityReplace,
 };
 
 #pragma pack(push, 1)
@@ -169,6 +173,26 @@ struct MapNodeSyncPacket {
 #pragma pack(push, 1)
 struct ActSelectPacket {
   uint32_t actIndex;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct LevelUpSelectOptionPacket {
+  int64_t catUID;
+  uint32_t optionIndex;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct LevelUpRerollPacket {
+  int64_t catUID;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct AbilityReplacePacket {
+  int64_t catUID;
+  uint32_t slotIndex;
 };
 #pragma pack(pop)
 
@@ -327,6 +351,9 @@ private:
   void HandleStorageItemSync(const void *data, uint32_t length);
   void HandleMapNodeSync(const void *data, uint32_t length);
   void HandleActSelectSync(const void *data, uint32_t length);
+  void HandleLevelUpSelectOption(const void *data, uint32_t length);
+  void HandleLevelUpReroll(const void *data, uint32_t length);
+  void HandleAbilityReplace(const void *data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

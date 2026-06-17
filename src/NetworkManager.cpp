@@ -161,6 +161,15 @@ void NetworkManager::ReceivePackets() {
     case PacketType::ActSelectSync:
       HandleActSelectSync(payload, payloadLen);
       break;
+    case PacketType::LevelUpSelectOption:
+      HandleLevelUpSelectOption(payload, payloadLen);
+      break;
+    case PacketType::LevelUpReroll:
+      HandleLevelUpReroll(payload, payloadLen);
+      break;
+    case PacketType::AbilityReplace:
+      HandleAbilityReplace(payload, payloadLen);
+      break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -716,7 +725,7 @@ void NetworkManager::BeginMultiplayerSave() {
 
   // Read host's own cats from their active save file
   const MewDirector* director = GameUtils::GetMewDirectorSingleton();
-  void* activeDb = director ? director->sqlSaveFile : nullptr;
+  void* activeDb = director ? director->sqlSaveFile.db : nullptr;
 
   // Get host's ButchBox cat keys
   const std::vector<int64_t> hostKeys = GetButchBoxCatKeys();
@@ -780,7 +789,7 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
   Overlay::Log("[SAVE] Received SaveCatRequest from host %llu", remoteID.ConvertToUint64());
 
   const MewDirector* director = GameUtils::GetMewDirectorSingleton();
-  void* activeDb = director ? director->sqlSaveFile : nullptr;
+  void* activeDb = director ? director->sqlSaveFile.db : nullptr;
 
   const std::vector<int64_t> clientKeys = GetButchBoxCatKeys();
   Overlay::Log("[SAVE] Client found %zu cats in ButchBox.", clientKeys.size());
@@ -1272,4 +1281,37 @@ void NetworkManager::HandleActSelectSync(const void *data, const uint32_t length
 
   extern void TriggerActSelect(uint32_t actIndex);
   TriggerActSelect(packet->actIndex);
+}
+
+void NetworkManager::HandleLevelUpSelectOption(const void *data, const uint32_t length) {
+  if (length != sizeof(LevelUpSelectOptionPacket)) {
+    return;
+  }
+  const auto *packet = (const LevelUpSelectOptionPacket *)data;
+  Overlay::Log("[LEVELUP] Received LevelUpSelectOption: cat UID %lld, optionIndex %u", packet->catUID, packet->optionIndex);
+
+  extern void TriggerLevelUpSelectOption(int64_t catUID, uint32_t optionIndex);
+  TriggerLevelUpSelectOption(packet->catUID, packet->optionIndex);
+}
+
+void NetworkManager::HandleLevelUpReroll(const void *data, const uint32_t length) {
+  if (length != sizeof(LevelUpRerollPacket)) {
+    return;
+  }
+  const auto *packet = (const LevelUpRerollPacket *)data;
+  Overlay::Log("[LEVELUP] Received LevelUpReroll: cat UID %lld", packet->catUID);
+
+  extern void TriggerLevelUpReroll(int64_t catUID);
+  TriggerLevelUpReroll(packet->catUID);
+}
+
+void NetworkManager::HandleAbilityReplace(const void *data, const uint32_t length) {
+  if (length != sizeof(AbilityReplacePacket)) {
+    return;
+  }
+  const auto *packet = (const AbilityReplacePacket *)data;
+  Overlay::Log("[LEVELUP] Received AbilityReplace: cat UID %lld, slotIndex %u", packet->catUID, packet->slotIndex);
+
+  extern void TriggerAbilityReplace(int64_t catUID, uint32_t slotIndex);
+  TriggerAbilityReplace(packet->catUID, packet->slotIndex);
 }

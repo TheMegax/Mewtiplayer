@@ -85,7 +85,7 @@ bool __fastcall Hook_ButchBox_TryPlaceCat(ButchBox *self, void *cat) {
   if (!self || !cat) return false;
 
   int best_slot = -1;
-  auto* catMc = *(MovieClip**)((char*)cat + 0x40);
+  auto* catMc = static_cast<glaiel::CatVisualComponent*>(cat)->movieClip;
   auto* boxMc = (MovieClip*)self->movieClip;
 
   if (catMc && boxMc) {

@@ -2,6 +2,7 @@
 #include "hooks/HookMacros.h"
 #include "../../include/ModState.h"
 #include "GameUtils.h"
+#include "MewgenicsTypes.h"
 #include "Overlay.h"
 #include "NetworkManager.h"
 #include "Scanner.h"
@@ -87,7 +88,7 @@ static int64_t ResolveSelectedCatID() {
       director && director->pedigreeState) {
     if (const void *catSelector = g_activeCatSelector) {
       if (IsCatSelectorValid(catSelector)) {
-        return static_cast<const int64_t *>(catSelector)[0x11];
+        return static_cast<const glaiel::CatSelector *>(catSelector)->catID;
       }
     }
   }
@@ -136,8 +137,9 @@ void UpdateStorageItemSlot(const int32_t slotIndex, const int64_t catID) {
   if (slotIndex >= 0 && static_cast<size_t>(slotIndex) < g_storageItemBoxes.size()) {
     void *comp = g_storageItemBoxes[slotIndex];
     if (g_origInventoryItemBox_Click) {
-      if (void *inventoryScreen = *reinterpret_cast<void **>(static_cast<char *>(comp) + 0x38)) {
-        const auto screenCatIDPtr = reinterpret_cast<int64_t *>(static_cast<char *>(inventoryScreen) + 0x108);
+      auto *itemBox = static_cast<glaiel::InventoryItemBox *>(comp);
+      if (auto *inventoryScreen = static_cast<glaiel::InventoryScreen *>(itemBox->inventoryScreen)) {
+        int64_t *screenCatIDPtr = &inventoryScreen->catID;
         const int64_t origCatID = *screenCatIDPtr;
         *screenCatIDPtr = catID;
         g_origInventoryItemBox_Click(comp);

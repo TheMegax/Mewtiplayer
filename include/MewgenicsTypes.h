@@ -257,6 +257,14 @@ struct Director {
   MsvcReleaseModeVector<Scene *> scenes;
 };
 
+namespace glaiel {
+struct SQLSaveFile {
+  void* db;                              // 0x00
+  MsvcReleaseModeXString db_path_string; // 0x08
+  char padding[128];                     // 0x28 (safe padding)
+};
+}
+
 struct MewDirector {
   char _padding_0[0x18];                // 0x000
   void* contextData;                    // 0x018
@@ -264,9 +272,8 @@ struct MewDirector {
   Director *director;                   // 0x028
   char _padding_1[0x8];                 // 0x030
   char gameStateMap[0x470];             // 0x038
-  void* sqlSaveFile;                    // 0x4A8
-  MsvcReleaseModeXString saveNameStr;   // 0x4B0
-  char _padding_1a[0xB0];               // 0x4D0
+  glaiel::SQLSaveFile sqlSaveFile;      // 0x4A8
+  char _padding_1a[0x30];               // 0x550 to 0x580
   int32_t currentDay;                   // 0x580
   char _padding_2[0x14];                // 0x584
   void* pedigreeState;                  // 0x598
@@ -292,21 +299,78 @@ struct MewDirector {
 static_assert(offsetof(MewDirector, director) == 0x028, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, gameStateMap) == 0x038, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, sqlSaveFile) == 0x4A8, "MewDirector offset mismatch");
-static_assert(offsetof(MewDirector, saveNameStr) == 0x4B0, "MewDirector offset mismatch");
+static_assert(offsetof(MewDirector, sqlSaveFile) + offsetof(glaiel::SQLSaveFile, db_path_string) == 0x4B0, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, currentDay) == 0x580, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, pedigreeState) == 0x598, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, house) == 0x5A8, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, partyCount) == 0x5BC, "MewDirector offset mismatch");
 static_assert(offsetof(MewDirector, inCombat) == 0x714, "MewDirector offset mismatch");
 static_assert(sizeof(MewDirector) == 0x790, "MewDirector size mismatch");
+struct MovieClip;
 
 namespace glaiel {
-struct SQLSaveFile {
-  void* db;                              // 0x00
-  MsvcReleaseModeXString db_path_string; // 0x08
-  char padding[128];                     // 0x28 (safe padding)
+struct LevelUpOption {
+  int32_t type;                         // 0x00
+  char _padding_0[4];                   // 0x04
+  MsvcReleaseModeXString title;         // 0x08
+  MsvcReleaseModeXString desc;          // 0x28
+  MsvcReleaseModeXString subtext;       // 0x48
+  char _padding_1[96];                  // 0x68
+  MsvcReleaseModeXString optionKey;     // 0xc8
+  char _padding_2[8];                   // 0xe8
 };
+static_assert(offsetof(LevelUpOption, optionKey) == 0xc8, "LevelUpOption offset mismatch");
+static_assert(sizeof(LevelUpOption) == 0xf0, "LevelUpOption size mismatch");
+
+struct LevelUpScreen : Component {
+  char _padding_0[0xa0 - 0x38];                  // 0x38 to 0xa0
+  PersistentCharacter* catData;                 // 0xa0
+  char _padding_1[0xe4 - 0xa8];                  // 0xa8 to 0xe4
+  int32_t rerolls;                              // 0xe4
+  char _padding_2[0x360 - 0xe8];                 // 0xe8 to 0x360
+  MsvcReleaseModeVector<LevelUpOption> options; // 0x360
+};
+static_assert(offsetof(LevelUpScreen, catData) == 0xa0, "LevelUpScreen offset mismatch");
+static_assert(offsetof(LevelUpScreen, rerolls) == 0xe4, "LevelUpScreen offset mismatch");
+static_assert(offsetof(LevelUpScreen, options) == 0x360, "LevelUpScreen offset mismatch");
+
+struct AbilityChooser : Component {
+  void* scene;                     // 0x38
+  void* movieClip;                 // 0x40
+  int32_t selectedSlotIndex;       // 0x48
+};
+static_assert(offsetof(AbilityChooser, selectedSlotIndex) == 0x48, "AbilityChooser offset mismatch");
+
+struct MapScreen : Component {
+  char _padding_0[0x78 - 0x38];    // 0x38 to 0x78
+  podvector<void *> nodes;         // 0x78
+};
+static_assert(offsetof(MapScreen, nodes) == 0x78, "MapScreen offset mismatch");
+
+struct CatSelector : Component {
+  char _padding_0[0x88 - 0x38];    // 0x38 to 0x88
+  int64_t catID;                   // 0x88
+};
+static_assert(offsetof(CatSelector, catID) == 0x88, "CatSelector offset mismatch");
+
+struct InventoryItemBox : Component {
+  void *inventoryScreen;           // 0x38
+};
+static_assert(offsetof(InventoryItemBox, inventoryScreen) == 0x38, "InventoryItemBox offset mismatch");
+
+struct InventoryScreen : Component {
+  char _padding_0[0x108 - 0x38];   // 0x38 to 0x108
+  int64_t catID;                   // 0x108
+};
+static_assert(offsetof(InventoryScreen, catID) == 0x108, "InventoryScreen offset mismatch");
+
+struct CatVisualComponent : Component {
+  void *scene;                     // 0x38
+  MovieClip *movieClip;            // 0x40
+};
+static_assert(offsetof(CatVisualComponent, movieClip) == 0x40, "CatVisualComponent offset mismatch");
 }
+
 
 struct MewSaveFile {
   char _padding_0[0x470];       // 0x000

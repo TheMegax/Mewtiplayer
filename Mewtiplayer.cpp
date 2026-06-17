@@ -7,6 +7,7 @@
 #include "hooks/MiscHooks.h"
 #include "hooks/MapHooks.h"
 #include "hooks/ActSelectionHooks.h"
+#include "hooks/LevelUpHooks.h"
 #include "CrashHandler.h"
 #include "ImGuiHook.h"
 #include "Overlay.h"
@@ -60,6 +61,7 @@ static void Initialize() {
   MiscHooks_Init(&mj, g_modState.gameBase);
   MapHooks_Init(&mj, g_modState.gameBase);
   ActSelectionHooks_Init(&mj, g_modState.gameBase);
+  LevelUpHooks_Init(&mj, g_modState.gameBase);
   MewUI_Init(&mj, "Mewtiplayer", 0);
 }
 

@@ -84,7 +84,7 @@ void DeleteSaveFile(const std::string& path) {
 
 void CloseActiveSaveConnection(void* mewDirector) {
   if (!mewDirector || !g_CloseConnection) return;
-  auto* saveFile = (glaiel::SQLSaveFile*)((char*)mewDirector + 0x4A8);
+  auto* saveFile = &static_cast<MewDirector*>(mewDirector)->sqlSaveFile;
   if (saveFile && saveFile->db) {
     g_CloseConnection(saveFile->db, 0);
     saveFile->db = nullptr;
