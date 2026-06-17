@@ -1,4 +1,4 @@
-#include "hooks/ModState.h"
+#include "include/ModState.h"
 #include "hooks/CombatHooks.h"
 #include "hooks/SaveHooks.h"
 #include "hooks/AdventureBoxHooks.h"
@@ -6,6 +6,7 @@
 #include "hooks/StorageHooks.h"
 #include "hooks/MiscHooks.h"
 #include "hooks/MapHooks.h"
+#include "hooks/ActSelectionHooks.h"
 #include "CrashHandler.h"
 #include "ImGuiHook.h"
 #include "Overlay.h"
@@ -39,6 +40,10 @@ static void Initialize() {
     g_modState.autoLobby = true;
     Overlay::Log("[INIT] Auto lobby Active!");
   }
+  if (strstr(cmdLine, "-auto_join")) {
+    g_modState.autoJoin = true;
+    Overlay::Log("[INIT] Auto join Active!");
+  }
   if (strstr(cmdLine, "-talkative")) {
     g_modState.talkative = true;
     Overlay::Log("[INIT] Talkative (verbose) logs Active!");
@@ -54,6 +59,7 @@ static void Initialize() {
   StorageHooks_Init(&mj, g_modState.gameBase);
   MiscHooks_Init(&mj, g_modState.gameBase);
   MapHooks_Init(&mj, g_modState.gameBase);
+  ActSelectionHooks_Init(&mj, g_modState.gameBase);
   MewUI_Init(&mj, "Mewtiplayer", 0);
 }
 

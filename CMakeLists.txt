@@ -122,7 +122,7 @@ add_library(Mewtiplayer SHARED
         src/Scanner.cpp
         src/MewSQL.cpp
         include/hooks/HookMacros.h
-        include/hooks/ModState.h
+        include/ModState.h
         include/hooks/CombatHooks.h
         include/hooks/SaveHooks.h
         include/hooks/AdventureBoxHooks.h
@@ -130,6 +130,7 @@ add_library(Mewtiplayer SHARED
         include/hooks/StorageHooks.h
         include/hooks/MiscHooks.h
         include/hooks/MapHooks.h
+        include/hooks/ActSelectionHooks.h
         src/hooks/CombatHooks.cpp
         src/hooks/SaveHooks.cpp
         src/hooks/AdventureBoxHooks.cpp
@@ -137,6 +138,7 @@ add_library(Mewtiplayer SHARED
         src/hooks/StorageHooks.cpp
         src/hooks/MiscHooks.cpp
         src/hooks/MapHooks.cpp
+        src/hooks/ActSelectionHooks.cpp
         Mewtiplayer.cpp)
 
 target_compile_options(Mewtiplayer PRIVATE -fms-extensions)

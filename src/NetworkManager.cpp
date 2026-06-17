@@ -1,5 +1,6 @@
 // ReSharper disable CppMemberFunctionMayBeStatic
 #include "NetworkManager.h"
+#include "ModState.h"
 #include "SteamABICompat.h"
 #include "GameUtils.h"
 #include "ImGuiHook.h"
@@ -22,6 +23,9 @@ extern FaceDirection_t g_origFaceDirection;
 void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
   m_mj = mj;
   m_ModID = modID;
+  m_AutoJoinStartTime = GetTickCount64();
+  m_LastAutoJoinAttempt = 0;
+  m_AutoJoinFinished = false;
   if (SteamAPI_Init()) {
     Overlay::Log("[NETWORK] SteamAPI initialized successfully!");
   } else {
@@ -32,6 +36,22 @@ void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
 void NetworkManager::Update() {
   SteamAPI_RunCallbacks();
   ReceivePackets();
+
+  if (g_modState.autoJoin && !m_AutoJoinFinished && !m_CurrentLobby.IsValid()) {
+    ULONGLONG now = GetTickCount64();
+    if (m_AutoJoinStartTime == 0) {
+      m_AutoJoinStartTime = now;
+    }
+
+    if (now - m_AutoJoinStartTime > 60000) {
+      Overlay::Log("[NETWORK] Auto join timed out after 60 seconds.");
+      m_AutoJoinFinished = true;
+    } else if (now - m_LastAutoJoinAttempt >= 5000) {
+      m_LastAutoJoinAttempt = now;
+      Overlay::Log("[NETWORK] Auto join attempting to find and join lobby (elapsed: %llu s)...", (now - m_AutoJoinStartTime) / 1000);
+      JoinAnyLobby();
+    }
+  }
 
   static int frameCount = 0;
   if (m_CurrentLobby.IsValid()) {
@@ -137,6 +157,9 @@ void NetworkManager::ReceivePackets() {
       break;
     case PacketType::MapNodeSync:
       HandleMapNodeSync(payload, payloadLen);
+      break;
+    case PacketType::ActSelectSync:
+      HandleActSelectSync(payload, payloadLen);
       break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
@@ -423,6 +446,10 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   ResetLobbyReadyStates();
 
   Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
+
+  if (g_modState.autoJoin) {
+    m_AutoJoinFinished = true;
+  }
 
   // Send handshake to host
   SendPacket(GetHostID(), PacketType::Handshake, nullptr, 0);
@@ -1234,4 +1261,15 @@ void NetworkManager::HandleMapNodeSync(const void *data, const uint32_t length) 
 
   extern void TriggerMapNodeSync(uint32_t nodeIndex);
   TriggerMapNodeSync(packet->nodeIndex);
+}
+
+void NetworkManager::HandleActSelectSync(const void *data, const uint32_t length) {
+  if (length != sizeof(ActSelectPacket)) {
+    return;
+  }
+  const auto *packet = (const ActSelectPacket *)data;
+  Overlay::Log("[ACT] Received ActSelectSync: actIndex %u", packet->actIndex);
+
+  extern void TriggerActSelect(uint32_t actIndex);
+  TriggerActSelect(packet->actIndex);
 }

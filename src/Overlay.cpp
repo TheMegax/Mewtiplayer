@@ -32,7 +32,7 @@ struct RemoteCursor { // NOLINT(*-pro-type-member-init)
 static std::deque<std::string> g_logLines;
 static std::mutex g_logMutex;
 static constexpr size_t MAX_LOG_LINES = 512;
-static bool g_visible = true;
+static bool g_visible = false;
 static char g_lobbyNameBuffer[128] = "Mewtiplayer Match";
 static MJ_fn_Log g_origMjLog = nullptr;
 
@@ -927,6 +927,19 @@ void Overlay::Setup(MewjectorAPI *mj) {
   if (!ImGuiHook::Load(mj, InternalRender, []() {
         LoadCursorTextures();
         Log("[OK] Overlay active. F1=Menu");
+
+        const char *cmdLine = GetCommandLineA();
+        const char *posArg = strstr(cmdLine, "-pos ");
+        if (posArg) {
+          int x = 0, y = 0;
+          if (sscanf(posArg + 5, "%d,%d", &x, &y) == 2) {
+            HWND hWnd = ImGuiHook::GetHWND();
+            if (hWnd) {
+              SetWindowPos(hWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+              Log("[INIT] Positioned window to (%d, %d)", x, y);
+            }
+          }
+        }
       })) {
     mj->Log("Overlay", "[ERR] Failed to load ImGuiHook: %s",
             ImGuiHook::GetLastError().c_str());

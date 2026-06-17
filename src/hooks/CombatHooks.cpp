@@ -1,6 +1,6 @@
 #include "hooks/CombatHooks.h"
 #include "hooks/HookMacros.h"
-#include "hooks/ModState.h"
+#include "../../include/ModState.h"
 #include "GameUtils.h"
 #include "NetworkManager.h"
 #include "Overlay.h"

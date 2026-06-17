@@ -1,6 +1,6 @@
 #include "hooks/AdventureBoxHooks.h"
 #include "hooks/HookMacros.h"
-#include "hooks/ModState.h"
+#include "../../include/ModState.h"
 #include "MewgenicsTypes.h"
 #include "GameUtils.h"
 #include "Overlay.h"

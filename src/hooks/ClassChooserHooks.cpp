@@ -2,7 +2,7 @@
 #include "hooks/StorageHooks.h"
 #include "hooks/SaveHooks.h"
 #include "hooks/HookMacros.h"
-#include "hooks/ModState.h"
+#include "../../include/ModState.h"
 #include "GameUtils.h"
 #include "NetworkManager.h"
 #include "Overlay.h"

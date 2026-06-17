@@ -3,7 +3,7 @@
 #include "NetworkManager.h"
 #include "Overlay.h"
 #include "GameUtils.h"
-#include "hooks/ModState.h"
+#include "../../include/ModState.h"
 #include "Scanner.h"
 #include "SteamABICompat.h"
 

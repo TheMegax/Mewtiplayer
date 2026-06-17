@@ -39,6 +39,7 @@ enum class PacketType : uint8_t {
   StorageItemSync,
   // --- Map ---
   MapNodeSync,
+  ActSelectSync,
 };
 
 #pragma pack(push, 1)
@@ -165,6 +166,12 @@ struct MapNodeSyncPacket {
 };
 #pragma pack(pop)
 
+#pragma pack(push, 1)
+struct ActSelectPacket {
+  uint32_t actIndex;
+};
+#pragma pack(pop)
+
 enum class SaveSyncState : uint8_t {
   Idle,
   WaitingForCatResponses,
@@ -255,7 +262,7 @@ public:
   void SendLocalCatCount();
 
 private:
-  NetworkManager() : m_mj(nullptr) { m_CurrentLobby.Clear(); }
+  NetworkManager() : m_mj(nullptr), m_AutoJoinStartTime(0), m_LastAutoJoinAttempt(0), m_AutoJoinFinished(false) { m_CurrentLobby.Clear(); }
 
   MewjectorAPI *m_mj;
   std::string m_ModID;
@@ -263,6 +270,9 @@ private:
   CSteamID m_CurrentLobby;
   std::vector<LobbyInfo> m_LobbyList;
   bool m_AutoJoinSearch = false;
+  ULONGLONG m_AutoJoinStartTime = 0;
+  ULONGLONG m_LastAutoJoinAttempt = 0;
+  bool m_AutoJoinFinished = false;
 
   // Combat/Ownership state
   bool m_combatActive = false;
@@ -316,6 +326,7 @@ private:
   void HandleLobbyProceed() const;
   void HandleStorageItemSync(const void *data, uint32_t length);
   void HandleMapNodeSync(const void *data, uint32_t length);
+  void HandleActSelectSync(const void *data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;
