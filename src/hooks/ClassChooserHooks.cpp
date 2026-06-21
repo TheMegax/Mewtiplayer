@@ -424,22 +424,23 @@ static void __cdecl ClassChooserSceneRefreshCallback(MewUISceneBinding* binding,
 
 static void ApplyLockInButtonText()
 {
-    if (!g_lockInButton) return;
+  if (!g_lockInButton) return;
 
-    const char* desiredText = g_localReady ? "Lock Out" : "Lock In!";
-    uintptr_t gameBase = (uintptr_t)GetModuleHandleA(nullptr);
-    auto initString = reinterpret_cast<MewFnInitNarrowString>(gameBase + MEW_RVA_INIT_NARROW_STRING);
-    auto setTextString = reinterpret_cast<MewFnUIRootSetTextString>(gameBase + MEW_RVA_UI_ROOT_SET_TEXT_STRING);
+  // TODO: Use proper localization!
+  const char* lockinoutText = g_localReady ? "Lock Out" : "Lock In!";
+  uintptr_t gameBase = (uintptr_t)GetModuleHandleA(nullptr);
+  auto initString = reinterpret_cast<MewFnInitNarrowString>(gameBase + MEW_RVA_INIT_NARROW_STRING);
+  auto setTextString = reinterpret_cast<MewFnUIRootSetTextString>(gameBase + MEW_RVA_UI_ROOT_SET_TEXT_STRING);
 
-    if (initString && setTextString) {
-        MewNarrowString childNameStr = {};
-        MewNarrowString textKeyStr = {};
+  if (initString && setTextString) {
+    MewNarrowString childNameStr = {};
+    MewNarrowString textKeyStr = {};
 
-        initString(&childNameStr, "INVENTORY_LOCKIN_BUTTON");
-        initString(&textKeyStr, desiredText);
+    initString(&childNameStr, "INVENTORY_LOCKIN_BUTTON");
+    initString(&textKeyStr, lockinoutText);
 
-        setTextString(g_lockInButton, &childNameStr, &textKeyStr);
-    }
+    setTextString(g_lockInButton, &childNameStr, &textKeyStr);
+  }
 }
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
@@ -451,7 +452,7 @@ static void __cdecl ClassChooserLockInButtonCallback(void* button, MewButtonEven
 
   if (oldState != newState)
   {
-      ApplyLockInButtonText();
+    ApplyLockInButtonText();
   }
 }
 
