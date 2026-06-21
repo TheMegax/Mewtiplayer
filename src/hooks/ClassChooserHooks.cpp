@@ -8,7 +8,7 @@
 #include "Overlay.h"
 #include "Scanner.h"
 #include "SteamABICompat.h"
-#include <cstring>
+#include "mew_ui_api.h"
 
 struct ClassTagBox : Component  {
   void *classChooser;                     // 0x38
@@ -399,4 +399,109 @@ void CatSelectorHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
   HOOK_INSTALL(mj, gameBase, ClassChooser_LockIn,
     "40 53 55 56 57 41 54 41 56 41 57 48 81 EC C0 00 00 00",
     0);
+}
+
+static MewUISceneBinding g_classChooserScene;
+static void* g_lockInButton = nullptr;
+static bool g_classChooserSceneInitialized = false;
+static bool g_lastLocalReadyState = false;
+static bool g_buttonHooked = false;
+
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
+static void __cdecl ClassChooserSceneRefreshCallback(MewUISceneBinding* binding, const MewUISceneRefreshResult result, void* oldSceneManager, void* newSceneManager, void* userData)
+{
+  (void)binding;
+  (void)oldSceneManager;
+  (void)newSceneManager;
+  (void)userData;
+
+  if (result == MEW_UI_SCENE_REFRESH_LOADED || result == MEW_UI_SCENE_REFRESH_CHANGED || result == MEW_UI_SCENE_REFRESH_UNLOADED)
+  {
+    g_lockInButton = nullptr;
+    g_buttonHooked = false;
+  }
+}
+
+static void ApplyLockInButtonText()
+{
+    if (!g_lockInButton) return;
+
+    const char* desiredText = g_localReady ? "Lock Out" : "Lock In!";
+    uintptr_t gameBase = (uintptr_t)GetModuleHandleA(nullptr);
+    auto initString = reinterpret_cast<MewFnInitNarrowString>(gameBase + MEW_RVA_INIT_NARROW_STRING);
+    auto setTextString = reinterpret_cast<MewFnUIRootSetTextString>(gameBase + MEW_RVA_UI_ROOT_SET_TEXT_STRING);
+
+    if (initString && setTextString) {
+        MewNarrowString childNameStr = {};
+        MewNarrowString textKeyStr = {};
+
+        initString(&childNameStr, "INVENTORY_LOCKIN_BUTTON");
+        initString(&textKeyStr, desiredText);
+
+        setTextString(g_lockInButton, &childNameStr, &textKeyStr);
+    }
+}
+
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
+static void __cdecl ClassChooserLockInButtonCallback(void* button, MewButtonEvent eventType, MewButtonState oldState, MewButtonState newState, void* userData)
+{
+  (void)button;
+  (void)eventType;
+  (void)userData;
+
+  if (oldState != newState)
+  {
+      ApplyLockInButtonText();
+  }
+}
+
+void ClassChooserHooks_UITick()
+{
+  if (!g_classChooserSceneInitialized)
+  {
+    MewUI_InitSceneBinding(&g_classChooserScene, "ClassChooser", ClassChooserSceneRefreshCallback, nullptr);
+    g_classChooserSceneInitialized = true;
+  }
+
+  MewUI_RefreshSceneBinding(&g_classChooserScene);
+
+  if (MewUI_IsSceneBindingActive(&g_classChooserScene))
+  {
+    void* scene_manager = MewUI_GetSceneBindingScene(&g_classChooserScene);
+
+    if (!g_buttonHooked)
+    {
+      if (scene_manager)
+      {
+        if (void* button = MewUI_FindButtonByRole(scene_manager, "CloseButton"))
+        {
+          MewUI_RegisterExistingButton(button, nullptr, ClassChooserLockInButtonCallback, nullptr);
+          g_lockInButton = button;
+          g_buttonHooked = true;
+          g_lastLocalReadyState = !g_localReady; // force update
+        }
+      }
+    }
+
+    if (g_buttonHooked && g_lockInButton)
+    {
+      if (g_localReady != g_lastLocalReadyState)
+      {
+        g_lastLocalReadyState = g_localReady;
+        ApplyLockInButtonText();
+        Overlay::Log("Button text set to '%s'", g_localReady ? "Lock Out" : "Lock In!");
+      }
+    }
+  }
+}
+
+void ClassChooserHooks_Shutdown()
+{
+  if (g_classChooserSceneInitialized)
+  {
+    MewUI_ClearSceneBinding(&g_classChooserScene);
+    g_classChooserSceneInitialized = false;
+  }
+  g_lockInButton = nullptr;
+  g_buttonHooked = false;
 }

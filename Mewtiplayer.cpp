@@ -62,7 +62,15 @@ static void Initialize() {
   MapHooks_Init(&mj, g_modState.gameBase);
   ActSelectionHooks_Init(&mj, g_modState.gameBase);
   LevelUpHooks_Init(&mj, g_modState.gameBase);
-  MewUI_Init(&mj, "Mewtiplayer", 0);
+}
+
+static void __cdecl Mewtiplayer_UITick(void* userData) {
+  (void)userData;
+  ClassChooserHooks_UITick();
+}
+
+void InitializeMewUI() {
+  MewUI_Start("Mewtiplayer", 0, 100, 0, Mewtiplayer_UITick, nullptr);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {
@@ -76,7 +84,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {
     CrashHandler::Unregister();
     if (MJ_Resolve(&mj)) {
       Overlay::Log("Unloading!");
-      MewUI_Shutdown();
+      ClassChooserHooks_Shutdown();
+      MewUI_Stop();
       ImGuiHook::Unload();
     }
   }

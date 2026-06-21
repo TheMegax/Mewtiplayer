@@ -21,3 +21,5 @@ void ApplyCollarToCharacter(PersistentCharacter *cat, const char *collarName);
 void RefreshClassChooserInventory();
 void UpdateClassChooserTagBoxes(int64_t catID, int32_t collarIndex);
 void HandleCollarSyncInternal(const void *data, uint32_t length);
+void ClassChooserHooks_UITick();
+void ClassChooserHooks_Shutdown();

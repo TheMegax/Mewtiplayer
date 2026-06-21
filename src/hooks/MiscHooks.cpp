@@ -8,6 +8,7 @@
 #include "Scanner.h"
 
 static bool g_networkInitialized = false;
+extern void InitializeMewUI();
 
 HOOK_DEFINE(StevenSpawn, void*, void*, void*)
 HOOK_DEFINE(PauseGame, void, void*)
@@ -53,6 +54,7 @@ static void Hook_RunFrame(void *rcx, void *rdx) {
     Overlay::Log("Captured application instance: %p", rcx);
     NetworkManager::Get().Init(g_modState.mj, MOD_NAME "-" MOD_VERSION);
     Overlay::Setup(g_modState.mj); // Initialize overlay once network is ready or at start
+    InitializeMewUI();
     if (g_modState.autoLobby) {
       NetworkManager::Get().HostLobby("Debug Lobby");
     }
