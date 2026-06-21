@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "hooks/ClassChooserHooks.h"
+#include "mew_ui_api.h"
 
 typedef void (__fastcall *RefreshInventoryScreen_t)(void *inventoryScreen);
 static RefreshInventoryScreen_t g_RefreshInventoryScreen = nullptr;
@@ -33,6 +34,7 @@ static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr
         // ReSharper disable once CppEntityAssignedButNoRead
         extern uint32_t g_pendingMapNodeSyncIndex;
         g_pendingMapNodeSyncIndex = 0xFFFFFFFF;
+        ResetLobbyReadyStates();
       }
     }
   }
@@ -229,4 +231,110 @@ void StorageHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
     "48 89 5C 24 18 48 89 6c 24 20 48 89 54 24 10 56 57 41 56 48 83 ec 20 48 8b 02 48 8b f1 48 8b ca",
     0);
 }
+
+static MewUISceneBinding g_storageItemsScene;
+static void* g_storageLockInButton = nullptr;
+static bool g_storageItemsSceneInitialized = false;
+static bool g_storageLastLocalReadyState = false;
+static bool g_storageButtonHooked = false;
+
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
+static void __cdecl StorageItemsSceneRefreshCallback(MewUISceneBinding* binding, const MewUISceneRefreshResult result, void* oldSceneManager, void* newSceneManager, void* userData)
+{
+  (void)binding;
+  (void)oldSceneManager;
+  (void)newSceneManager;
+  (void)userData;
+
+  if (result == MEW_UI_SCENE_REFRESH_LOADED || result == MEW_UI_SCENE_REFRESH_CHANGED || result == MEW_UI_SCENE_REFRESH_UNLOADED)
+  {
+    g_storageLockInButton = nullptr;
+    g_storageButtonHooked = false;
+  }
+}
+
+static void ApplyStorageLockInButtonText()
+{
+  if (!g_storageLockInButton) return;
+
+  const char* lockinoutText = g_localReady ? "Lock Out" : "Lock In!";
+  uintptr_t gameBase = (uintptr_t)GetModuleHandleA(nullptr);
+  auto initString = reinterpret_cast<MewFnInitNarrowString>(gameBase + MEW_RVA_INIT_NARROW_STRING);
+  auto setTextString = reinterpret_cast<MewFnUIRootSetTextString>(gameBase + MEW_RVA_UI_ROOT_SET_TEXT_STRING);
+
+  if (initString && setTextString) {
+    MewNarrowString childNameStr = {};
+    MewNarrowString textKeyStr = {};
+
+    initString(&childNameStr, "INVENTORY_LOCKIN_BUTTON");
+    initString(&textKeyStr, lockinoutText);
+
+    setTextString(g_storageLockInButton, &childNameStr, &textKeyStr);
+  }
+}
+
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
+static void __cdecl StorageLockInButtonCallback(void* button, MewButtonEvent eventType, MewButtonState oldState, MewButtonState newState, void* userData)
+{
+  (void)button;
+  (void)eventType;
+  (void)userData;
+
+  if (oldState != newState)
+  {
+    ApplyStorageLockInButtonText();
+  }
+}
+
+void StorageHooks_UITick()
+{
+  if (!g_storageItemsSceneInitialized)
+  {
+    MewUI_InitSceneBinding(&g_storageItemsScene, "StorageItems", StorageItemsSceneRefreshCallback, nullptr);
+    g_storageItemsSceneInitialized = true;
+  }
+
+  MewUI_RefreshSceneBinding(&g_storageItemsScene);
+
+  if (MewUI_IsSceneBindingActive(&g_storageItemsScene))
+  {
+    void* scene_manager = MewUI_GetSceneBindingScene(&g_storageItemsScene);
+
+    if (!g_storageButtonHooked)
+    {
+      if (scene_manager)
+      {
+        if (void* button = MewUI_FindButtonByRole(scene_manager, "CloseButton"))
+        {
+          MewUI_RegisterExistingButton(button, nullptr, StorageLockInButtonCallback, nullptr);
+          g_storageLockInButton = button;
+          g_storageButtonHooked = true;
+          g_storageLastLocalReadyState = !g_localReady; // force update
+        }
+      }
+    }
+
+    if (g_storageButtonHooked && g_storageLockInButton)
+    {
+      if (g_localReady != g_storageLastLocalReadyState)
+      {
+        g_storageLastLocalReadyState = g_localReady;
+        ApplyStorageLockInButtonText();
+        Overlay::Log("Storage button text set to '%s'", g_localReady ? "Lock Out" : "Lock In!");
+      }
+    }
+  }
+}
+
+void StorageHooks_Shutdown()
+{
+  if (g_storageItemsSceneInitialized)
+  {
+    MewUI_ClearSceneBinding(&g_storageItemsScene);
+    g_storageItemsSceneInitialized = false;
+  }
+  g_storageLockInButton = nullptr;
+  g_storageButtonHooked = false;
+}
+
 

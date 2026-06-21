@@ -67,6 +67,7 @@ static void Initialize() {
 static void __cdecl Mewtiplayer_UITick(void* userData) {
   (void)userData;
   ClassChooserHooks_UITick();
+  StorageHooks_UITick();
 }
 
 void InitializeMewUI() {
@@ -85,6 +86,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {
     if (MJ_Resolve(&mj)) {
       Overlay::Log("Unloading!");
       ClassChooserHooks_Shutdown();
+      StorageHooks_Shutdown();
       MewUI_Stop();
       ImGuiHook::Unload();
     }

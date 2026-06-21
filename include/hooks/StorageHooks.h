@@ -9,4 +9,6 @@ void HandleStorageItemSyncInternal(const void *data, uint32_t length);
 
 extern void *g_activeInventoryScreenThis;
 void StorageHooks_TriggerEmbarkProceed();
+void StorageHooks_UITick();
+void StorageHooks_Shutdown();
 
