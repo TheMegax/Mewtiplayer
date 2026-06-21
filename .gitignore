@@ -1,8 +1,10 @@
 /docs
 /build
 /build-win
+/build-clang
 /cache
 /.cache
+/.xwin-cache
 /.idea
 /cmake-build-debug
 /.todo

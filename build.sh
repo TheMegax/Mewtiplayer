@@ -5,15 +5,15 @@ MODS_DIR="/home/megax/.local/share/Steam/steamapps/common/Mewgenics/Mods"
 CLEANUP=0
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${PROJECT_DIR}/build-win"
+BUILD_DIR="${PROJECT_DIR}/build-clang"
 
 if [ ! -d "${BUILD_DIR}" ]; then
     mkdir -p "${BUILD_DIR}"
 fi
 
-# Configure using MinGW Toolchain and Ninja generator
+# Configure using Clang MSVC Toolchain and Ninja generator
 if ! cmake -G Ninja \
-           -DCMAKE_TOOLCHAIN_FILE="${PROJECT_DIR}/mingw-w64-toolchain.cmake" \
+           -DCMAKE_TOOLCHAIN_FILE="${PROJECT_DIR}/clang-msvc-toolchain.cmake" \
            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
            -B "${BUILD_DIR}" \
            -S "${PROJECT_DIR}" > /dev/null; then

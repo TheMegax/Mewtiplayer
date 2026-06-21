@@ -1,11 +1,14 @@
 cmake_minimum_required(VERSION 4.2)
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND NOT FORCE_LINUX)
     if(NOT CMAKE_TOOLCHAIN_FILE)
-        set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/mingw-w64-toolchain.cmake" CACHE FILEPATH "MinGW Toolchain" FORCE)
+        set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/clang-msvc-toolchain.cmake" CACHE FILEPATH "Clang MSVC Toolchain" FORCE)
     endif()
 endif()
 
 project(Mewtiplayer)
+
+# Statically link MSVC runtime libraries (/MT and /MTd)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -144,6 +147,10 @@ add_library(Mewtiplayer SHARED
         Mewtiplayer.cpp)
 
 target_compile_options(Mewtiplayer PRIVATE -fms-extensions)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(Mewtiplayer PRIVATE -fasync-exceptions -fexceptions -fcxx-exceptions)
+endif()
+target_compile_definitions(Mewtiplayer PRIVATE NOMINMAX)
 
 set_source_files_properties(external/mew-ui-api/mew_ui_api.c PROPERTIES LANGUAGE CXX)
 
