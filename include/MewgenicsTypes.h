@@ -334,6 +334,45 @@ static_assert(offsetof(LevelUpScreen, catData) == 0xa0, "LevelUpScreen offset mi
 static_assert(offsetof(LevelUpScreen, rerolls) == 0xe4, "LevelUpScreen offset mismatch");
 static_assert(offsetof(LevelUpScreen, options) == 0x360, "LevelUpScreen offset mismatch");
 
+struct WorldEventOption {
+  char data[240];
+};
+
+struct WorldEventOptionState {
+  char _padding_0[0x88];
+  uint64_t catUID;
+};
+
+struct WorldEvent : Component {
+  char _padding_0[0x50 - 0x38];                  // 0x38 to 0x50
+  WorldEventOptionState* optionState;           // 0x50
+  char _padding_1[0xe0 - 0x58];                  // 0x58 to 0xe0
+  MsvcReleaseModeVector<WorldEventOption> options; // 0xe0
+  char _padding_2[0x100 - 0xf8];                 // 0xf8 to 0x100
+  WorldEventOption* clickedOption;              // 0x100
+  char _padding_3[0x128 - 0x108];                // 0x108 to 0x128
+  PersistentCharacter* activeCat;               // 0x128
+};
+static_assert(offsetof(WorldEvent, optionState) == 0x50, "WorldEvent offset mismatch");
+static_assert(offsetof(WorldEvent, options) == 0xe0, "WorldEvent offset mismatch");
+static_assert(offsetof(WorldEvent, clickedOption) == 0x100, "WorldEvent offset mismatch");
+static_assert(offsetof(WorldEvent, activeCat) == 0x128, "WorldEvent offset mismatch");
+
+struct WorldEventClickEvent {
+  void* vtable;            // 0x00
+  WorldEvent* worldEvent;  // 0x08
+  void* sender;            // 0x10
+};
+
+struct WorldEventCatButton : Component {
+  char _padding_0[0x590 - 0x38]; // 0x38 to 0x590
+  void* otherPtr;                // 0x590
+  void* catManager;              // 0x598
+};
+static_assert(offsetof(WorldEventCatButton, otherPtr) == 0x590, "WorldEventCatButton offset mismatch");
+static_assert(offsetof(WorldEventCatButton, catManager) == 0x598, "WorldEventCatButton offset mismatch");
+
+
 struct AbilityChooser : Component {
   void* scene;                     // 0x38
   void* movieClip;                 // 0x40

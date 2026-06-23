@@ -8,6 +8,7 @@
 #include "hooks/MapHooks.h"
 #include "hooks/ActSelectionHooks.h"
 #include "hooks/LevelUpHooks.h"
+#include "hooks/WorldEventHooks.h"
 #include "CrashHandler.h"
 #include "ImGuiHook.h"
 #include "Overlay.h"
@@ -62,6 +63,7 @@ static void Initialize() {
   MapHooks_Init(&mj, g_modState.gameBase);
   ActSelectionHooks_Init(&mj, g_modState.gameBase);
   LevelUpHooks_Init(&mj, g_modState.gameBase);
+  WorldEventHooks_Init(&mj, g_modState.gameBase);
 }
 
 static void __cdecl Mewtiplayer_UITick(void* userData) {

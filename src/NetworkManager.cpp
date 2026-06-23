@@ -170,6 +170,15 @@ void NetworkManager::ReceivePackets() {
     case PacketType::AbilityReplace:
       HandleAbilityReplace(payload, payloadLen);
       break;
+    case PacketType::WorldEventSelectOption:
+      HandleWorldEventSelectOption(payload, payloadLen);
+      break;
+    case PacketType::WorldEventSelectCat:
+      HandleWorldEventSelectCat(payload, payloadLen);
+      break;
+    case PacketType::WorldEventClickEnd:
+      HandleWorldEventClickEnd(payload, payloadLen);
+      break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -1314,4 +1323,37 @@ void NetworkManager::HandleAbilityReplace(const void *data, const uint32_t lengt
 
   extern void TriggerAbilityReplace(int64_t catUID, uint32_t slotIndex);
   TriggerAbilityReplace(packet->catUID, packet->slotIndex);
+}
+
+void NetworkManager::HandleWorldEventSelectOption(const void *data, const uint32_t length) {
+  if (length != sizeof(WorldEventSelectOptionPacket)) {
+    return;
+  }
+  const auto *packet = (const WorldEventSelectOptionPacket *)data;
+  Overlay::Log("[WORLDEVENT] Received WorldEventSelectOption: cat UID %lld, optionIndex %u", packet->catUID, packet->optionIndex);
+
+  extern void TriggerWorldEventSelectOption(int64_t catUID, uint32_t optionIndex);
+  TriggerWorldEventSelectOption(packet->catUID, packet->optionIndex);
+}
+
+void NetworkManager::HandleWorldEventSelectCat(const void *data, const uint32_t length) {
+  if (length != sizeof(WorldEventSelectCatPacket)) {
+    return;
+  }
+  const auto *packet = (const WorldEventSelectCatPacket *)data;
+  Overlay::Log("[WORLDEVENT] Received WorldEventSelectCat: selectedCatUID %lld", packet->selectedCatUID);
+
+  extern void TriggerWorldEventSelectCat(int64_t selectedCatUID);
+  TriggerWorldEventSelectCat(packet->selectedCatUID);
+}
+
+void NetworkManager::HandleWorldEventClickEnd(const void *data, const uint32_t length) {
+  if (length != sizeof(WorldEventClickEndPacket)) {
+    return;
+  }
+  const auto *packet = (const WorldEventClickEndPacket *)data;
+  Overlay::Log("[WORLDEVENT] Received WorldEventClickEnd: buttonType %u", packet->buttonType);
+
+  extern void TriggerWorldEventClickEnd(uint8_t buttonType);
+  TriggerWorldEventClickEnd(packet->buttonType);
 }

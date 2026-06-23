@@ -44,6 +44,9 @@ enum class PacketType : uint8_t {
   LevelUpSelectOption,
   LevelUpReroll,
   AbilityReplace,
+  WorldEventSelectOption,
+  WorldEventSelectCat,
+  WorldEventClickEnd,
 };
 
 #pragma pack(push, 1)
@@ -193,6 +196,21 @@ struct LevelUpRerollPacket {
 struct AbilityReplacePacket {
   int64_t catUID;
   uint32_t slotIndex;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct WorldEventSelectOptionPacket {
+  int64_t catUID;
+  uint32_t optionIndex;
+};
+
+struct WorldEventSelectCatPacket {
+  int64_t selectedCatUID;
+};
+
+struct WorldEventClickEndPacket {
+  uint8_t buttonType; // 1 for lambda_1, 2 for lambda_2
 };
 #pragma pack(pop)
 
@@ -351,9 +369,12 @@ private:
   void HandleStorageItemSync(const void *data, uint32_t length);
   void HandleMapNodeSync(const void *data, uint32_t length);
   void HandleActSelectSync(const void *data, uint32_t length);
-  void HandleLevelUpSelectOption(const void *data, uint32_t length);
-  void HandleLevelUpReroll(const void *data, uint32_t length);
-  void HandleAbilityReplace(const void *data, uint32_t length);
+  void HandleLevelUpSelectOption(const void* data, uint32_t length);
+  void HandleLevelUpReroll(const void* data, uint32_t length);
+  void HandleAbilityReplace(const void* data, uint32_t length);
+  void HandleWorldEventSelectOption(const void* data, uint32_t length);
+  void HandleWorldEventSelectCat(const void* data, uint32_t length);
+  void HandleWorldEventClickEnd(const void* data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;
