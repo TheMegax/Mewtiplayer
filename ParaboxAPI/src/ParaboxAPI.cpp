@@ -97,6 +97,7 @@ void MapHooks_Init(MewjectorAPI *mj, uintptr_t gameBase);
 void ActSelectionHooks_Init(MewjectorAPI *mj, uintptr_t gameBase);
 void LevelUpHooks_Init(MewjectorAPI *mj, uintptr_t gameBase);
 void WorldEventHooks_Init(MewjectorAPI *mj, uintptr_t gameBase);
+void ShopHooks_Init(MewjectorAPI *mj, uintptr_t gameBase);
 
 namespace ParaboxAPI {
 
@@ -111,6 +112,7 @@ PARABOX_API void InstallHooks(MewjectorAPI *mj, uintptr_t gameBase) {
     ActSelectionHooks_Init(mj, gameBase);
     LevelUpHooks_Init(mj, gameBase);
     WorldEventHooks_Init(mj, gameBase);
+    ShopHooks_Init(mj, gameBase);
 }
 
 } // namespace ParaboxAPI

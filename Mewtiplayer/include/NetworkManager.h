@@ -47,6 +47,11 @@ enum class PacketType : uint8_t {
   WorldEventSelectOption,
   WorldEventSelectCat,
   WorldEventClickEnd,
+  // --- Shop / Loot ---
+  ShopBuyItem,
+  ShopExitButton,
+  ShopReroll,
+  ShopChestClick,
 };
 
 #pragma pack(push, 1)
@@ -212,6 +217,22 @@ struct WorldEventSelectCatPacket {
 struct WorldEventClickEndPacket {
   uint8_t buttonType; // 1 for lambda_1, 2 for lambda_2
 };
+
+struct ShopBuyItemPacket {
+  uint32_t itemIndex;
+};
+
+struct ShopExitButtonPacket {
+  uint8_t dummy;
+};
+
+struct ShopRerollPacket {
+  uint8_t dummy;
+};
+
+struct ShopChestClickPacket {
+  uint8_t dummy;
+};
 #pragma pack(pop)
 
 enum class SaveSyncState : uint8_t {
@@ -375,6 +396,10 @@ private:
   void HandleWorldEventSelectOption(const void* data, uint32_t length);
   void HandleWorldEventSelectCat(const void* data, uint32_t length);
   void HandleWorldEventClickEnd(const void* data, uint32_t length);
+  void HandleShopBuyItem(const void* data, uint32_t length);
+  void HandleShopExitButton(const void* data, uint32_t length);
+  void HandleShopReroll(const void* data, uint32_t length);
+  void HandleShopChestClick(const void* data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

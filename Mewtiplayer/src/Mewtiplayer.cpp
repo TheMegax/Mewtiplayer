@@ -28,6 +28,7 @@ void RegisterMapSubscribers();
 void RegisterActSelectionSubscribers();
 void RegisterLevelUpSubscribers();
 void RegisterWorldEventSubscribers();
+void RegisterShopSubscribers();
 
 // Temporary forward declarations until extracted from hook files
 void ClassChooserHooks_UITick();
@@ -93,6 +94,7 @@ void RegisterSubscribers() {
     RegisterActSelectionSubscribers();
     RegisterLevelUpSubscribers();
     RegisterWorldEventSubscribers();
+    RegisterShopSubscribers();
 }
 
 // ---------------------------------------------------------------------------

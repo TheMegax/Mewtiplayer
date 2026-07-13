@@ -1,6 +1,5 @@
 #include "Scanner.h"
 #include "ParaboxAPI.h"
-#include <cstring>
 
 uintptr_t FindPattern(const uintptr_t base, const char *signature) {
   if (!base)

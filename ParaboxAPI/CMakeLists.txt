@@ -27,6 +27,7 @@ set(PARABOX_SOURCES
     include/hooks/ActSelectionHooks.h src/hooks/ActSelectionHooks.cpp
     include/hooks/LevelUpHooks.h      src/hooks/LevelUpHooks.cpp
     include/hooks/WorldEventHooks.h   src/hooks/WorldEventHooks.cpp
+    include/hooks/ShopHooks.h         src/hooks/ShopHooks.cpp
 )
 
 add_library(ParaboxAPI SHARED ${PARABOX_SOURCES})

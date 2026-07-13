@@ -40,18 +40,20 @@ public:
     using Callback = std::function<void(T &)>;
 
     void Subscribe(Callback cb) {
-        if (!m_subscribers) m_subscribers = new std::vector<Callback>();
-        m_subscribers->push_back(std::move(cb));
+        if (m_count < 32) {
+            m_subscribers[m_count++] = std::move(cb);
+        }
     }
 
     void Publish(T &eventData) {
-        if (!m_subscribers) return;
-        for (auto &cb : *m_subscribers)
-            cb(eventData);
+        for (int i = 0; i < m_count; i++) {
+            m_subscribers[i](eventData);
+        }
     }
 
 private:
-    std::vector<Callback>* m_subscribers = nullptr;
+    Callback m_subscribers[32];
+    int m_count = 0;
 };
 
 // ---------------------------------------------------------------------------
