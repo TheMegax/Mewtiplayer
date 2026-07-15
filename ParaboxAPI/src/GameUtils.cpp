@@ -247,13 +247,13 @@ void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<Pa
 
   uint32_t mergedVersion = 3;
 
-  for (size_t i = 0; i < clientBlobs.size(); ++i) {
+  for (const auto & clientBlob : clientBlobs) {
     UnlocksData data;
-    if (ParseUnlocksBlob(clientBlobs[i], data)) {
+    if (ParseUnlocksBlob(clientBlob, data)) {
       clientDataList.push_back(std::move(data));
       mergedVersion = data.version;
     } else {
-      ParaboxAPI::Log("[SAVE] [WARN] Failed to parse client unlocks blob (size %zu)", clientBlobs[i].size());
+      ParaboxAPI::Log("[SAVE] [WARN] Failed to parse client unlocks blob (size %zu)", clientBlob.size());
     }
   }
 
@@ -271,16 +271,16 @@ void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<Pa
       otherClientSets.reserve(clientDataList.size() - 1);
       for (size_t c = 1; c < clientDataList.size(); ++c) {
         std::set<std::string> s;
-        for (size_t i = 0; i < clientDataList[c].categories[catIdx].size(); ++i) {
-          s.insert(clientDataList[c].categories[catIdx][i].to_string());
+        for (const auto & i : clientDataList[c].categories[catIdx]) {
+          s.insert(i.to_string());
         }
         otherClientSets.push_back(s);
       }
 
       std::set<std::string> added;
       std::vector<ParaboxAPI::String> mergedCats;
-      for (size_t i = 0; i < clientDataList[0].categories[catIdx].size(); ++i) {
-        std::string item = clientDataList[0].categories[catIdx][i].to_string();
+      for (const auto & i : clientDataList[0].categories[catIdx]) {
+        std::string item = i.to_string();
         if (added.find(item) != added.end()) continue;
         bool inAll = true;
         for (const auto& otherSet : otherClientSets) {
@@ -298,9 +298,9 @@ void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<Pa
     } else { // All Progress Combined (Union)
       std::set<std::string> added;
       std::vector<ParaboxAPI::String> mergedCats;
-      for (auto& client : clientDataList) {
-        for (size_t i = 0; i < client.categories[catIdx].size(); ++i) {
-          std::string item = client.categories[catIdx][i].to_string();
+      for (auto&[version, categories] : clientDataList) {
+        for (const auto & i : categories[catIdx]) {
+          std::string item = i.to_string();
           if (added.find(item) == added.end()) {
             added.insert(item);
             mergedCats.push_back(ParaboxAPI::MakeString(item));
@@ -313,8 +313,8 @@ void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<Pa
   }
 
   std::vector<ParaboxAPI::String> customCollars;
-  for (size_t i = 0; i < mergedData.categories[0].size(); ++i) {
-    std::string clean = CleanCollarClassName(mergedData.categories[0][i].to_string());
+  for (const auto & i : mergedData.categories[0]) {
+    std::string clean = CleanCollarClassName(i.to_string());
     if (!clean.empty() && clean.find("Colorless") == std::string::npos && clean.find("Ethereal") == std::string::npos) {
       customCollars.push_back(ParaboxAPI::MakeString(clean));
     }
@@ -328,9 +328,9 @@ void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<Pa
 
   ParaboxAPI::Log("[SAVE] Writing merged unlocks blob (size %zu) to database...", outBlob.size());
   std::string hexStr = "X'";
-  for (size_t i = 0; i < outBlob.size(); ++i) {
+  for (unsigned char i : outBlob) {
     char buf[3];
-    snprintf(buf, sizeof(buf), "%02x", outBlob[i]);
+    snprintf(buf, sizeof(buf), "%02x", i);
     hexStr += buf;
   }
   hexStr += "'";
@@ -344,9 +344,9 @@ void MergeMapFlags(glaiel::SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::
   ParaboxAPI::Log("[SAVE] Merging %zu map flags lists...", clientFlagsList.size());
   if (clientFlagsList.empty()) return;
   std::map<std::string, int> counts;
-  for (size_t i = 0; i < clientFlagsList.size(); ++i) {
-    for (size_t j = 0; j < clientFlagsList[i].size(); ++j) {
-      counts[clientFlagsList[i][j].to_string()]++;
+  for (const auto & i : clientFlagsList) {
+    for (const auto & j : i) {
+      counts[j.to_string()]++;
     }
   }
   int mergedCount = 0;
@@ -447,8 +447,7 @@ void MergeInventoryBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<
     std::vector<std::vector<Equipment>> clientInventories;
     clientInventories.reserve(clientBlobs.size());
 
-    for (size_t b = 0; b < clientBlobs.size(); ++b) {
-        const auto& blob = clientBlobs[b];
+    for (const auto & blob : clientBlobs) {
         std::vector<Equipment> inv;
         if (blob.size() >= 4) {
             const uint32_t count = *(const uint32_t*)&blob[0];
@@ -743,10 +742,9 @@ ParaboxAPI::Array<Character *> GetAllEntities() {
 }
 
 ParaboxAPI::Array<Character *> GetFighters() {
-  auto all = GetAllEntities();
+  const auto all = GetAllEntities();
   std::vector<Character *> fighters;
-  for (size_t i = 0; i < all.size(); ++i) {
-    Character *c = all[i];
+  for (auto c : all) {
     if (c->isStatic || c->isInanimate || c->characterType == 4) continue;
     fighters.push_back(c);
   }
@@ -798,11 +796,12 @@ ParaboxAPI::String GetAbilityName(Ability *ability) {
   return ParaboxAPI::MakeString("UNKNOWN");
 }
 
-static bool IsValidAbility(Ability* a, const Character* expectedOwner) {
+static bool IsValidAbility(const Ability* a, const Character* expectedOwner) {
     __try {
         if (a && a->owner == expectedOwner) {
             return true;
         }
+        // ReSharper disable once CppDFAUnreachableCode
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
     return false;
@@ -843,6 +842,29 @@ Ability *FindCharacterAbility(const Character *actor, const char *targetName_c) 
   return nullptr;
 }
 
+Component *FindCharacterPassive(const Character *actor, const char *targetName_c) {
+  const std::string targetName = targetName_c ? targetName_c : "";
+  if (!actor || !actor->persistentChar) return nullptr;
+
+  const auto* charComp = (Component*)actor;
+  if (!charComp->entity) return nullptr;
+
+  const auto& comps = charComp->entity->components;
+  for (uint32_t i = 0; i < comps.size_; i++) {
+    Component* c = comps.data_[i];
+    if (c && c->vtable && c->vtable->GetObjectTypeSTR) {
+      MsvcReleaseModeXString xstr = {};
+      c->vtable->GetObjectTypeSTR(c, &xstr);
+      std::string typeName = SafeGetNativeString(xstr);
+      FreeXString(xstr);
+      if (typeName == targetName) {
+        return c;
+      }
+    }
+  }
+  return nullptr;
+}
+
 ParaboxAPI::Array<Component *> GetSceneComponents(const Scene *scene) {
   std::vector<Component *> result;
   if (!scene || scene->doing_scene_destruction || !scene->ComponentLists) return ParaboxAPI::MakeArray(result);
@@ -866,9 +888,8 @@ ParaboxAPI::Array<Component *> GetEntityComponents(const Entity *entity) {
 }
 
 Component *FindComponentByTypeName(const Scene *scene, const char *typeName) {
-  auto components = GetSceneComponents(scene);
-  for (size_t i = 0; i < components.size(); i++) {
-    Component *p_component = components[i];
+  const auto components = GetSceneComponents(scene);
+  for (const auto p_component : components) {
     MsvcReleaseModeXString name = {};
     if (SafeGetComponentName(p_component, &name)) {
       const bool match = name.as_native_string_view() == typeName;
@@ -881,19 +902,15 @@ Component *FindComponentByTypeName(const Scene *scene, const char *typeName) {
   return nullptr;
 }
 
-bool IsComponentValid(void *component) {
+bool IsComponentValid(const void *component) {
   if (!component) return false;
   const auto *comp = static_cast<const Component *>(component);
   if (comp->deleted) return false;
   if (!comp->scene || comp->scene->doing_scene_destruction) return false;
 
   const auto scenes = GetCurrentScenes();
-  for (const auto *s : scenes) {
-    if (s == comp->scene) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(scenes.begin(), scenes.end(),
+                     [comp](const Scene *s) { return s == comp->scene; });
 }
 
 bool SafeGetComponentName(const Component *p_component,

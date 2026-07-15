@@ -326,6 +326,8 @@ extern PARABOX_API Event<SlotUpdateDynamicValueEvent> OnSlotUpdateDynamicValue;
 extern PARABOX_API Event<ProcessCombatInputEvent>     OnProcessCombatInput;
 extern PARABOX_API Event<RouteCombatInputEvent>       OnRouteCombatInput;
 
+PARABOX_API void ForceEnqueueAction(void *queue, TurnAction *actionData);
+PARABOX_API void ForceAbilityTrigger(Ability *ability, TurnAction *turnAction);
 PARABOX_API void ForceFaceDirection(void* character, uint64_t packed, bool anim, bool force);
 PARABOX_API void ForceSlotUpdateDynamicValue(void* rcx, void* rdx);
 // Save events

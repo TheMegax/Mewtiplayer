@@ -76,12 +76,13 @@ PARABOX_API ParaboxAPI::Array<Character *> GetAllEntities();
 PARABOX_API ParaboxAPI::Array<Character *> GetFighters();
 PARABOX_API ParaboxAPI::String GetAbilityName(Ability *ability);
 PARABOX_API Ability *FindCharacterAbility(const Character *actor, const char *targetName);
+PARABOX_API Component *FindCharacterPassive(const Character *actor, const char *targetName);
 
 // Components
 PARABOX_API ParaboxAPI::Array<Component *> GetSceneComponents(const Scene *scene);
 PARABOX_API ParaboxAPI::Array<Component *> GetEntityComponents(const Entity *entity);
 PARABOX_API Component *FindComponentByTypeName(const Scene *scene, const char *typeName);
-PARABOX_API bool IsComponentValid(void *component);
+PARABOX_API bool IsComponentValid(const void *component);
 
 // Component name lookup
 PARABOX_API bool SafeGetComponentName(const Component *p_component,

@@ -82,6 +82,17 @@ struct TurnActionPacket {
   int32_t targetY;
   int32_t target2X;
   int32_t target2Y;
+  int32_t unk_28;
+  int32_t unk_2C;
+  uint8_t flag_30;
+  uint8_t flag_31;
+  uint8_t flag_32;
+  uint8_t flag_33;
+  uint8_t flag_34;
+  uint8_t flag_35;
+  uint8_t flag_36;
+  bool isPassive;
+  uint32_t rngState[8];
 };
 
 struct TurnFacingPacket {

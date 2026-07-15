@@ -518,12 +518,50 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
   Overlay::Log("[NET] Queuing TurnAction: Type=%d NUID=%u Ability=%s",
                pkt->actionType, pkt->actorNUID, pkt->abilityName);
 
-  ActionPacket action{};
-  action.type = PacketType::TurnAction;
-  action.data.action = *pkt;
+  if (pkt->isPassive) {
+    Overlay::Log("[NET] Forcing Passive Trigger: NUID=%u Ability=%s",
+                 pkt->actorNUID, pkt->abilityName);
+    
+    if (Character *c = NetworkManager::Get().GetCharacter(pkt->actorNUID)) {
+      TurnAction turnAction{};
+      turnAction.type = pkt->actionType;
+      turnAction.targetX = pkt->targetX;
+      turnAction.targetY = pkt->targetY;
+      turnAction.target2X = pkt->target2X;
+      turnAction.target2Y = pkt->target2Y;
+      turnAction.unk_28 = pkt->unk_28;
+      turnAction.unk_2C = pkt->unk_2C;
+      turnAction.flag_30 = pkt->flag_30;
+      turnAction.flag_31 = pkt->flag_31;
+      turnAction.flag_32 = pkt->flag_32;
+      turnAction.flag_33 = pkt->flag_33;
+      turnAction.flag_34 = pkt->flag_34;
+      turnAction.flag_35 = pkt->flag_35;
+      turnAction.flag_36 = pkt->flag_36;
+      turnAction.actor = c;
+      
+      Component *comp = GameUtils::FindCharacterPassive(c, pkt->abilityName);
+      if (comp) {
+          turnAction.ability = reinterpret_cast<Ability *>(comp);
+      } else {
+          turnAction.ability = GameUtils::FindCharacterAbility(c, pkt->abilityName);
+      }
+      
+      if (turnAction.ability) {
+          GameUtils::SetRNGState(pkt->rngState);
+          ParaboxAPI::ForceAbilityTrigger(turnAction.ability, &turnAction);
+      } else {
+          Overlay::Log("[NET] Failed to find passive/ability: %s", pkt->abilityName);
+      }
+    }
+  } else {
+    ActionPacket action{};
+    action.type = PacketType::TurnAction;
+    action.data.action = *pkt;
 
-  extern std::deque<ActionPacket> g_pendingInjections;
-  g_pendingInjections.push_back(action);
+    extern std::deque<ActionPacket> g_pendingInjections;
+    g_pendingInjections.push_back(action);
+  }
 }
 
 void NetworkManager::HandleTurnFacing(CSteamID remoteID, const void *data,

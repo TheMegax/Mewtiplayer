@@ -39,6 +39,11 @@ void __fastcall Hook_AbilityTrigger(Ability *ability, TurnAction *turnAction) {
         g_origAbilityTrigger(ability, turnAction);
 }
 
+void ParaboxAPI::ForceAbilityTrigger(Ability *ability, TurnAction *turnAction) {
+    if (g_origAbilityTrigger)
+        g_origAbilityTrigger(ability, turnAction);
+}
+
 static void *__fastcall Hook_EnqueueAction(void *queue, TurnAction *actionData) {
     ParaboxAPI::EnqueueActionEvent ev = {};
     ev.queue = queue;
