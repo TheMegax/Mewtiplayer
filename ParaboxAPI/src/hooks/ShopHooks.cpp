@@ -1,12 +1,28 @@
 #include "hooks/ShopHooks.h"
 #include "hooks/HookMacros.h"
 #include "Scanner.h"
+#include "GameUtils.h"
 #include <iostream>
 
 namespace ParaboxAPI {
 Event<ShopBuyItemEvent> OnShopBuyItem;
 Event<ShopExitButtonEvent> OnShopExitButton;
 Event<ShopChestClickEvent> OnShopChestClick;
+Event<ShopLevelUpEvent> OnShopLevelUp;
+
+typedef void* (*PickRandom_t)(void* vec, void* rngState);
+static PickRandom_t g_PickRandom = nullptr;
+
+PARABOX_API void* PickRandomCat(void* vec) {
+  if (g_PickRandom) {
+    if (auto* tls = GameUtils::GetThreadLocalStoragePointer()) {
+      const auto global_rng = (void*)((uintptr_t)tls + 0x178);
+      return g_PickRandom(vec, global_rng);
+    }
+  }
+  return nullptr;
+}
+
 } // namespace ParaboxAPI
 
 // This is the global active Shop state (useful for dummy captures).
@@ -23,6 +39,22 @@ static void __fastcall Hook_ShopInit(void* shopInstance, void* p2, void* p3, uin
     g_origShopInit(shopInstance, p2, p3, p4);
   }
 }
+
+
+HOOK_DEFINE(LevelUpLambda, void, void* capture)
+static void __fastcall Hook_LevelUpLambda(void* capture) {
+  if (capture) {
+    auto* vec = (podvector<void*>*)((uintptr_t)capture + 0x10);
+    
+    ParaboxAPI::ShopLevelUpEvent e{vec};
+    ParaboxAPI::OnShopLevelUp.Publish(e);
+  }
+  
+  if (g_origLevelUpLambda) {
+    g_origLevelUpLambda(capture);
+  }
+}
+
 
 static void __fastcall Hook_ShopBuyItem(void* capture) {
   void* shopItem = *(void**)capture;
@@ -117,6 +149,17 @@ void ForceShopChestClick() {
 } // namespace ParaboxAPI
 
 void ShopHooks_Init(MewjectorAPI* mj, uintptr_t gameBase) {
+  // There is a duplicate pickRandom, so this is a monstrous sig :plead:
+  SCAN_SET(mj, gameBase, PickRandom,
+    "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 8B 79 04 48 8B F2 48 8B D9 85 FF 75 12 33 C0 "
+    "48 8B 5C 24 08 48 8B 74 24 10 48 8B 7C 24 18 C3 48 8B 4A 08 0F 57 C9 4C 8B 52 18 4C 8B "
+    "C1 4C 8B 0A 49 8B D1 49 C1 E0 11 48 33 56 10 48 8B C2 49 33 D0 4F 8D 1C 11 48 89 56 10 "
+    "4C 33 D1 49 C1 EB 0B 4D 33 CA 48 33 C1 49 C1 CA 13 48 89 46 08 4C 89 0E 4C 89 56 18 4D "
+    "85 DB 78 07 F2 49 0F 2A CB EB 16 49 8B C3 41 83 E3 01 48 D1 E8 49 0B C3 F2 48 0F 2A C8 "
+    "F2 0F 58 C9 F2 0F 59 0D ?? ?? ?? ?? 48 8B 74 24 10 66 0F 6E C7 48 8B 7C 24 18 F3 0F E6 "
+    "C0 F2 0F 59 C8 F2 0F 2C C1 48 63 C8 48 8B 43 08 48 8B 5C 24 08 48 8B 04 C8 C3", 
+    ParaboxAPI::g_PickRandom);
+
   HOOK_INSTALL(mj, gameBase, ShopBuyItem, "48 89 5c 24 18 48 89 7c 24 20 55 48 8b ec 48 81 ec ?? ?? ?? ?? 48 8b f9 48 8b 51 08 80 7a 7b 00", 14);
   HOOK_INSTALL(mj, gameBase, ShopExitButton, "48 89 5c 24 10 57 48 83 ec 20 48 8b 41 08 48 8b d9 83 b8 88 00 00 00 00", 14);
   
@@ -126,5 +169,9 @@ void ShopHooks_Init(MewjectorAPI* mj, uintptr_t gameBase) {
                
   HOOK_INSTALL(mj, gameBase, ShopChestClick, 
     "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b 41 08 48 8b f9 33 db 48 8b 70 38 48 8b 8e ?? ?? ?? ??",
+    15);
+
+  HOOK_INSTALL(mj, gameBase, LevelUpLambda,
+    "48 89 5C 24 18 57 48 83 EC 40 48 8B 41 08 48 8D 54 24 20 48 8B F9 48 8B 48 28 48 8B 05 ?? ?? ?? ??",
     15);
 }

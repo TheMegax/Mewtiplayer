@@ -1459,5 +1459,17 @@ void RegisterShopSubscribers() {
             Overlay::Log("[SHOP] Broadcast ShopChestClick");
         }
     });
+
+    // For whatever reason, the game decides to use a different, misc RNG here instead of the seeded one.
+    // This overrides that behavior, forcing it to select one option.
+    ParaboxAPI::OnShopLevelUp.Subscribe([](ParaboxAPI::ShopLevelUpEvent& ev) {
+        if (NetworkManager::Get().GetCurrentLobby().IsValid() && ev.optionsVec && ev.optionsVec->size_ > 1) {
+            if (void* pickedCat = ParaboxAPI::PickRandomCat(ev.optionsVec)) {
+                ev.optionsVec->data_[0] = pickedCat;
+                ev.optionsVec->size_ = 1;
+                Overlay::Log("[SHOP] [HACK] Synchronized Rare Candy RNG");
+            }
+        }
+    });
 }
 

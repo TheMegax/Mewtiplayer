@@ -378,12 +378,9 @@ private:
 
   static void HandleRNGSync(const void *data, uint32_t length);
   void HandleMouseMove(const void *data, uint32_t length);
-  void HandleCatOwnershipSync(const void *data,
-                              uint32_t length);
-
+  void HandleCatOwnershipSync(const void *data, uint32_t length);
   static void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
   void HandleTurnFacing(CSteamID remoteID, const void *data, uint32_t length);
-
   void HandleSaveCatRequest(CSteamID remoteID);
   void HandleSaveCatResponse(CSteamID remoteID, const void *data, uint32_t length);
   void HandleSaveFileTransfer(CSteamID remoteID, const void *data, uint32_t length);
@@ -405,7 +402,6 @@ private:
   void HandleWorldEventClickEnd(const void* data, uint32_t length);
   void HandleShopBuyItem(const void* data, uint32_t length);
   void HandleShopExitButton(const void* data, uint32_t length);
-
   void HandleShopChestClick(const void* data, uint32_t length);
 
   // Save synchronization state variables

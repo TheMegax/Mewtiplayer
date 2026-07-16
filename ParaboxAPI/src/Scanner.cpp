@@ -35,8 +35,8 @@ uintptr_t FindPattern(const uintptr_t base, const char *signature) {
     return 0;
   };
 
-  uint8_t patternBytes[128];
-  bool patternMask[128];
+  uint8_t patternBytes[512];
+  bool patternMask[512];
   size_t patternLen = 0;
 
   for (const char *p = signature; *p; p++) {
@@ -49,6 +49,10 @@ uintptr_t FindPattern(const uintptr_t base, const char *signature) {
       if (*(p + 1) == '?')
         p++;
     } else {
+      if (patternLen >= 512) {
+        ParaboxAPI::Log("[PARABOX] [ERR] Signature too long in FindPattern!");
+        return 0;
+      }
       patternBytes[patternLen] = (hexToByte(*p) << 4) | hexToByte(*(p + 1));
       patternMask[patternLen] = true;
       patternLen++;

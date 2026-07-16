@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "ParaboxAPI.h"
+#include "MewgenicsTypes.h"
 
 namespace ParaboxAPI {
 
@@ -15,10 +16,15 @@ struct ShopExitButtonEvent {
   bool cancelled;
 };
 
+struct ShopLevelUpEvent {
+  podvector<void*>* optionsVec;
+};
+
 
 
 extern PARABOX_API Event<ShopBuyItemEvent> OnShopBuyItem;
 extern PARABOX_API Event<ShopExitButtonEvent> OnShopExitButton;
+extern PARABOX_API Event<ShopLevelUpEvent> OnShopLevelUp;
 
 
 struct ShopChestClickEvent {
@@ -32,6 +38,7 @@ PARABOX_API void ForceShopBuyItem(uint32_t itemIndex);
 PARABOX_API void ForceShopExitButton();
 
 PARABOX_API void ForceShopChestClick();
+PARABOX_API void* PickRandomCat(void* vec);
 
 } // namespace ParaboxAPI
 
