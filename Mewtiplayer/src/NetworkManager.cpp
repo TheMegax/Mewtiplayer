@@ -179,6 +179,16 @@ void NetworkManager::ReceivePackets() {
     case PacketType::WorldEventClickEnd:
       HandleWorldEventClickEnd(payload, payloadLen);
       break;
+    case PacketType::ShopBuyItem:
+      HandleShopBuyItem(payload, payloadLen);
+      break;
+    case PacketType::ShopExitButton:
+      HandleShopExitButton(payload, payloadLen);
+      break;
+
+    case PacketType::ShopChestClick:
+      HandleShopChestClick(payload, payloadLen);
+      break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -1426,4 +1436,27 @@ void NetworkManager::HandleWorldEventClickEnd(const void *data, const uint32_t l
 
   extern void TriggerWorldEventClickEnd(uint8_t buttonType);
   TriggerWorldEventClickEnd(packet->buttonType);
+}
+
+#include "hooks/ShopHooks.h"
+
+void NetworkManager::HandleShopBuyItem(const void* data, uint32_t length) {
+  if (length != sizeof(ShopBuyItemPacket)) return;
+  const auto *packet = (const ShopBuyItemPacket *)data;
+  Overlay::Log("[SHOP] Received ShopBuyItem: index %u", packet->itemIndex);
+  ParaboxAPI::ForceShopBuyItem(packet->itemIndex);
+}
+
+void NetworkManager::HandleShopExitButton(const void* data, uint32_t length) {
+  if (length != sizeof(ShopExitButtonPacket)) return;
+  Overlay::Log("[SHOP] Received ShopExitButton");
+  ParaboxAPI::ForceShopExitButton();
+}
+
+
+
+void NetworkManager::HandleShopChestClick(const void* data, uint32_t length) {
+  if (length != sizeof(ShopChestClickPacket)) return;
+  Overlay::Log("[SHOP] Received ShopChestClick");
+  ParaboxAPI::ForceShopChestClick();
 }

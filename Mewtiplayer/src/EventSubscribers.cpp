@@ -1452,11 +1452,11 @@ void RegisterShopSubscribers() {
         }
     });
 
-    ParaboxAPI::OnShopReroll.Subscribe([](ParaboxAPI::ShopRerollEvent& ev) {
+    ParaboxAPI::OnShopChestClick.Subscribe([](ParaboxAPI::ShopChestClickEvent& ev) {
         if (NetworkManager::Get().GetCurrentLobby().IsValid()) {
-            ShopRerollPacket pkt = {};
-            NetworkManager::Get().BroadcastPacket(PacketType::ShopReroll, &pkt, sizeof(pkt), true);
-            Overlay::Log("[SHOP] Broadcast ShopReroll");
+            ShopChestClickPacket pkt = {};
+            NetworkManager::Get().BroadcastPacket(PacketType::ShopChestClick, &pkt, sizeof(pkt), true);
+            Overlay::Log("[SHOP] Broadcast ShopChestClick");
         }
     });
 }

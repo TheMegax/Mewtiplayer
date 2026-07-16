@@ -15,14 +15,11 @@ struct ShopExitButtonEvent {
   bool cancelled;
 };
 
-struct ShopRerollEvent {
-  void* shopInstance;
-  bool cancelled;
-};
+
 
 extern PARABOX_API Event<ShopBuyItemEvent> OnShopBuyItem;
 extern PARABOX_API Event<ShopExitButtonEvent> OnShopExitButton;
-extern PARABOX_API Event<ShopRerollEvent> OnShopReroll;
+
 
 struct ShopChestClickEvent {
   void* shopInstance;
@@ -33,7 +30,7 @@ extern PARABOX_API Event<ShopChestClickEvent> OnShopChestClick;
 
 PARABOX_API void ForceShopBuyItem(uint32_t itemIndex);
 PARABOX_API void ForceShopExitButton();
-PARABOX_API void ForceShopReroll();
+
 PARABOX_API void ForceShopChestClick();
 
 } // namespace ParaboxAPI

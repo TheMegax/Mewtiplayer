@@ -50,7 +50,7 @@ enum class PacketType : uint8_t {
   // --- Shop / Loot ---
   ShopBuyItem,
   ShopExitButton,
-  ShopReroll,
+
   ShopChestClick,
 };
 
@@ -237,10 +237,6 @@ struct ShopExitButtonPacket {
   uint8_t dummy;
 };
 
-struct ShopRerollPacket {
-  uint8_t dummy;
-};
-
 struct ShopChestClickPacket {
   uint8_t dummy;
 };
@@ -409,7 +405,7 @@ private:
   void HandleWorldEventClickEnd(const void* data, uint32_t length);
   void HandleShopBuyItem(const void* data, uint32_t length);
   void HandleShopExitButton(const void* data, uint32_t length);
-  void HandleShopReroll(const void* data, uint32_t length);
+
   void HandleShopChestClick(const void* data, uint32_t length);
 
   // Save synchronization state variables
