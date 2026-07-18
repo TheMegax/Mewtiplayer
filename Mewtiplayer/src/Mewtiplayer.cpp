@@ -33,8 +33,10 @@ void RegisterShopSubscribers();
 // Temporary forward declarations until extracted from hook files
 void ClassChooserHooks_UITick();
 void StorageHooks_UITick();
+void MapHooks_UITick();
 void ClassChooserHooks_Shutdown();
 void StorageHooks_Shutdown();
+void MapHooks_Shutdown();
 
 // ---------------------------------------------------------------------------
 // ParaboxAPI subscribers — centralised Mewtiplayer logic
@@ -147,6 +149,7 @@ static void __cdecl Mewtiplayer_UITick(void *userData) {
     (void)userData;
     ClassChooserHooks_UITick();
     StorageHooks_UITick();
+    MapHooks_UITick();
 }
 
 void InitializeMewUI() {
@@ -170,6 +173,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {
             Overlay::Log("Unloading!");
             ClassChooserHooks_Shutdown();
             StorageHooks_Shutdown();
+            MapHooks_Shutdown();
             MewUI_Stop();
             ImGuiHook::Unload();
         }

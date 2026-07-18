@@ -15,7 +15,6 @@ HOOK_DEFINE(Scene_AddComponent, void, void *, void *)
 HOOK_DEFINE(InventoryScreen2_Close, void, void *)
 
 static std::vector<void *>* g_storageItemBoxes = new std::vector<void *>();
-static void *g_MapScreen = nullptr;
 
 static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr) {
   ParaboxAPI::SceneManagerCreateSceneEvent ev = {};
@@ -45,23 +44,35 @@ static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr
 }
 
 static void __fastcall Hook_Scene_AddComponent(void *scene, void *comp) {
-  if (g_origScene_AddComponent) {
-    g_origScene_AddComponent(scene, comp);
+  if (!scene || !comp) {
+    if (g_origScene_AddComponent) g_origScene_AddComponent(scene, comp);
+    return;
   }
 
-  if (!scene || !comp) return;
-
   const auto *s = static_cast<Scene *>(scene);
+  bool isInventoryScreen2 = false;
+  bool isInventoryItemBox = false;
   if (s->name.is_valid()) {
     MsvcReleaseModeXString compName = {};
     if (GameUtils::SafeGetComponentName(static_cast<Component *>(comp), &compName)) {
       const auto compView = compName.as_native_string_view();
-      if (s->name.as_native_string_view() == "StorageItems" && compView == "InventoryItemBox") {
-        g_storageItemBoxes->push_back(comp);
-      } else if (compView == "MapScreen") {
-        g_MapScreen = comp;
-      }
+      if (compView == "InventoryScreen2") isInventoryScreen2 = true;
+      else if (compView == "InventoryItemBox") isInventoryItemBox = true;
       GameUtils::FreeXString(compName);
+    }
+  }
+
+  if (isInventoryScreen2) {
+    g_storageItemBoxes->clear();
+  }
+
+  if (g_origScene_AddComponent) {
+    g_origScene_AddComponent(scene, comp);
+  }
+
+  if (s->name.is_valid()) {
+    if (isInventoryItemBox) {
+      g_storageItemBoxes->push_back(comp);
     }
   }
 
@@ -132,14 +143,9 @@ PARABOX_API void UpdateStorageItemSlot(int32_t slotIndex, int64_t catID) {
 }
 
 PARABOX_API int64_t ResolveSelectedCatID() {
-  if (const auto *director = GameUtils::GetMewDirectorSingleton();
-    director && director->pedigreeState) {
-    for (const Scene *scene : GameUtils::GetCurrentScenes()) {
-      if (!scene) continue;
-      if (void* comp = GameUtils::FindComponentByTypeName(scene, "CatSelector")) {
-        return static_cast<const glaiel::CatSelector *>(comp)->catID;
-      }
-    }
+  if (const auto *selector = static_cast<const glaiel::CatSelector *>(GetActiveCatSelector());
+      selector && IsCatSelectorValid(selector)) {
+    return selector->catID;
   }
   return -1;
 }
@@ -151,12 +157,16 @@ PARABOX_API void ForceInventoryScreen2Close(void *self) {
 }
 
 PARABOX_API void *GetMapScreen() {
-  return g_MapScreen;
+  for (const auto* scene : GameUtils::GetCurrentScenes()) {
+    if (!scene) continue;
+    if (scene->name.is_valid() && scene->name.as_native_string_view() == "Map") {
+      return GameUtils::FindComponentByTypeName(scene, "MapScreen");
+    }
+  }
+  return nullptr;
 }
 
-PARABOX_API void SetMapScreen(void *screen) {
-  g_MapScreen = screen;
-}
+
 
 } // namespace ParaboxAPI
 

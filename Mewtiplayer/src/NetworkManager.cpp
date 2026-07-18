@@ -161,6 +161,12 @@ void NetworkManager::ReceivePackets() {
     case PacketType::ActSelectSync:
       HandleActSelectSync(payload, payloadLen);
       break;
+    case PacketType::MapInventoryOpen:
+      HandleMapInventoryOpen(payload, payloadLen);
+      break;
+    case PacketType::MapInventoryClose:
+      HandleMapInventoryClose(payload, payloadLen);
+      break;
     case PacketType::LevelUpSelectOption:
       HandleLevelUpSelectOption(payload, payloadLen);
       break;
@@ -1365,11 +1371,38 @@ void NetworkManager::HandleActSelectSync(const void *data, const uint32_t length
   if (length != sizeof(ActSelectPacket)) {
     return;
   }
-  const auto *packet = (const ActSelectPacket *)data;
-  Overlay::Log("[ACT] Received ActSelectSync: actIndex %u", packet->actIndex);
+  const auto *pkt = (const ActSelectPacket *)data;
+  Overlay::Log("[ACT] Received ActSelectSync: actIndex %u", pkt->actIndex);
+  if (GameUtils::IsComponentValid(ParaboxAPI::GetActSelectionScreen())) {
+    extern void TriggerActSelect(uint32_t actIndex);
+    TriggerActSelect(pkt->actIndex);
+  }
+}
 
-  extern void TriggerActSelect(uint32_t actIndex);
-  TriggerActSelect(packet->actIndex);
+void NetworkManager::HandleMapInventoryOpen(const void *data, const uint32_t length) {
+  if (length != sizeof(MapInventoryOpenPacket)) return;
+  Overlay::Log("[NETWORK] Received MapInventoryOpen");
+  extern void ForceMapInventoryOpen();
+  ForceMapInventoryOpen();
+}
+
+void NetworkManager::HandleMapInventoryClose(const void *data, const uint32_t length) {
+  if (length != sizeof(MapInventoryClosePacket)) return;
+  Overlay::Log("[NETWORK] Received MapInventoryClose");
+  extern void *g_activeInventoryScreenThis;
+  
+  if (g_activeInventoryScreenThis) {
+    ParaboxAPI::ForceInventoryScreen2Close(g_activeInventoryScreenThis);
+    g_activeInventoryScreenThis = nullptr;
+  } else {
+    for (const auto* scene : GameUtils::GetCurrentScenes()) {
+      if (!scene) continue;
+      if (void* comp = GameUtils::FindComponentByTypeName(scene, "InventoryScreen2")) {
+        ParaboxAPI::ForceInventoryScreen2Close(comp);
+        break;
+      }
+    }
+  }
 }
 
 void NetworkManager::HandleLevelUpSelectOption(const void *data, const uint32_t length) {

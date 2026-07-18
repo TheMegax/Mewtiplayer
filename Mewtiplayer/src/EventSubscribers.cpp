@@ -2,6 +2,10 @@
 #include "NetworkManager.h"
 #include "ModState.h"
 #include "Overlay.h"
+#include "hooks/StorageHooks.h"
+#include "hooks/SaveHooks.h"
+#include <windows.h>
+#include <cstring>
 #include "SteamABICompat.h"
 #include "mew_ui_api.h"
 #include "GameUtils.h"
@@ -37,6 +41,8 @@ static void *g_lastActionQueue = nullptr;
 
 // SaveHooks state
 std::map<int64_t, uint64_t> g_catIdToOwnerSteamID;
+
+bool g_isHandlingNetworkMapInventoryOpen = false;
 
 // ---------------------------------------------------------------------------
 // SaveHooks Subscribers
@@ -863,8 +869,20 @@ void StorageHooks_UITick() {
         if (!g_storageButtonHooked) {
             if (scene_manager) {
                 if (void* button = MewUI_FindButtonByRole(scene_manager, "CloseButton")) {
-                    MewUI_RegisterExistingButton(button, nullptr, StorageLockInButtonCallback, nullptr);
-                    g_storageLockInButton = button;
+                    bool isCatStatusScreen = false;
+                    for (const auto* scene : GameUtils::GetCurrentScenes()) {
+                        if (!scene) continue;
+                        if (scene->name.is_valid() && scene->name.as_native_string_view() == "CatStatus") {
+                            isCatStatusScreen = true;
+                            break;
+                        }
+                    }
+                    if (!isCatStatusScreen) {
+                        MewUI_RegisterExistingButton(button, nullptr, StorageLockInButtonCallback, nullptr);
+                        g_storageLockInButton = button;
+                    } else {
+                        g_storageLockInButton = nullptr;
+                    }
                     g_storageButtonHooked = true;
                     g_storageLastLocalReadyState = !g_localReady;
                 }
@@ -905,6 +923,7 @@ void HandleStorageItemSyncInternal(const void *data, const uint32_t length) {
                  packet->steamID, packet->slotIndex, packet->catID);
 
     ParaboxAPI::UpdateStorageItemSlot(packet->slotIndex, packet->catID);
+    ParaboxAPI::RefreshCatSelectorUI();
 }
 
 void RegisterStorageSubscribers() {
@@ -936,6 +955,11 @@ void RegisterStorageSubscribers() {
                         const uint32_t index = g_pendingMapNodeSyncIndex;
                         g_pendingMapNodeSyncIndex = 0xFFFFFFFF;
                         TriggerMapNodeSync(index);
+                    }
+                } else if (compView == "InventoryScreen2") {
+                    if (!g_isHandlingNetworkMapInventoryOpen && GameUtils::IsComponentValid(ParaboxAPI::GetMapScreen())) {
+                        MapInventoryOpenPacket pkt = {};
+                        NetworkManager::Get().BroadcastPacket(PacketType::MapInventoryOpen, &pkt, sizeof(pkt), true);
                     }
                 }
                 GameUtils::FreeXString(compName);
@@ -976,6 +1000,21 @@ void RegisterStorageSubscribers() {
     ParaboxAPI::OnInventoryScreen2Close.Subscribe([](ParaboxAPI::InventoryScreen2CloseEvent& ev) {
         if (!NetworkManager::Get().GetCurrentLobby().IsValid()) return;
 
+        bool isCatStatusScreen = false;
+        for (const auto* scene : GameUtils::GetCurrentScenes()) {
+            if (!scene) continue;
+            if (scene->name.is_valid() && scene->name.as_native_string_view() == "CatStatus") {
+                isCatStatusScreen = true;
+                break;
+            }
+        }
+        
+        if (isCatStatusScreen) {
+            MapInventoryClosePacket pkt = {};
+            NetworkManager::Get().BroadcastPacket(PacketType::MapInventoryClose, &pkt, sizeof(pkt), true);
+            return;
+        }
+
         g_activeInventoryScreenThis = ev.self;
         g_localReady = !g_localReady;
 
@@ -1005,6 +1044,62 @@ void RegisterStorageSubscribers() {
 // ---------------------------------------------------------------------------
 // MapHooks Subscribers
 // ---------------------------------------------------------------------------
+
+static MewUISceneBinding g_mapScene = {};
+static bool g_mapSceneInitialized = false;
+static void* g_mapInventoryButton = nullptr;
+static bool g_mapInventoryButtonHooked = false;
+
+static void __cdecl MapSceneRefreshCallback(MewUISceneBinding* binding, MewUISceneRefreshResult result, void* old_scene_manager, void* new_scene_manager, void* user_data) {
+    if (result == MEW_UI_SCENE_REFRESH_LOADED || result == MEW_UI_SCENE_REFRESH_CHANGED) {
+        g_mapInventoryButton = nullptr;
+        g_mapInventoryButtonHooked = false;
+    } else if (result == MEW_UI_SCENE_REFRESH_UNLOADED) {
+        g_mapInventoryButton = nullptr;
+        g_mapInventoryButtonHooked = false;
+    }
+}
+
+// Obsolete Map_Backpack callback removed
+
+void MapHooks_UITick() {
+    if (!g_mapSceneInitialized) {
+        MewUI_InitSceneBinding(&g_mapScene, "Map", MapSceneRefreshCallback, nullptr);
+        g_mapSceneInitialized = true;
+    }
+
+    MewUI_RefreshSceneBinding(&g_mapScene);
+
+    if (MewUI_IsSceneBindingActive(&g_mapScene)) {
+        void* scene_manager = MewUI_GetSceneBindingScene(&g_mapScene);
+
+        if (!g_mapInventoryButtonHooked) {
+            if (scene_manager) {
+                // Keep the button hooked so we can activate it from the remote side
+                if (void* button = MewUI_FindButtonByRole(scene_manager, "Map_Backpack")) {
+                    g_mapInventoryButton = button;
+                    g_mapInventoryButtonHooked = true;
+                    Overlay::Log("[MAP] Hooked Map Inventory Button!");
+                }
+            }
+        }
+    }
+}
+
+void MapHooks_Shutdown() {
+    if (g_mapSceneInitialized) {
+        MewUI_ClearSceneBinding(&g_mapScene);
+        g_mapSceneInitialized = false;
+    }
+    g_mapInventoryButton = nullptr;
+    g_mapInventoryButtonHooked = false;
+}
+
+void ForceMapInventoryOpen() {
+    g_isHandlingNetworkMapInventoryOpen = true;
+    ParaboxAPI::ForceMapInventoryOpen();
+    g_isHandlingNetworkMapInventoryOpen = false;
+}
 
 bool g_isHandlingNetworkMapNodeSync = false;
 

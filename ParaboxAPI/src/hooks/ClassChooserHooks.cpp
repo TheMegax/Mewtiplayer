@@ -111,6 +111,10 @@ static void __fastcall Hook_ClassChooser_LockIn(void *lambdaThis) {
 
 namespace ParaboxAPI {
 
+PARABOX_API void* GetActiveCatSelector() {
+  return g_activeCatSelector;
+}
+
 PARABOX_API bool IsCatSelectorValid(const void *selector) {
   if (!selector) {
     return false;

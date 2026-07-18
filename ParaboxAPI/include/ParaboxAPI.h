@@ -379,6 +379,7 @@ PARABOX_API void InstallHooks(MewjectorAPI *mj, uintptr_t gameBase);
 PARABOX_API void* GameAllocate(size_t size);
 
 // ClassChooser API
+PARABOX_API void* GetActiveCatSelector();
 PARABOX_API bool IsCatSelectorValid(const void *selector);
 PARABOX_API void RefreshCatSelectorUI();
 PARABOX_API PersistentCharacter *GetPersistentCharacterById(int64_t catID);
@@ -394,10 +395,11 @@ PARABOX_API void UpdateStorageItemSlot(int32_t slotIndex, int64_t catID);
 PARABOX_API int64_t ResolveSelectedCatID();
 PARABOX_API void ForceInventoryScreen2Close(void *self);
 PARABOX_API void *GetMapScreen();
-PARABOX_API void SetMapScreen(void *screen);
+
 
 // Map API
 PARABOX_API void ForceMapNodeClick(void* matchedNode);
+PARABOX_API void ForceMapInventoryOpen();
 
 // ActSelection API
 PARABOX_API void *GetActSelectionScreen();

@@ -40,6 +40,8 @@ enum class PacketType : uint8_t {
   // --- Map ---
   MapNodeSync,
   ActSelectSync,
+  MapInventoryOpen,
+  MapInventoryClose,
   // --- Level Up / Ability Chooser ---
   LevelUpSelectOption,
   LevelUpReroll,
@@ -50,7 +52,6 @@ enum class PacketType : uint8_t {
   // --- Shop / Loot ---
   ShopBuyItem,
   ShopExitButton,
-
   ShopChestClick,
 };
 
@@ -194,6 +195,14 @@ struct ActSelectPacket {
   uint32_t actIndex;
 };
 #pragma pack(pop)
+
+struct MapInventoryOpenPacket {
+  uint8_t dummy;
+};
+
+struct MapInventoryClosePacket {
+  uint8_t dummy;
+};
 
 #pragma pack(push, 1)
 struct LevelUpSelectOptionPacket {
@@ -394,6 +403,8 @@ private:
   void HandleStorageItemSync(const void *data, uint32_t length);
   void HandleMapNodeSync(const void *data, uint32_t length);
   void HandleActSelectSync(const void *data, uint32_t length);
+  void HandleMapInventoryOpen(const void *data, uint32_t length);
+  void HandleMapInventoryClose(const void *data, uint32_t length);
   void HandleLevelUpSelectOption(const void* data, uint32_t length);
   void HandleLevelUpReroll(const void* data, uint32_t length);
   void HandleAbilityReplace(const void* data, uint32_t length);
