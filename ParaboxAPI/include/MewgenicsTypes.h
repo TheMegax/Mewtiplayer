@@ -282,7 +282,7 @@ struct MewDirector {
   char _padding_3[0x8];                 // 0x5B0
   int32_t partyCapacity;                // 0x5B8
   int32_t partyCount;                   // 0x5BC
-  PersistentCharacter **partyData;      // 0x5C0
+  int64_t *partyCatIDs;                 // 0x5C0
   char _padding_4[0x108];               // 0x5C8
   int32_t eventDifficulty;              // 0x6D0
   char _padding_5[0x4];                 // 0x6D4

@@ -736,14 +736,38 @@ void ClassChooserHooks_Shutdown() {
     g_buttonHooked = false;
 }
 
-// Ensure trigger works
 extern void StorageHooks_TriggerEmbarkProceed();
+
 void CatSelectorHooks_TriggerLockInProceed() {
     if (g_hasTriggeredProceed) return;
     g_hasTriggeredProceed = true;
 
     if (g_activeClassChooserLambdaThis) {
+        std::vector<PersistentCharacter*> colorlessCats;
+        if (const auto director = GameUtils::GetMewDirectorSingleton()) {
+            if (director->partyCatIDs && director->partyCount > 0) {
+                for (int i = 0; i < director->partyCount; i++) {
+                    const int64_t catID = director->partyCatIDs[i];
+                    PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(catID);
+                    if (cat && cat->className.is_valid() && cat->className.as_native_string_view() == "Colorless") {
+                        colorlessCats.push_back(cat);
+                    }
+                }
+            }
+        }
+
+        for (auto *cat : colorlessCats) {
+            GameUtils::FreeXString(cat->className);
+            GameUtils::InitXString(cat->className, "Fighter");
+        }
+
         ParaboxAPI::ForceClassChooserLockIn(g_activeClassChooserLambdaThis);
+
+        for (auto *cat : colorlessCats) {
+            GameUtils::FreeXString(cat->className);
+            GameUtils::InitXString(cat->className, "Colorless");
+        }
+
         g_activeClassChooserLambdaThis = nullptr;
     }
 
@@ -751,6 +775,24 @@ void CatSelectorHooks_TriggerLockInProceed() {
 
     g_lobbyReadyStates.clear();
     g_localReady = false;
+}
+
+namespace {
+struct ClassTagBoxLocal : Component  {
+  void *classChooser;                     // 0x38
+  [[maybe_unused]] char _padding_0[0x18]; // 0x40
+  MsvcReleaseModeXString boxName;         // 0x58
+  [[maybe_unused]] char _padding_1[0x18]; // 0x78
+  int64_t catID;                          // 0x90
+};
+
+struct ClassChooserLocal : Component {
+  [[maybe_unused]] char _padding_0[0x64]; // 0x38
+  uint32_t numTagBoxes;                   // 0x9c
+  ClassTagBoxLocal **tagBoxes;            // 0xa0
+  [[maybe_unused]] char _padding_1[0x28]; // 0xa8
+  int64_t catID;                          // 0xd0
+};
 }
 
 void RegisterClassChooserSubscribers() {
@@ -797,14 +839,10 @@ void RegisterClassChooserSubscribers() {
         NetworkManager::Get().BroadcastPacket(PacketType::LobbyReady, &packet, sizeof(packet), false);
         Overlay::Log("[LOBBY] Local ready state: %s", g_localReady ? "locked in" : "not ready");
 
+        ev.Cancel();
+
         if (NetworkManager::Get().IsHost() && AreAllLobbyMembersReady()) {
-            if (!g_hasTriggeredProceed) {
-                g_hasTriggeredProceed = true;
-                NetworkManager::Get().BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
-                g_activeClassChooserLambdaThis = nullptr;
-            }
-        } else {
-            ev.Cancel(); // Don't proceed yet!
+            NetworkManager::Get().BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
         }
     });
 }
@@ -827,9 +865,9 @@ static void ApplyStorageLockInButtonText() {
     if (!g_storageLockInButton) return;
 
     const char* lockinoutText = g_localReady ? "Lock Out" : "Lock In!";
-    uintptr_t gameBase = (uintptr_t)GetModuleHandleA(nullptr);
-    auto initString = reinterpret_cast<MewFnInitNarrowString>(gameBase + MEW_RVA_INIT_NARROW_STRING);
-    auto setTextString = reinterpret_cast<MewFnUIRootSetTextString>(gameBase + MEW_RVA_UI_ROOT_SET_TEXT_STRING);
+    const auto gameBase = (uintptr_t)GetModuleHandleA(nullptr);
+    const auto initString = reinterpret_cast<MewFnInitNarrowString>(gameBase + MEW_RVA_INIT_NARROW_STRING);
+    const auto setTextString = reinterpret_cast<MewFnUIRootSetTextString>(gameBase + MEW_RVA_UI_ROOT_SET_TEXT_STRING);
 
     if (initString && setTextString) {
         MewNarrowString childNameStr = {};

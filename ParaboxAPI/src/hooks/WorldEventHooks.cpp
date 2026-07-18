@@ -218,11 +218,11 @@ static Component* FindAnyCatButton() {
 
 static PersistentCharacter* FindCatInParty(int64_t catUID) {
   MewDirector* director = GameUtils::GetMewDirectorSingleton();
-  if (director && director->partyData) {
+  if (director && director->partyCatIDs) {
     for (int i = 0; i < director->partyCount; ++i) {
-      PersistentCharacter* cat = director->partyData[i];
-      if (cat && cat->sql_key == catUID) {
-        return cat;
+      int64_t id = director->partyCatIDs[i];
+      if (id == catUID) {
+        return ParaboxAPI::GetPersistentCharacterById(catUID);
       }
     }
   }
