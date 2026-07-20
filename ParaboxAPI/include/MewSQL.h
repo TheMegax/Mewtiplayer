@@ -61,4 +61,13 @@ PARABOX_API bool SaveFileExists(const char* path);
 PARABOX_API void DeleteSaveFile(const char* path);
 PARABOX_API void CloseActiveSaveConnection(void* mewDirector);
 
+struct CatOwnershipEntry {
+    uint64_t ownerSteamID; // 0 if not found
+    int32_t  catAge;       // -1 if not found
+};
+
+PARABOX_API void             CreateCatOwnershipTable(glaiel::SQLSaveFile* db);
+PARABOX_API void             WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, int64_t catKey, uint64_t ownerSteamID, int32_t catAge);
+PARABOX_API CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, int64_t catKey);
+
 } // namespace MewSQL

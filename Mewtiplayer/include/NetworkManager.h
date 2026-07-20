@@ -339,6 +339,8 @@ public:
   int GetTotalLobbyCatCount();
   int GetLobbyMemberCatCount(uint64_t steamID);
   void SendLocalCatCount();
+  void RestoreOwnershipFromSave(const char* saveName);
+
 
 private:
   NetworkManager() : m_mj(nullptr), m_AutoJoinStartTime(0), m_LastAutoJoinAttempt(0), m_AutoJoinFinished(false) { m_CurrentLobby.Clear(); }

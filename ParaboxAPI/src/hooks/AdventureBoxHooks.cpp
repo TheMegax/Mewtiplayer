@@ -353,6 +353,40 @@ PARABOX_API std::vector<int64_t> GetButchBoxCatKeys() {
   return keys;
 }
 
+PARABOX_API int64_t GetButchBoxCatRealSQLKey(const int64_t tableIndex) {
+  const ButchBox* box = nullptr;
+  for (const Scene* scene : GameUtils::GetCurrentScenes()) {
+    if (scene) {
+      box = (ButchBox*)GameUtils::FindComponentByTypeName(scene, "ButchBox");
+      if (box) break;
+    }
+  }
+
+  if (!box) {
+    box = g_activeButchBox;
+  }
+
+  if (!box) return tableIndex;
+
+  MewDirector* director = GameUtils::GetMewDirectorSingleton();
+  if (!director) return tableIndex;
+
+  void* pedigreeState = director->pedigreeState;
+  if (!pedigreeState || !g_LookupPersistentCharacter) return tableIndex;
+
+  for (int i = 0; i < g_adventureCapacity; ++i) {
+    if (box->cats.data_ && box->cats.data_[i]) {
+      const int64_t catID = box->cats.data_[i]->sql_key;
+      if (catID == tableIndex) {
+        if (const auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
+          return cat->sql_key;
+        }
+      }
+    }
+  }
+  return tableIndex;
+}
+
 PARABOX_API int GetButchBoxCatAge(const int64_t sqlKey) {
   const ButchBox* box = nullptr;
   for (const Scene* scene : GameUtils::GetCurrentScenes()) {

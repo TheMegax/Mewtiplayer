@@ -65,17 +65,26 @@ void RegisterSaveSubscribers() {
                     mewSaveFileLoad(&dummySave, index, cat);
                     *catIdPtr = originalID;
 
-                    const uint64_t ownerSteamID = MewSQL::ReadIntFromDatabase(
-                        dbFile, ("cat_owner_steamid_" + std::to_string(index)).c_str(), 0);
-                    const int64_t catID = ((PersistentCharacter *)cat)->catID;
-                    g_catIdToOwnerSteamID[catID] = ownerSteamID;
+                    // sql_key is now populated from the deserialized blob.
+                    const int64_t sqlKey = ((PersistentCharacter*)cat)->sql_key;
+                    const int64_t catID  = ((PersistentCharacter*)cat)->catID;
 
-                    const int64_t originalAge = MewSQL::ReadIntFromDatabase(dbFile, ("cat_original_age_" + std::to_string(index)).c_str(), -1);
-                    if (originalAge != -1) {
+                    const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(dbFile, sqlKey);
+
+                    if (ownerSteamID != 0) {
+                        g_catIdToOwnerSteamID[catID] = ownerSteamID;
+                        NetworkManager::Get().GetOwnershipMap()[sqlKey] = ownerSteamID;
+                        Overlay::Log("[SAVE] CreateStrayCat: OK sql_key=%lld -> owner=%llu age=%d",
+                                     sqlKey, ownerSteamID, catAge);
+                    } else {
+                        Overlay::Log("[SAVE] [WARN] CreateStrayCat: No owner for index %d (sql_key=%lld)", index, sqlKey);
+                    }
+
+                    if (catAge > 0) {
                         const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
                         const int32_t currentDayVal = dir ? dir->currentDay : 1;
-                        ((PersistentCharacter*)cat)->birthDay = currentDayVal - (int32_t)originalAge;
-                        Overlay::Log("[SAVE] Restored custom cat age to %lld", originalAge);
+                        ((PersistentCharacter*)cat)->birthDay = currentDayVal - catAge;
+                        Overlay::Log("[SAVE] Restored age %d for sql_key=%lld", catAge, sqlKey);
                     }
                 }
                 MewSQL::CloseSaveDatabase(dbFile);
@@ -1088,17 +1097,27 @@ static bool g_mapSceneInitialized = false;
 static void* g_mapInventoryButton = nullptr;
 static bool g_mapInventoryButtonHooked = false;
 
+static bool g_ownershipRestoredForThisLoad = false;
+
 static void __cdecl MapSceneRefreshCallback(MewUISceneBinding* binding, MewUISceneRefreshResult result, void* old_scene_manager, void* new_scene_manager, void* user_data) {
     if (result == MEW_UI_SCENE_REFRESH_LOADED || result == MEW_UI_SCENE_REFRESH_CHANGED) {
         g_mapInventoryButton = nullptr;
         g_mapInventoryButtonHooked = false;
+
+        // Restore ownership from the cat_ownership table whenever the Map scene loads
+        // while in a lobby. This covers the Continue Run case where CreateStrayCat
+        // does not fire. The one-shot flag prevents double-restoring per load.
+        if (!g_ownershipRestoredForThisLoad &&
+            NetworkManager::Get().GetCurrentLobby().IsValid()) {
+            g_ownershipRestoredForThisLoad = true;
+            NetworkManager::Get().RestoreOwnershipFromSave(CUSTOM_SAVE_NAME.c_str());
+        }
     } else if (result == MEW_UI_SCENE_REFRESH_UNLOADED) {
         g_mapInventoryButton = nullptr;
         g_mapInventoryButtonHooked = false;
+        g_ownershipRestoredForThisLoad = false; // Reset for the next load
     }
 }
-
-// Obsolete Map_Backpack callback removed
 
 void MapHooks_UITick() {
     if (!g_mapSceneInitialized) {

@@ -312,6 +312,13 @@ void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
 
   BroadcastPacket(PacketType::CatOwnershipSync, &data, sizeof(data),
                   false); // Include self to update map
+
+  if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str())) {
+    MewSQL::CreateCatOwnershipTable(db);
+    MewSQL::WriteCatOwnershipEntry(db, uid, steamID, 0);
+    MewSQL::CloseSaveDatabase(db);
+    Overlay::Log("[SAVE] Persisted ownership change: sql_key=%lld -> %llu", uid, steamID);
+  }
 }
 
 void NetworkManager::SetActiveNUID(const uint32_t nuid) {
@@ -805,7 +812,7 @@ void NetworkManager::BeginMultiplayerSave() {
         const size_t blobSize = blob.size();
         PendingCatBlob pending;
         pending.senderSteamID = myID.ConvertToUint64();
-        pending.sqlKey = key;
+        pending.sqlKey = GetButchBoxCatRealSQLKey(key);
         
         std::vector<uint8_t> stdBlob(blob.begin(), blob.end());
         pending.data = std::move(stdBlob);
@@ -875,7 +882,7 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
       if (!blob.empty()) {
         CatBlobHeader header = {};
         header.senderSteamID = myID.ConvertToUint64();
-        header.sqlKey = key;
+        header.sqlKey = GetButchBoxCatRealSQLKey(key);
         header.blobSize = blob.size();
         header.originalAge = GetButchBoxCatAge(key);
 
@@ -1063,6 +1070,8 @@ void NetworkManager::BuildAndDistributeSave() {
 
     Overlay::Log("[SAVE] Inserting %zu cats into %s...", m_collectedCatBlobs.size(), CUSTOM_SAVE_NAME.c_str());
 
+    MewSQL::CreateCatOwnershipTable(db);
+
     for (size_t i = 0; i < m_collectedCatBlobs.size(); ++i) {
       const auto& cat = m_collectedCatBlobs[i];
 
@@ -1078,15 +1087,10 @@ void NetworkManager::BuildAndDistributeSave() {
       std::string query = "INSERT OR REPLACE INTO cats VALUES (" + std::to_string(i + 1) + ", X'" + hexStr + "');";
       MewSQL::ExecSQLOnDatabase(db, query.c_str());
 
-      // Write original age to properties table
-      // We'll use it later to restore their original age once we send them back to their original saves
-      std::string ageQuery = "INSERT OR REPLACE INTO properties VALUES ('cat_original_age_" + std::to_string(i + 1) + "', " + std::to_string(cat.originalAge) + ");";
-      MewSQL::ExecSQLOnDatabase(db, ageQuery.c_str());
-
-      std::string ownerQuery = "INSERT OR REPLACE INTO properties VALUES ('cat_owner_steamid_" +
-                               std::to_string(i + 1) + "', " + std::to_string(cat.senderSteamID) + ");";
-      MewSQL::ExecSQLOnDatabase(db, ownerQuery.c_str());
-      Overlay::Log("[SAVE] Wrote original age %d for cat %zu into properties", cat.originalAge, i + 1);
+      // Write ownership keyed by stable sql_key into the cat_ownership table
+      MewSQL::WriteCatOwnershipEntry(db, cat.sqlKey, cat.senderSteamID, cat.originalAge);
+      Overlay::Log("[SAVE] cat_ownership: sql_key=%lld owner=%llu age=%d",
+                   cat.sqlKey, cat.senderSteamID, cat.originalAge);
     }
 
     // Add house storage upgrades to accommodate the merged inventory
@@ -1294,6 +1298,48 @@ int NetworkManager::GetLobbyMemberCatCount(const uint64_t steamID) {
     return it->second;
   }
   return 0;
+}
+
+void NetworkManager::RestoreOwnershipFromSave(const char* saveName) {
+  const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
+  if (!dir || !dir->partyCatIDs || dir->partyCount <= 0) {
+    Overlay::Log("[SAVE] [WARN] No party cats in MewDirector! (dir=%p, partyCatIDs=%p, partyCount=%d)",
+                 dir, dir ? dir->partyCatIDs : nullptr, dir ? dir->partyCount : -1);
+    return;
+  }
+
+  glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(saveName);
+  if (!db) {
+    Overlay::Log("[SAVE] [ERR] Failed to open database %s!", saveName);
+    return;
+  }
+
+  extern std::map<int64_t, uint64_t> g_catIdToOwnerSteamID;
+  int restored = 0;
+  for (int i = 0; i < dir->partyCount; i++) {
+    const int64_t catID = dir->partyCatIDs[i];
+    const PersistentCharacter* cat = ParaboxAPI::GetPersistentCharacterById(catID);
+    if (!cat) {
+      Overlay::Log("[SAVE] [WARN] [%d] GetPersistentCharacterById(%lld) -> null, skipping", i, catID);
+      continue;
+    }
+
+    const int64_t sqlKey = cat->sql_key;
+
+    const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(db, sqlKey);
+    if (ownerSteamID != 0) {
+      m_catOwnership[sqlKey] = ownerSteamID;
+      g_catIdToOwnerSteamID[catID] = ownerSteamID;
+      restored++;
+    } else {
+      Overlay::Log("[SAVE] [WARN] [%d] MISS sql_key=%lld not found in cat_ownership", i, sqlKey);
+    }
+  }
+
+  MewSQL::CloseSaveDatabase(db);
+  Overlay::Log("[SAVE] Restored %d/%d cats from %s",
+               restored, dir->partyCount, saveName);
+  UpdateNUIDOwnership();
 }
 
 void NetworkManager::SendLocalCatCount() {

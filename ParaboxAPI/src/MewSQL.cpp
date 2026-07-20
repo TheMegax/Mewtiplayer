@@ -288,4 +288,49 @@ bool WriteSaveFileRaw(const char* path, const uint8_t* data, const size_t size) 
   return file.good();
 }
 
+void CreateCatOwnershipTable(glaiel::SQLSaveFile* db) {
+  ExecSQLRaw(db,
+    "CREATE TABLE IF NOT EXISTS cat_ownership ("
+    "  cat_key       INTEGER PRIMARY KEY,"
+    "  owner_steamid INTEGER NOT NULL,"
+    "  cat_age       INTEGER NOT NULL DEFAULT 0"
+    ");");
+}
+
+void WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, const int64_t catKey,
+                             const uint64_t ownerSteamID, const int32_t catAge) {
+  char query[256];
+  snprintf(query, sizeof(query),
+    "INSERT OR REPLACE INTO cat_ownership VALUES (%lld, %llu, %d);",
+    catKey, ownerSteamID, catAge);
+  ExecSQLRaw(db, query);
+}
+
+CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, const int64_t catKey) {
+  CatOwnershipEntry result = { 0, -1 };
+  if (!db || !db->db) return result;
+  if (!g_sqlite3Prepare || !g_sqlite3Step || !g_sqlite3ColumnText || !g_sqlite3Finalize) {
+    ParaboxAPI::Log("[SAVE] [ERR] Missing sqlite3 pointers");
+    return result;
+  }
+
+  char query[128];
+  snprintf(query, sizeof(query),
+    "SELECT owner_steamid, cat_age FROM cat_ownership WHERE cat_key = %lld;", catKey);
+
+  void* stmt = nullptr;
+  const int rc = g_sqlite3Prepare(db->db, query, -1, 0x80, nullptr, &stmt, nullptr);
+  if (rc != 0 || !stmt) return result;
+
+  if (g_sqlite3Step(stmt) == 100) {
+    const char* ownerText = (const char*)g_sqlite3ColumnText(stmt, 0);
+    const char* ageText   = (const char*)g_sqlite3ColumnText(stmt, 1);
+    if (ownerText) result.ownerSteamID = strtoull(ownerText, nullptr, 10);
+    if (ageText)   result.catAge       = (int32_t)strtol(ageText, nullptr, 10);
+  }
+
+  g_sqlite3Finalize(stmt);
+  return result;
+}
+
 } // namespace MewSQL
