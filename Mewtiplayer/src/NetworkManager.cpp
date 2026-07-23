@@ -113,6 +113,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::CatOwnershipSync:
       HandleCatOwnershipSync(payload, payloadLen);
       break;
+    case PacketType::NUIDOwnershipSync:
+      HandleNUIDOwnershipSync(payload, payloadLen);
+      break;
     case PacketType::CombatStart:
       StartCombat();
       break;
@@ -250,6 +253,16 @@ void NetworkManager::HandleCatOwnershipSync(const void *data, const uint32_t len
   }
 }
 
+void NetworkManager::HandleNUIDOwnershipSync(const void *data, const uint32_t length) {
+  if (length == sizeof(NUIDOwnershipData)) {
+    const auto sync = (const NUIDOwnershipData *)data;
+    m_nuidOwnership[sync->nuid] = sync->ownerSteamID;
+    const char *name = SteamFriends()->GetFriendPersonaName(sync->ownerSteamID);
+    Overlay::Log("[NETWORK] NUID Ownership Sync: NUID %u is now owned by %s", sync->nuid,
+                 name ? name : "Unknown");
+  }
+}
+
 void NetworkManager::UpdateNUIDOwnership() {
   for (const auto &[character, nuid] : m_charToNuid) {
     if (!character)
@@ -315,10 +328,37 @@ void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
 
   if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str())) {
     MewSQL::CreateCatOwnershipTable(db);
-    MewSQL::WriteCatOwnershipEntry(db, uid, steamID, 0);
+    int32_t slot = 0;
+    const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
+    if (dir && dir->partyCatIDs) {
+      for (int i = 0; i < dir->partyCount; i++) {
+        if (const auto* cat = ParaboxAPI::GetPersistentCharacterById(dir->partyCatIDs[i])) {
+          if (cat->sql_key == uid) {
+            slot = i + 1;
+            break;
+          }
+        }
+      }
+    }
+    if (slot > 0) {
+      MewSQL::WriteCatOwnershipEntry(db, slot, steamID, 0);
+      Overlay::Log("[SAVE] Persisted ownership change: slot=%d, sql_key=%lld -> %llu", slot, uid, steamID);
+    }
     MewSQL::CloseSaveDatabase(db);
-    Overlay::Log("[SAVE] Persisted ownership change: sql_key=%lld -> %llu", uid, steamID);
   }
+}
+
+void NetworkManager::SyncNUIDOwnership(const uint32_t nuid, const uint64_t steamID) {
+  if (!IsHost())
+    return;
+
+  NUIDOwnershipData data{};
+  data.nuid = nuid;
+  data.ownerSteamID = steamID;
+
+  m_nuidOwnership[nuid] = steamID;
+
+  BroadcastPacket(PacketType::NUIDOwnershipSync, &data, sizeof(data), false);
 }
 
 void NetworkManager::SetActiveNUID(const uint32_t nuid) {
@@ -812,8 +852,6 @@ void NetworkManager::BeginMultiplayerSave() {
         const size_t blobSize = blob.size();
         PendingCatBlob pending;
         pending.senderSteamID = myID.ConvertToUint64();
-        pending.sqlKey = GetButchBoxCatRealSQLKey(key);
-        
         std::vector<uint8_t> stdBlob(blob.begin(), blob.end());
         pending.data = std::move(stdBlob);
         pending.originalAge = GetButchBoxCatAge(key);
@@ -882,7 +920,6 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
       if (!blob.empty()) {
         CatBlobHeader header = {};
         header.senderSteamID = myID.ConvertToUint64();
-        header.sqlKey = GetButchBoxCatRealSQLKey(key);
         header.blobSize = blob.size();
         header.originalAge = GetButchBoxCatAge(key);
 
@@ -987,7 +1024,6 @@ void NetworkManager::HandleSaveCatResponse(const CSteamID remoteID, const void *
 
         PendingCatBlob pending;
         pending.senderSteamID = catHdr->senderSteamID;
-        pending.sqlKey = catHdr->sqlKey;
         pending.originalAge = catHdr->originalAge;
         pending.data.resize(catHdr->blobSize);
         memcpy(pending.data.data(), buffer.data() + offset + sizeof(CatBlobHeader), catHdr->blobSize);
@@ -1074,6 +1110,7 @@ void NetworkManager::BuildAndDistributeSave() {
 
     for (size_t i = 0; i < m_collectedCatBlobs.size(); ++i) {
       const auto& cat = m_collectedCatBlobs[i];
+      const int32_t slot = (int32_t)(i + 1);
 
       // Convert bytes to Hex
       std::string hexStr;
@@ -1084,13 +1121,13 @@ void NetworkManager::BuildAndDistributeSave() {
         hexStr.push_back(hexChars[b & 0x0F]);
       }
 
-      std::string query = "INSERT OR REPLACE INTO cats VALUES (" + std::to_string(i + 1) + ", X'" + hexStr + "');";
+      std::string query = "INSERT OR REPLACE INTO cats VALUES (" + std::to_string(slot) + ", X'" + hexStr + "');";
       MewSQL::ExecSQLOnDatabase(db, query.c_str());
 
-      // Write ownership keyed by stable sql_key into the cat_ownership table
-      MewSQL::WriteCatOwnershipEntry(db, cat.sqlKey, cat.senderSteamID, cat.originalAge);
-      Overlay::Log("[SAVE] cat_ownership: sql_key=%lld owner=%llu age=%d",
-                   cat.sqlKey, cat.senderSteamID, cat.originalAge);
+      // Write ownership keyed by stable slot into the cat_ownership table
+      MewSQL::WriteCatOwnershipEntry(db, slot, cat.senderSteamID, cat.originalAge);
+      Overlay::Log("[SAVE] cat_ownership: slot=%d owner=%llu age=%d",
+                   slot, cat.senderSteamID, cat.originalAge);
     }
 
     // Add house storage upgrades to accommodate the merged inventory
@@ -1317,6 +1354,7 @@ void NetworkManager::RestoreOwnershipFromSave(const char* saveName) {
   extern std::map<int64_t, uint64_t> g_catIdToOwnerSteamID;
   int restored = 0;
   for (int i = 0; i < dir->partyCount; i++) {
+    const int32_t slot = i + 1;
     const int64_t catID = dir->partyCatIDs[i];
     const PersistentCharacter* cat = ParaboxAPI::GetPersistentCharacterById(catID);
     if (!cat) {
@@ -1325,14 +1363,18 @@ void NetworkManager::RestoreOwnershipFromSave(const char* saveName) {
     }
 
     const int64_t sqlKey = cat->sql_key;
+    Overlay::Log("[SAVE] RestoreOwnership: [%d] cat found -> slot=%d, sql_key=%lld", i, slot, sqlKey);
 
-    const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(db, sqlKey);
+    std::string narrowNameStr = cat->name.to_utf8();
+    RegisterCat(sqlKey, narrowNameStr.c_str(), cat->className.begin());
+
+    const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(db, slot);
     if (ownerSteamID != 0) {
       m_catOwnership[sqlKey] = ownerSteamID;
       g_catIdToOwnerSteamID[catID] = ownerSteamID;
       restored++;
     } else {
-      Overlay::Log("[SAVE] [WARN] [%d] MISS sql_key=%lld not found in cat_ownership", i, sqlKey);
+      Overlay::Log("[SAVE] [WARN] [%d] MISS slot=%d sql_key=%lld not found in cat_ownership", i, slot, sqlKey);
     }
   }
 

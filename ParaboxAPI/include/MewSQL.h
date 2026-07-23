@@ -67,7 +67,7 @@ struct CatOwnershipEntry {
 };
 
 PARABOX_API void             CreateCatOwnershipTable(glaiel::SQLSaveFile* db);
-PARABOX_API void             WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, int64_t catKey, uint64_t ownerSteamID, int32_t catAge);
-PARABOX_API CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, int64_t catKey);
+PARABOX_API void             WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, int32_t slot, uint64_t ownerSteamID, int32_t catAge);
+PARABOX_API CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, int32_t slot);
 
 } // namespace MewSQL

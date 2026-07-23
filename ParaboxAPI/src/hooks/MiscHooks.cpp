@@ -25,7 +25,6 @@ static void *__fastcall Hook_StevenSpawn(void *rcx, void *rdx) {
 static void __fastcall Hook_PauseGame(void *pauseMenuScene) {
     if (g_origPauseGame)
         g_origPauseGame(pauseMenuScene);
-    // (Commented-out pause-menu logic preserved here intentionally)
 }
 
 static void Hook_RunFrame(void *rcx, void *rdx) {

@@ -20,6 +20,7 @@ enum class PacketType : uint8_t {
   MouseMove,
   // --- Combat ---
   CatOwnershipSync,
+  NUIDOwnershipSync,
   CombatStart,
   CombatEnd,
   TurnAction,
@@ -62,12 +63,17 @@ struct MouseMoveData {
   float y;
   uint8_t cursorType;
 };
-#pragma pack(pop)
 
 struct CatOwnershipData {
   int64_t catUID;
   uint64_t ownerSteamID;
 };
+
+struct NUIDOwnershipData {
+  uint32_t nuid;
+  uint64_t ownerSteamID;
+};
+#pragma pack(pop)
 
 struct CatInfo {
   int64_t uid;
@@ -134,7 +140,6 @@ struct ChunkedTransferHeader {
 #pragma pack(push, 1)
 struct CatBlobHeader {
   uint64_t senderSteamID;
-  int64_t  sqlKey;
   uint32_t blobSize;
   int32_t  originalAge;
 };
@@ -299,6 +304,7 @@ public:
 
   bool IsInputBlocked(uint64_t steamID);
   void SyncOwnership(int64_t uid, uint64_t steamID);
+  void SyncNUIDOwnership(uint32_t nuid, uint64_t steamID);
   void SetActiveNUID(uint32_t nuid);
   void RegisterCat(int64_t uid, const char *name, const char *className);
   void UpdateNUIDOwnership();
@@ -390,6 +396,7 @@ private:
   static void HandleRNGSync(const void *data, uint32_t length);
   void HandleMouseMove(const void *data, uint32_t length);
   void HandleCatOwnershipSync(const void *data, uint32_t length);
+  void HandleNUIDOwnershipSync(const void *data, uint32_t length);
   static void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
   void HandleTurnFacing(CSteamID remoteID, const void *data, uint32_t length);
   void HandleSaveCatRequest(CSteamID remoteID);
@@ -423,7 +430,6 @@ private:
 
   struct PendingCatBlob {
     uint64_t senderSteamID;
-    int64_t sqlKey;
     std::vector<uint8_t> data;
     int32_t originalAge;
   };

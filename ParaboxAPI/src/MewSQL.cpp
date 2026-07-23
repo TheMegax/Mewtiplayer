@@ -136,6 +136,12 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
   GameUtils::InitXString(pathStr, fullPath.c_str());
 
   g_open(dbFile, &pathStr);
+
+  if (!dbFile->db) {
+    delete dbFile;
+    return nullptr;
+  }
+
   return dbFile;
 }
 
@@ -291,22 +297,23 @@ bool WriteSaveFileRaw(const char* path, const uint8_t* data, const size_t size) 
 void CreateCatOwnershipTable(glaiel::SQLSaveFile* db) {
   ExecSQLRaw(db,
     "CREATE TABLE IF NOT EXISTS cat_ownership ("
-    "  cat_key       INTEGER PRIMARY KEY,"
+    "  cat_slot      INTEGER PRIMARY KEY,"
     "  owner_steamid INTEGER NOT NULL,"
     "  cat_age       INTEGER NOT NULL DEFAULT 0"
     ");");
 }
 
-void WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, const int64_t catKey,
+void WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, const int32_t slot,
                              const uint64_t ownerSteamID, const int32_t catAge) {
   char query[256];
   snprintf(query, sizeof(query),
-    "INSERT OR REPLACE INTO cat_ownership VALUES (%lld, %llu, %d);",
-    catKey, ownerSteamID, catAge);
+    "INSERT OR REPLACE INTO cat_ownership (cat_slot, owner_steamid, cat_age) "
+    "VALUES (%d, %llu, %d);",
+    slot, ownerSteamID, catAge);
   ExecSQLRaw(db, query);
 }
 
-CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, const int64_t catKey) {
+CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, const int32_t slot) {
   CatOwnershipEntry result = { 0, -1 };
   if (!db || !db->db) return result;
   if (!g_sqlite3Prepare || !g_sqlite3Step || !g_sqlite3ColumnText || !g_sqlite3Finalize) {
@@ -316,7 +323,7 @@ CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, const int64_t c
 
   char query[128];
   snprintf(query, sizeof(query),
-    "SELECT owner_steamid, cat_age FROM cat_ownership WHERE cat_key = %lld;", catKey);
+    "SELECT owner_steamid, cat_age FROM cat_ownership WHERE cat_slot = %d;", slot);
 
   void* stmt = nullptr;
   const int rc = g_sqlite3Prepare(db->db, query, -1, 0x80, nullptr, &stmt, nullptr);

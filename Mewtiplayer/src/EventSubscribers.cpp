@@ -69,16 +69,20 @@ void RegisterSaveSubscribers() {
                     const int64_t sqlKey = ((PersistentCharacter*)cat)->sql_key;
                     const int64_t catID  = ((PersistentCharacter*)cat)->catID;
 
-                    const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(dbFile, sqlKey);
+                    const int slot = GameUtils::g_currentCustomCatIndex; // 1, 2, ...
+                    const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(dbFile, slot);
 
                     if (ownerSteamID != 0) {
                         g_catIdToOwnerSteamID[catID] = ownerSteamID;
                         NetworkManager::Get().GetOwnershipMap()[sqlKey] = ownerSteamID;
-                        Overlay::Log("[SAVE] CreateStrayCat: OK sql_key=%lld -> owner=%llu age=%d",
-                                     sqlKey, ownerSteamID, catAge);
+                        Overlay::Log("[SAVE] CreateStrayCat: OK slot=%d sql_key=%lld -> owner=%llu age=%d",
+                                     slot, sqlKey, ownerSteamID, catAge);
                     } else {
-                        Overlay::Log("[SAVE] [WARN] CreateStrayCat: No owner for index %d (sql_key=%lld)", index, sqlKey);
+                        Overlay::Log("[SAVE] [WARN] CreateStrayCat: No owner for slot %d (sql_key=%lld)", slot, sqlKey);
                     }
+
+                    std::string narrowNameStr = ((PersistentCharacter*)cat)->name.to_utf8();
+                    NetworkManager::Get().RegisterCat(sqlKey, narrowNameStr.c_str(), ((PersistentCharacter*)cat)->className.begin());
 
                     if (catAge > 0) {
                         const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
