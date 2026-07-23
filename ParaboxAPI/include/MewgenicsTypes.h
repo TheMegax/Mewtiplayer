@@ -526,13 +526,13 @@ struct TurnControl {
 };
 
 struct CombatResolutionState {
-  char _padding_0[0x35];  // 0x000
-  bool defeat;            // 0x035
-  char _padding_1[0x174]; // 0x036
-  bool victory;           // 0x1AA
+  char _padding_0[0x1A8]; // 0x000
+  bool victory;           // 0x1A8
+  char _padding_1[0x1];   // 0x1A9
+  bool defeat;            // 0x1AA
 };
-static_assert(offsetof(CombatResolutionState, defeat) == 0x35, "CombatResolutionState offset mismatch");
-static_assert(offsetof(CombatResolutionState, victory) == 0x1AA, "CombatResolutionState offset mismatch");
+static_assert(offsetof(CombatResolutionState, victory) == 0x1A8, "CombatResolutionState offset mismatch");
+static_assert(offsetof(CombatResolutionState, defeat) == 0x1AA, "CombatResolutionState offset mismatch");
 
 struct Character {
   void *vtable;                         // 0x000
