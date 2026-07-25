@@ -124,6 +124,11 @@ ParaboxAPI::Array<SQLMapFlag> QueryMapFlags(const glaiel::SQLSaveFile* dbFile) {
   return ParaboxAPI::MakeArray(std::move(result));
 }
 
+static bool IsValidDbPointer(const void* ptr) {
+  const uintptr_t val = (uintptr_t)ptr;
+  return val >= 0x10000 && val < 0x7FFFFFFFFFFF;
+}
+
 glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
   if (!g_open) return nullptr;
 
@@ -137,7 +142,12 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
 
   g_open(dbFile, &pathStr);
 
-  if (!dbFile->db) {
+  GameUtils::FreeXString(pathStr);
+
+  if (!dbFile || !IsValidDbPointer(dbFile->db)) {
+    if (dbFile && g_DestructString) {
+      g_DestructString(&dbFile->db_path_string);
+    }
     delete dbFile;
     return nullptr;
   }
@@ -148,7 +158,7 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
 void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile) {
   if (!dbFile) return;
 
-  if (g_CloseConnection && dbFile->db) {
+  if (g_CloseConnection && IsValidDbPointer(dbFile->db)) {
     g_CloseConnection(dbFile->db, 0);
     dbFile->db = nullptr;
   }
@@ -161,17 +171,19 @@ void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile) {
 }
 
 void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const char* query) {
-  if (!g_ExecSQL || !dbFile) return;
+  if (!g_ExecSQL || !dbFile || !IsValidDbPointer(dbFile->db)) return;
 
   MsvcReleaseModeXString queryStr = {};
   GameUtils::InitXString(queryStr, query ? query : "");
 
   void* dummyFunc[8] = {}; // Dummy std::function block (64 bytes)
   g_ExecSQL(dbFile, &queryStr, dummyFunc);
+
+  GameUtils::FreeXString(queryStr);
 }
 
 int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_t defaultVal) {
-  if (!g_Retrieve || !dbFile) return defaultVal;
+  if (!g_Retrieve || !dbFile || !IsValidDbPointer(dbFile->db)) return defaultVal;
 
   MsvcReleaseModeXString tableStr = {};
   GameUtils::InitXString(tableStr, "properties");
@@ -195,12 +207,13 @@ int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_
   }
 
   GameUtils::FreeXString(keyStr);
+  GameUtils::FreeXString(tableStr);
   return result;
 }
 
 ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, const char* table, const int64_t key) {
   std::vector<uint8_t> result;
-  if (!g_Retrieve || !dbFile) return ParaboxAPI::MakeArray(result);
+  if (!g_Retrieve || !dbFile || !IsValidDbPointer(dbFile->db)) return ParaboxAPI::MakeArray(result);
 
   MsvcReleaseModeXString tableStr = {};
   GameUtils::InitXString(tableStr, table ? table : "");
@@ -226,7 +239,7 @@ ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, con
 
 ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(glaiel::SQLSaveFile* dbFile, const char* table, const char* key) {
   std::vector<uint8_t> result;
-  if (!g_Retrieve || !dbFile) return ParaboxAPI::MakeArray(result);
+  if (!g_Retrieve || !dbFile || !IsValidDbPointer(dbFile->db)) return ParaboxAPI::MakeArray(result);
 
   MsvcReleaseModeXString tableStr = {};
   GameUtils::InitXString(tableStr, table ? table : "");

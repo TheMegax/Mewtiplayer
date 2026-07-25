@@ -11,7 +11,6 @@
 #include <GL/gl.h>
 #include <chrono>
 #include <deque>
-#include <fstream>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -599,7 +598,8 @@ static bool IsSaveOnAdventure() {
   }
 
   glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str());
-  if (!db) {
+  if (!db || !db->db) {
+    if (db) MewSQL::CloseSaveDatabase(db);
     cachedResult = false;
     return false;
   }
