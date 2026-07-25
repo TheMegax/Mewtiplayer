@@ -305,8 +305,10 @@ struct WorldEventClickEnd2Event : EventBase {
 // If no callback is set, messages go to OutputDebugStringA.
 // ---------------------------------------------------------------------------
 using LogCallback = void(*)(const char *fmt, va_list args);
+using EnqueueResultCallback = void(*)(void *result);
 
 PARABOX_API void SetLogCallback(LogCallback cb);
+PARABOX_API void SetEnqueueResultCallback(EnqueueResultCallback cb);
 PARABOX_API void Log(const char *fmt, ...);
 
 // ---------------------------------------------------------------------------

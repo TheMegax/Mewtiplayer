@@ -306,7 +306,7 @@ bool NetworkManager::IsInputBlocked(const uint64_t steamID) {
 
   const auto it = m_nuidOwnership.find(m_activeNUID);
   if (it == m_nuidOwnership.end() || it->second == 0) {
-    return steamID != GetHostID().ConvertToUint64();
+    return false;
   }
 
   return steamID != it->second;
@@ -397,13 +397,20 @@ void NetworkManager::StartCombat() {
 }
 
 void NetworkManager::EndCombat() {
-  if (m_combatActive) {
-    Overlay::Log("[NETWORK] Combat ended, unblocking input.");
-    m_combatActive = false;
-    m_activeNUID = 0xFFFFFFFF;
-    if (IsHost()) {
-      BroadcastPacket(PacketType::CombatEnd, nullptr, 0, true);
-    }
+  Overlay::Log("[NETWORK] Combat ended, performing full cleanup.");
+  const bool wasActive = m_combatActive;
+  m_combatActive = false;
+  m_activeNUID = 0xFFFFFFFF;
+  m_lastControllingPlayer = 0;
+
+  ResetEntityMapping();
+  ClearRecordedActions();
+
+  extern void ResetCombatSubscribersState();
+  ResetCombatSubscribersState();
+
+  if (wasActive && IsHost()) {
+    BroadcastPacket(PacketType::CombatEnd, nullptr, 0, true);
   }
 }
 
@@ -633,18 +640,19 @@ void NetworkManager::HandleTurnFacing(CSteamID remoteID, const void *data,
     return;
 
   const auto pkt = (const TurnFacingPacket *)data;
-  Overlay::Log("[NET] Received TurnFacing: NUID=%u Target=(%d,%d)",
-               pkt->actorNUID, pkt->nx, pkt->ny);
+  if (g_modState.talkative) {
+    Overlay::Log("[NET] Received TurnFacing: NUID=%u Target=(%d,%d)",
+                 pkt->actorNUID, pkt->nx, pkt->ny);
+  }
 
-  ActionPacket action{};
-  action.type = PacketType::TurnFacing;
-  action.data.facing = *pkt;
+  if (!m_pendingReplays.empty()) {
+    ActionPacket action{};
+    action.type = PacketType::TurnFacing;
+    action.data.facing = *pkt;
 
-  extern std::deque<ActionPacket> g_pendingInjections; // NOLINT(*-redundant-declaration)
-  g_pendingInjections.push_back(action);
-
-  // If not replaying, apply it immediately
-  if (m_pendingReplays.empty()) {
+    extern std::deque<ActionPacket> g_pendingInjections; // NOLINT(*-redundant-declaration)
+    g_pendingInjections.push_back(action);
+  } else {
     if (Character *c = GetCharacter(pkt->actorNUID)) {
       const uint64_t packed = (uint64_t)pkt->nx | (static_cast<uint64_t>(pkt->ny) << 32);
       ParaboxAPI::ForceFaceDirection(c, packed, pkt->anim, pkt->force);
@@ -702,7 +710,7 @@ void NetworkManager::InitializeEntityMapping() {
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 uint32_t NetworkManager::GetNUID(Character *character) {
   auto it = m_charToNuid.find(character);
-  if (it == m_charToNuid.end()) {
+  if (it == m_charToNuid.end() && m_combatActive) {
     UpdateDynamicEntities();
     it = m_charToNuid.find(character);
   }
@@ -721,6 +729,8 @@ Character *NetworkManager::GetCharacter(const uint32_t nuid) {
 }
 
 void NetworkManager::UpdateDynamicEntities() {
+  if (!m_combatActive) return;
+
   auto all = GameUtils::GetFighters();
   for (Character *c : all) {
     if (!c)
@@ -729,11 +739,6 @@ void NetworkManager::UpdateDynamicEntities() {
       uint32_t nuid = m_nextNuid++;
       m_charToNuid[c] = nuid;
       m_nuidToChar[nuid] = c;
-
-      if (m_lastControllingPlayer != 0) {
-        m_nuidOwnership[nuid] = m_lastControllingPlayer;
-        Overlay::Log("NUID: Auto assigned dynamic NUID %u to player %llu", nuid, m_lastControllingPlayer);
-      }
 
       Overlay::Log("NUID: Dynamic Map [%d] -> Character %p (%s)", nuid, c,
                    c->name.to_utf8().c_str());

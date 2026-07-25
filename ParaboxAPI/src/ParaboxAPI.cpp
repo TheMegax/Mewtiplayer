@@ -5,9 +5,18 @@
 namespace ParaboxAPI {
 
 static LogCallback g_logCallback = nullptr;
+static EnqueueResultCallback g_enqueueResultCallback = nullptr;
 
 PARABOX_API void SetLogCallback(LogCallback cb) {
     g_logCallback = cb;
+}
+
+PARABOX_API void SetEnqueueResultCallback(EnqueueResultCallback cb) {
+    g_enqueueResultCallback = cb;
+}
+
+EnqueueResultCallback GetEnqueueResultCallback() {
+    return g_enqueueResultCallback;
 }
 
 PARABOX_API void Log(const char *fmt, ...) {

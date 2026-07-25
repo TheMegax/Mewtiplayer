@@ -561,11 +561,14 @@ void CreateMewtiplayerSave(const char *saveName) {
     // Go away Tink >:(
     MewSQL::ExecSQLOnDatabase(db, "INSERT OR IGNORE INTO files VALUES "
                                   "('tutorial_tokens', "
-                                  "X'02000000000000001f00000000000000636f6d626"
-                                  "1745f7475746f7269616c2e676f6e2e686f7573655f"
-                                  "696e74726f2200000000000000636f6d6261745f747"
-                                  "5746f7269616c2e676f6e2e686f7573655f70617373"
-                                  "5f646179');");
+                                  "X'03000000000000001f0000000000000063"
+                                  "6f6d6261745f7475746f7269616c2e676f6e"
+                                  "2e686f7573655f696e74726f220000000000"
+                                  "0000636f6d6261745f7475746f7269616c2e"
+                                  "676f6e2e686f7573655f706173735f646179"
+                                  "2700000000000000636f6d6261745f747574"
+                                  "6f7269616c2e676f6e2e696e74726f647563"
+                                  "655f686172645f70617468');");
 
     MewSQL::CloseSaveDatabase(db);
     ParaboxAPI::Log("[SAVE] Save custom properties initialized successfully!");

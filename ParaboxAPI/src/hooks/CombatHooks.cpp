@@ -44,6 +44,10 @@ void ParaboxAPI::ForceAbilityTrigger(Ability *ability, TurnAction *turnAction) {
         g_origAbilityTrigger(ability, turnAction);
 }
 
+namespace ParaboxAPI {
+    EnqueueResultCallback GetEnqueueResultCallback();
+}
+
 static void *__fastcall Hook_EnqueueAction(void *queue, TurnAction *actionData) {
     ParaboxAPI::EnqueueActionEvent ev = {};
     ev.queue = queue;
@@ -53,9 +57,14 @@ static void *__fastcall Hook_EnqueueAction(void *queue, TurnAction *actionData) 
     if (ev.cancelled)
         return ev.returnValue;
 
+    void *result = nullptr;
     if (g_origEnqueueAction)
-        return g_origEnqueueAction(queue, actionData);
-    return nullptr;
+        result = g_origEnqueueAction(queue, actionData);
+
+    if (const auto cb = ParaboxAPI::GetEnqueueResultCallback())
+        cb(result);
+
+    return result;
 }
 
 static void Hook_FightEnd(CombatResolutionState *combat) {
