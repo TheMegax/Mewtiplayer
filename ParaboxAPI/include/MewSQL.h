@@ -2,11 +2,8 @@
 #include "ParaboxAPI.h"
 #include "ParaboxArray.h"
 #include "MewgenicsTypes.h"
-#include <string>
-#include <vector>
-#include <map>
 
-struct SQLData {
+struct alignas(16) SQLData {
   int32_t type;      // offset 0x0 (Type 5 = Int, Type 2 = String, Type 3 = Blob)
   int32_t padding;   // offset 0x4
   int64_t intVal;    // offset 0x8 (integer value or raw char* pointer)
