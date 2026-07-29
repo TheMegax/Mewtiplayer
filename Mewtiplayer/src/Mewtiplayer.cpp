@@ -11,6 +11,8 @@
 
 #include <string>
 
+#include "EventSubscribers.h"
+
 ModState g_modState;
 
 extern const ParaboxAPI::String CUSTOM_SAVE_NAME = ParaboxAPI::MakeString("mewtiplayer.sav");
@@ -19,24 +21,7 @@ static MewjectorAPI mj;
 
 // Forward declaration — defined below DllMain
 void InitializeMewUI();
-void RegisterCombatSubscribers();
-void RegisterSaveSubscribers();
-void RegisterAdventureBoxSubscribers();
-void RegisterClassChooserSubscribers();
-void RegisterStorageSubscribers();
-void RegisterMapSubscribers();
-void RegisterActSelectionSubscribers();
-void RegisterLevelUpSubscribers();
-void RegisterWorldEventSubscribers();
-void RegisterShopSubscribers();
 
-// Temporary forward declarations until extracted from hook files
-void ClassChooserHooks_UITick();
-void StorageHooks_UITick();
-void MapHooks_UITick();
-void ClassChooserHooks_Shutdown();
-void StorageHooks_Shutdown();
-void MapHooks_Shutdown();
 
 // ---------------------------------------------------------------------------
 // ParaboxAPI subscribers — centralised Mewtiplayer logic

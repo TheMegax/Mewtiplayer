@@ -17,9 +17,18 @@ set(MEWTIPLAYER_SOURCES
     # Resources
     src/resources.rc
 
-    # Hooks (now entirely provided by ParaboxAPI)
-    # Subscribers for these hooks are defined in EventSubscribers.cpp
-    src/EventSubscribers.cpp
+    # Event Subscribers
+    include/EventSubscribers.h
+    include/events/CombatSubscribers.h       src/events/CombatSubscribers.cpp
+    include/events/SaveSubscribers.h         src/events/SaveSubscribers.cpp
+    include/events/AdventureBoxSubscribers.h src/events/AdventureBoxSubscribers.cpp
+    include/events/ClassChooserSubscribers.h src/events/ClassChooserSubscribers.cpp
+    include/events/StorageSubscribers.h      src/events/StorageSubscribers.cpp
+    include/events/MapSubscribers.h          src/events/MapSubscribers.cpp
+    include/events/ActSelectionSubscribers.h src/events/ActSelectionSubscribers.cpp
+    include/events/LevelUpSubscribers.h      src/events/LevelUpSubscribers.cpp
+    include/events/WorldEventSubscribers.h  src/events/WorldEventSubscribers.cpp
+    include/events/ShopSubscribers.h        src/events/ShopSubscribers.cpp
 
     # imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/imconfig.h

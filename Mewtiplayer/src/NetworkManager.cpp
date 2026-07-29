@@ -8,6 +8,7 @@
 #include "Overlay.h"
 #include "mewjector.h"
 #include "MewSQL.h"
+#include "EventSubscribers.h"
 #include "hooks/AdventureBoxHooks.h"
 #include "hooks/ClassChooserHooks.h"
 #include "hooks/StorageHooks.h"
@@ -280,7 +281,6 @@ void NetworkManager::UpdateNUIDOwnership() {
 
     if (ownerSteamID == 0 && character->persistentChar) {
       const int64_t catID = character->persistentChar->catID;
-      extern std::map<int64_t, uint64_t> g_catIdToOwnerSteamID;
       const auto it = g_catIdToOwnerSteamID.find(catID);
       if (it != g_catIdToOwnerSteamID.end()) {
         ownerSteamID = it->second;
@@ -406,7 +406,6 @@ void NetworkManager::EndCombat() {
   ResetEntityMapping();
   ClearRecordedActions();
 
-  extern void ResetCombatSubscribersState();
   ResetCombatSubscribersState();
 
   if (wasActive && IsHost()) {
@@ -445,7 +444,6 @@ void NetworkManager::LeaveLobby() {
     m_catOwnership.clear();
     m_discoveredCats.clear();
     m_lobbyMemberCatCounts.clear();
-    extern void ResetLobbyReadyStates();
     ResetLobbyReadyStates();
     RefreshLobbyList();
   }
@@ -511,7 +509,6 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback, const bool bIOFai
   m_activeNUID = 0xFFFFFFFF;
   m_catOwnership.clear();
   m_discoveredCats.clear();
-  extern void ResetLobbyReadyStates();
   ResetLobbyReadyStates();
 
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "name",
@@ -534,7 +531,6 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   m_catOwnership.clear();
   m_discoveredCats.clear();
   m_lobbyMemberCatCounts.clear();
-  extern void ResetLobbyReadyStates();
   ResetLobbyReadyStates();
 
   Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
@@ -629,7 +625,6 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
     action.type = PacketType::TurnAction;
     action.data.action = *pkt;
 
-    extern std::deque<ActionPacket> g_pendingInjections;
     g_pendingInjections.push_back(action);
   }
 }
@@ -650,7 +645,6 @@ void NetworkManager::HandleTurnFacing(CSteamID remoteID, const void *data,
     action.type = PacketType::TurnFacing;
     action.data.facing = *pkt;
 
-    extern std::deque<ActionPacket> g_pendingInjections; // NOLINT(*-redundant-declaration)
     g_pendingInjections.push_back(action);
   } else {
     if (Character *c = GetCharacter(pkt->actorNUID)) {
@@ -674,7 +668,6 @@ const std::vector<ActionPacket> &NetworkManager::GetRecordedActions() const {
 }
 
 void NetworkManager::EnqueueReplayAction(const ActionPacket &pkt) {
-  extern std::deque<ActionPacket> g_pendingInjections; // NOLINT(*-redundant-declaration)
   g_pendingInjections.push_back(pkt);
   if (pkt.type == PacketType::TurnAction) {
     Overlay::Log("[REPLAY] Queued action: %s", pkt.data.action.abilityName);
@@ -1414,7 +1407,6 @@ void NetworkManager::HandleButchBoxCatCountSync(const CSteamID remoteID, const v
 }
 
 void NetworkManager::HandleCollarSync(const void *data, const uint32_t length) {
-  extern void HandleCollarSyncInternal(const void *data, const uint32_t length);
   HandleCollarSyncInternal(data, length);
 }
 
@@ -1423,29 +1415,24 @@ void NetworkManager::HandleLobbyReady(const void *data, const uint32_t length) {
     return;
   }
 
-  extern std::map<uint64_t, bool> g_lobbyReadyStates;
   const auto *packet = (const LobbyReadyPacket *)data;
   g_lobbyReadyStates[packet->steamID] = packet->isReady;
   Overlay::Log("[LOBBY] Player %llu ready state: %s", packet->steamID,
                packet->isReady ? "locked in" : "not ready");
 
-  extern bool AreAllLobbyMembersReady();
   if (IsHost() && AreAllLobbyMembersReady()) {
     BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
-    extern void CatSelectorHooks_TriggerLockInProceed();
     CatSelectorHooks_TriggerLockInProceed();
   }
 }
 
 void NetworkManager::HandleLobbyProceed() const {
   if (!IsHost()) {
-    extern void CatSelectorHooks_TriggerLockInProceed();
     CatSelectorHooks_TriggerLockInProceed();
   }
 }
 
 void NetworkManager::HandleStorageItemSync(const void *data, const uint32_t length) {
-  extern void HandleStorageItemSyncInternal(const void *data, const uint32_t length);
   HandleStorageItemSyncInternal(data, length);
 }
 
@@ -1456,7 +1443,6 @@ void NetworkManager::HandleMapNodeSync(const void *data, const uint32_t length) 
   const auto *packet = (const MapNodeSyncPacket *)data;
   Overlay::Log("[MAP] Received MapNodeSync: index %u", packet->nodeIndex);
 
-  extern void TriggerMapNodeSync(uint32_t nodeIndex);
   TriggerMapNodeSync(packet->nodeIndex);
 }
 
@@ -1467,7 +1453,6 @@ void NetworkManager::HandleActSelectSync(const void *data, const uint32_t length
   const auto *pkt = (const ActSelectPacket *)data;
   Overlay::Log("[ACT] Received ActSelectSync: actIndex %u", pkt->actIndex);
   if (GameUtils::IsComponentValid(ParaboxAPI::GetActSelectionScreen())) {
-    extern void TriggerActSelect(uint32_t actIndex);
     TriggerActSelect(pkt->actIndex);
   }
 }
@@ -1475,14 +1460,12 @@ void NetworkManager::HandleActSelectSync(const void *data, const uint32_t length
 void NetworkManager::HandleMapInventoryOpen(const void *data, const uint32_t length) {
   if (length != sizeof(MapInventoryOpenPacket)) return;
   Overlay::Log("[NETWORK] Received MapInventoryOpen");
-  extern void ForceMapInventoryOpen();
   ForceMapInventoryOpen();
 }
 
 void NetworkManager::HandleMapInventoryClose(const void *data, const uint32_t length) {
   if (length != sizeof(MapInventoryClosePacket)) return;
   Overlay::Log("[NETWORK] Received MapInventoryClose");
-  extern void *g_activeInventoryScreenThis;
   
   if (g_activeInventoryScreenThis) {
     ParaboxAPI::ForceInventoryScreen2Close(g_activeInventoryScreenThis);
@@ -1505,7 +1488,6 @@ void NetworkManager::HandleLevelUpSelectOption(const void *data, const uint32_t 
   const auto *packet = (const LevelUpSelectOptionPacket *)data;
   Overlay::Log("[LEVELUP] Received LevelUpSelectOption: cat UID %lld, optionIndex %u", packet->catUID, packet->optionIndex);
 
-  extern void TriggerLevelUpSelectOption(int64_t catUID, uint32_t optionIndex);
   TriggerLevelUpSelectOption(packet->catUID, packet->optionIndex);
 }
 
@@ -1516,7 +1498,6 @@ void NetworkManager::HandleLevelUpReroll(const void *data, const uint32_t length
   const auto *packet = (const LevelUpRerollPacket *)data;
   Overlay::Log("[LEVELUP] Received LevelUpReroll: cat UID %lld", packet->catUID);
 
-  extern void TriggerLevelUpReroll(int64_t catUID);
   TriggerLevelUpReroll(packet->catUID);
 }
 
@@ -1527,7 +1508,6 @@ void NetworkManager::HandleAbilityReplace(const void *data, const uint32_t lengt
   const auto *packet = (const AbilityReplacePacket *)data;
   Overlay::Log("[LEVELUP] Received AbilityReplace: cat UID %lld, slotIndex %u", packet->catUID, packet->slotIndex);
 
-  extern void TriggerAbilityReplace(int64_t catUID, uint32_t slotIndex);
   TriggerAbilityReplace(packet->catUID, packet->slotIndex);
 }
 
@@ -1538,7 +1518,6 @@ void NetworkManager::HandleWorldEventSelectOption(const void *data, const uint32
   const auto *packet = (const WorldEventSelectOptionPacket *)data;
   Overlay::Log("[WORLDEVENT] Received WorldEventSelectOption: cat UID %lld, optionIndex %u", packet->catUID, packet->optionIndex);
 
-  extern void TriggerWorldEventSelectOption(int64_t catUID, uint32_t optionIndex);
   TriggerWorldEventSelectOption(packet->catUID, packet->optionIndex);
 }
 
@@ -1549,7 +1528,6 @@ void NetworkManager::HandleWorldEventSelectCat(const void *data, const uint32_t 
   const auto *packet = (const WorldEventSelectCatPacket *)data;
   Overlay::Log("[WORLDEVENT] Received WorldEventSelectCat: selectedCatUID %lld", packet->selectedCatUID);
 
-  extern void TriggerWorldEventSelectCat(int64_t selectedCatUID);
   TriggerWorldEventSelectCat(packet->selectedCatUID);
 }
 
@@ -1560,7 +1538,6 @@ void NetworkManager::HandleWorldEventClickEnd(const void *data, const uint32_t l
   const auto *packet = (const WorldEventClickEndPacket *)data;
   Overlay::Log("[WORLDEVENT] Received WorldEventClickEnd: buttonType %u", packet->buttonType);
 
-  extern void TriggerWorldEventClickEnd(uint8_t buttonType);
   TriggerWorldEventClickEnd(packet->buttonType);
 }
 
