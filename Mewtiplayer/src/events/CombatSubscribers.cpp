@@ -255,6 +255,9 @@ void RegisterCombatSubscribers() {
                 if (isMainAction) {
                     // The main action's AbilityTrigger has fired, flush the
                     // deferred broadcast now (after all passives).
+                    // Refresh RNG state to reflect any advances caused by passives
+                    GameUtils::GetRNGState(g_deferredActionPkt.rngState);
+
                     ActionPacket actPkt{};
                     actPkt.type = PacketType::TurnAction;
                     actPkt.data.action = g_deferredActionPkt;
