@@ -37,6 +37,8 @@ std::map<glaiel::AbilityChooser*, PersistentCharacter*> g_abilityChooserToCat;
 
 ActionPacket g_lastInjectedActionPacket = {};
 bool g_injectedInCurrentCall = false;
+static bool g_isInjectedActionPending = false;
+static Ability *g_injectedAbilityPtr = nullptr;
 
 void NotifyEnqueueResult(void* result) {
     if (g_injectedInCurrentCall) {
@@ -62,6 +64,8 @@ void ResetCombatSubscribersState() {
     g_castableAbilities.clear();
     g_waitingForPlayerAction = false;
     g_isSyncActionPending = false;
+    g_isInjectedActionPending = false;
+    g_injectedAbilityPtr = nullptr;
 
     g_deferredBroadcastPending = false;
     g_deferredActionPkt = {};
@@ -87,6 +91,29 @@ void ResetCombatSubscribersState() {
 // ---------------------------------------------------------------------------
 void RegisterCombatSubscribers() {
     ParaboxAPI::SetEnqueueResultCallback(NotifyEnqueueResult);
+
+    static uint32_t g_lastFrameRNG[8] = {};
+    static bool g_hasLastFrameRNG = false;
+
+    ParaboxAPI::OnRunFrame.Subscribe([](ParaboxAPI::RunFrameEvent& ev) {
+        if (!NetworkManager::Get().IsCombatActive()) return;
+
+        uint32_t currentRNG[8] = {};
+        GameUtils::GetRNGState(currentRNG);
+
+        if (!g_hasLastFrameRNG) {
+            memcpy(g_lastFrameRNG, currentRNG, sizeof(currentRNG));
+            g_hasLastFrameRNG = true;
+            return;
+        }
+
+        if (memcmp(currentRNG, g_lastFrameRNG, sizeof(currentRNG)) != 0) {
+            memcpy(g_lastFrameRNG, currentRNG, sizeof(currentRNG));
+            Overlay::Log("[RNG-FRAME] %s RNG Advanced: %08X %08X %08X %08X",
+                         NetworkManager::Get().IsHost() ? "[HOST]" : "[CLIENT]",
+                         currentRNG[0], currentRNG[1], currentRNG[2], currentRNG[3]);
+        }
+    });
 
     ParaboxAPI::OnTurnStart.Subscribe([](ParaboxAPI::TurnStartEvent& ev) {
         if (ev.tc) {
@@ -144,6 +171,14 @@ void RegisterCombatSubscribers() {
     ParaboxAPI::OnAbilityTrigger.Subscribe([](ParaboxAPI::AbilityTriggerEvent& ev) {
         bool isSyncAction = g_isSyncActionPending;
         g_isSyncActionPending = false; // Consume for logging
+
+        if (g_isInjectedActionPending) {
+            if (g_injectedAbilityPtr == nullptr || g_injectedAbilityPtr == ev.ability) {
+                isSyncAction = true;
+                g_isInjectedActionPending = false;
+                g_injectedAbilityPtr = nullptr;
+            }
+        }
 
         if (ev.ability && ev.turnAction) {
             const std::string abilityName = GameUtils::GetAbilityName(ev.ability).to_string();
@@ -255,6 +290,13 @@ void RegisterCombatSubscribers() {
                     isSyncAction = true;
                     Overlay::Log("[TRIGGER] AUTO Broadcast: '%s' for %s (NUID %u)",
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
+                } else if (ownerID != 0 && ownerID != myID) {
+                    // During a remote turn, controller is authoritative and broadcasts passives.
+                    // Suppress natural local triggers on remote clients to prevent double-execution.
+                    Overlay::Log("[TRIGGER] Suppressed natural local AbilityTrigger '%s' for %s on remote client",
+                                 abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str());
+                    ev.Cancel();
+                    return;
                 }
             }
 
@@ -277,7 +319,8 @@ void RegisterCombatSubscribers() {
         // Must run FIRST, before the injection check, so that suppressed actions
         // (type set to 0) fall through into the injection path below.
         // The controller broadcasts all actions. Remote clients only inject.
-        if (ev.actionData && ev.actionData->type > 1) {
+        // Internal engine actions (like Type 7) are allowed to resolve locally.
+        if (ev.actionData && ev.actionData->type > 1 && ev.actionData->type != 7) {
             const uint32_t activeNUID_sup = NetworkManager::Get().GetActiveNUID();
             if (activeNUID_sup != 0xFFFFFFFF) {
                 const uint64_t myID_sup = SteamUser()->GetSteamID().ConvertToUint64();
@@ -376,6 +419,8 @@ void RegisterCombatSubscribers() {
 
                     g_lastInjectedActionPacket = actPktCopy;
                     g_injectedInCurrentCall = true;
+                    g_isInjectedActionPending = true;
+                    g_injectedAbilityPtr = ability;
 
                     ev.actionData->type = pktCopy.actionType;
                     ev.actionData->ability = ability;
