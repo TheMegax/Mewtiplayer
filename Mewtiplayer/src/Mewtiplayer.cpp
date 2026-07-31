@@ -92,6 +92,7 @@ static void Initialize() {
     if (!MJ_Resolve(&mj))
         return;
     g_modState.mj = &mj;
+    ParaboxAPI::SetLogCallback(Overlay::LogV);
     Overlay::Log("Initializing (API v%d)...", mj.GetVersion());
 
     const char *cmdLine = GetCommandLineA();

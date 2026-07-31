@@ -770,101 +770,196 @@ static std::string SafeGetNativeString(const MsvcReleaseModeXString& xstr) {
   return result;
 }
 
-ParaboxAPI::String GetAbilityName(Ability *ability) {
-  if (!ability || (uintptr_t)ability <= 0x10000 || (uintptr_t)ability >= 0x7FFFFFFFFFFF || ((uintptr_t)ability & 0xF)) return ParaboxAPI::MakeString("NULL");
-  auto check_definition = [](void *p) -> std::string {
-    if (!p || (uintptr_t)p <= 0x10000 || (uintptr_t)p >= 0x7FFFFFFFFFFF || ((uintptr_t)p & 0xF)) return "";
-    AbilityDefinition def = {};
-    SIZE_T bytesRead = 0;
-    if (!ReadProcessMemory(GetCurrentProcess(), p, &def, sizeof(AbilityDefinition), &bytesRead) || bytesRead != sizeof(AbilityDefinition)) return "";
-    std::string name = SafeGetNativeString(def.name);
-    if (!name.empty() && name.length() < 128) {
-      bool printable = true;
-      for (const char c : name) { if (c < 32 || c > 126) { printable = false; break; } }
-      if (printable) return name;
+static bool SafeReadProcessMemory(void* addr, void* buf, size_t len) {
+  if (!addr || (uintptr_t)addr <= 0x10000 || (uintptr_t)addr >= 0x7FFFFFFFFFFF) return false;
+  SIZE_T bytesRead = 0;
+  bool ok = false;
+  __try {
+    if (ReadProcessMemory(GetCurrentProcess(), addr, buf, len, &bytesRead) && bytesRead == len) {
+      ok = true;
     }
-    return "";
-  };
-  std::string result = check_definition(ability->definition);
-  if (!result.empty()) return ParaboxAPI::MakeString(result);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    ok = false;
+  }
+  return ok;
+}
+
+static std::string CheckAbilityDefinitionPtr(void *p) {
+  if (!p || (uintptr_t)p <= 0x10000 || (uintptr_t)p >= 0x7FFFFFFFFFFF) return "";
+  AbilityDefinition def = {};
+  if (!SafeReadProcessMemory(p, &def, sizeof(AbilityDefinition))) return "";
+  std::string name = SafeGetNativeString(def.name);
+  if (!name.empty() && name.length() < 128) {
+    bool printable = true;
+    for (const char c : name) { if (c < 32 || c > 126) { printable = false; break; } }
+    if (printable) return name;
+  }
+  return "";
+}
+
+ParaboxAPI::String GetAbilityName(Ability *ability) {
+  if (!ability || (uintptr_t)ability <= 0x10000 || (uintptr_t)ability >= 0x7FFFFFFFFFFF) return ParaboxAPI::MakeString("NULL");
+
+  void* defPtr = nullptr;
+  if (SafeReadProcessMemory((void*)((uintptr_t)ability + offsetof(Ability, definition)), &defPtr, sizeof(void*))) {
+    std::string result = CheckAbilityDefinitionPtr(defPtr);
+    if (!result.empty()) return ParaboxAPI::MakeString(result);
+  }
+
   for (int i = 8; i < 64; i += 8) {
     if (i == 16) continue;
     void *p = nullptr;
-    SIZE_T bytesRead = 0;
-    if (ReadProcessMemory(GetCurrentProcess(), (void*)((uintptr_t)ability + i), &p, sizeof(void*), &bytesRead) && bytesRead == sizeof(void*)) {
-        result = check_definition(p);
+    if (SafeReadProcessMemory((void*)((uintptr_t)ability + i), &p, sizeof(void*))) {
+        std::string result = CheckAbilityDefinitionPtr(p);
         if (!result.empty()) return ParaboxAPI::MakeString(result);
     }
   }
   return ParaboxAPI::MakeString("UNKNOWN");
 }
 
-static bool IsValidAbility(const Ability* a, const Character* expectedOwner) {
-    __try {
-        if (a && a->owner == expectedOwner) {
-            return true;
-        }
-        // ReSharper disable once CppDFAUnreachableCode
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+static bool IsPointerReadable(const void* ptr) {
+    if (!ptr || (uintptr_t)ptr <= 0x10000 || (uintptr_t)ptr >= 0x7FFFFFFFFFFF) {
+        return false;
     }
-    return false;
+    return true;
+}
+
+static bool CheckAbilityNameMatch(Ability *a, const std::string &targetName) {
+    if (!IsPointerReadable(a) || ((uintptr_t)a & 0x7)) return false;
+    const std::string name = GetAbilityName(a).to_string();
+    return (!name.empty() && name != "UNKNOWN" && name != "NULL" && name == targetName);
+}
+
+typedef Ability* (__fastcall *FnSpawnDatabaseCreateAbility)(void* spawnDb, Character* actor, const MsvcReleaseModeXString* nameStr, Ability* parent);
+
+static Ability* SafeInvokeCreateAbility(FnSpawnDatabaseCreateAbility fnCreate, Component* spawnDb, Character* actor, const MsvcReleaseModeXString* nameStr) {
+  Ability* res = nullptr;
+  __try {
+    res = fnCreate(spawnDb, actor, nameStr, nullptr);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    res = nullptr;
+  }
+  return res;
+}
+
+static Component* GetSpawnDatabaseComponent() {
+    const auto scenes = GetCurrentScenes();
+    for (const auto* scene : scenes) {
+        if (!scene) continue;
+        if (Component* comp = FindComponentByTypeName(scene, "SpawnDatabase")) return comp;
+    }
+    return nullptr;
+}
+
+Ability* CreateAbilityFromSpawnDatabase(Character* actor, const char* abilityName) {
+    if (!actor || !abilityName || !*abilityName) return nullptr;
+
+    const auto gameBase = (uintptr_t)GetModuleHandleA(NULL);
+    if (!gameBase) return nullptr;
+
+    const auto fnCreate = (FnSpawnDatabaseCreateAbility)(void*)(gameBase + 0x7A99B0);
+    Component* spawnDb = GetSpawnDatabaseComponent();
+    if (!spawnDb) {
+        ParaboxAPI::Log("[SPAWNDB] Could not find SpawnDatabase component on active scenes");
+        return nullptr;
+    }
+
+    MsvcReleaseModeXString nameStr = {};
+    InitXString(nameStr, abilityName);
+
+    Ability* createdAbility = SafeInvokeCreateAbility(fnCreate, spawnDb, actor, &nameStr);
+
+    FreeXString(nameStr);
+
+    if (createdAbility) {
+        std::string charName = (actor) ? actor->name.to_utf8() : "Unknown";
+        if (charName.empty() || charName == "UNKNOWN" || charName == "NULL") charName = "Character";
+        ParaboxAPI::Log("[SPAWNDB] Dynamically created ability '%s' for %s", abilityName, charName.c_str());
+    } else {
+        ParaboxAPI::Log("[SPAWNDB] CreateAbility returned null for '%s'", abilityName);
+    }
+
+    return createdAbility;
 }
 
 Ability *FindCharacterAbility(const Character *actor, const char *targetName_c) {
-  std::string targetName = targetName_c ? targetName_c : "";
-  if (!actor)
+  const std::string targetName = targetName_c ? targetName_c : "";
+  if (!actor || targetName.empty())
     return nullptr;
 
   // Check direct ability pointers
-  Ability *directAbilities[] = {actor->defaultMove, actor->basicAttack};
-  for (Ability *directAbility : directAbilities) {
-    if (directAbility && (uintptr_t)directAbility > 0x10000
-        && !((uintptr_t)directAbility & 0xF)) {
-      if (IsValidAbility(directAbility, actor)) {
-        if (GetAbilityName(directAbility).to_string() == targetName) {
-          return directAbility;
-        }
+  if (CheckAbilityNameMatch(actor->ability0, targetName)) return actor->ability0;
+  if (CheckAbilityNameMatch(actor->defaultMove, targetName)) return actor->defaultMove;
+  if (CheckAbilityNameMatch(actor->basicAttack, targetName)) return actor->basicAttack;
+  if (CheckAbilityNameMatch(actor->bonusAbility, targetName)) return actor->bonusAbility;
+
+  // Iterate spells
+  if (actor->spells && IsPointerReadable(actor->spells) && actor->spellCount > 0 && actor->spellCount < 100) {
+    for (uint32_t i = 0; i < actor->spellCount; ++i) {
+      Ability* a = actor->spells[i];
+      if (CheckAbilityNameMatch(a, targetName)) {
+        return a;
       }
     }
   }
 
-  // Iterate spells
-  if (actor->spells) {
-    for (int i = 0; i < 5; i++) {
-      Ability *a = actor->spells[i];
-      if (a && (uintptr_t)a > 0x10000 && (uintptr_t)a < 0x7FFFFFFFFFFF
-          && !((uintptr_t)a & 0xF)) {
-        if (IsValidAbility(a, actor)) {
-          if (GetAbilityName(a).to_string() == targetName) {
-            return a;
-          }
-        }
+  // Iterate passives / extra abilities vector
+  if (actor->passives && IsPointerReadable(actor->passives) && actor->passivesCount > 0 && actor->passivesCount < 200) {
+    for (uint32_t i = 0; i < actor->passivesCount; ++i) {
+      Ability* a = actor->passives[i];
+      if (CheckAbilityNameMatch(a, targetName)) {
+        return a;
       }
     }
   }
-  return nullptr;
+
+  // Scan all active scene components for matching Ability definition name
+  const auto scenes = GetCurrentScenes();
+  for (const auto* scene : scenes) {
+    if (!scene) continue;
+    const auto comps = GetSceneComponents(scene);
+    for (auto* c : comps) {
+      if (!c) continue;
+      Ability* aComp = reinterpret_cast<Ability*>(c);
+      if (CheckAbilityNameMatch(aComp, targetName)) {
+        return aComp;
+      }
+    }
+  }
+
+  // Dynamically construct missing ability via SpawnDatabase
+  return CreateAbilityFromSpawnDatabase(const_cast<Character*>(actor), targetName_c);
 }
 
 Component *FindCharacterPassive(const Character *actor, const char *targetName_c) {
   const std::string targetName = targetName_c ? targetName_c : "";
-  if (!actor || !actor->persistentChar) return nullptr;
+  if (targetName.empty()) return nullptr;
 
-  const auto* charComp = (Component*)actor;
-  if (!charComp->entity) return nullptr;
-
-  const auto& comps = charComp->entity->components;
-  for (uint32_t i = 0; i < comps.size_; i++) {
-    Component* c = comps.data_[i];
-    if (c && c->vtable && c->vtable->GetObjectTypeSTR) {
+  // Scan scene components for matching Component ObjectTypeSTR
+  const auto scenes = GetCurrentScenes();
+  for (const auto* scene : scenes) {
+    if (!scene) continue;
+    const auto comps = GetSceneComponents(scene);
+    for (auto* c : comps) {
+      if (!c || !c->vtable || !c->vtable->GetObjectTypeSTR) continue;
       MsvcReleaseModeXString xstr = {};
-      c->vtable->GetObjectTypeSTR(c, &xstr);
-      std::string typeName = SafeGetNativeString(xstr);
-      FreeXString(xstr);
-      if (typeName == targetName) {
-        return c;
+      if (SafeGetComponentName(c, &xstr)) {
+        const std::string typeName = SafeGetNativeString(xstr);
+        FreeXString(xstr);
+        if (typeName == targetName) {
+          return c;
+        }
       }
     }
   }
+
+  // Fallback to FindCharacterAbility
+  if (actor) {
+    if (Ability* a = FindCharacterAbility(actor, targetName_c)) {
+      return reinterpret_cast<Component*>(a);
+    }
+  }
+
   return nullptr;
 }
 

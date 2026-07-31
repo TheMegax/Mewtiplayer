@@ -331,6 +331,7 @@ public:
   void ResetEntityMapping();
   uint32_t GetNUID(Character *character);
   Character *GetCharacter(uint32_t nuid);
+  std::string GetCharacterNameByNUID(uint32_t nuid);
   // Action Recording & Replay
   void RecordAction(const ActionPacket &pkt);
   void ClearRecordedActions();

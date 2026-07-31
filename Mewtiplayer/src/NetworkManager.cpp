@@ -581,12 +581,11 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
     return;
 
   const auto *pkt = (const TurnActionPacket *)data;
-  Overlay::Log("[NET] Queuing TurnAction: Type=%d NUID=%u Ability=%s",
-               pkt->actionType, pkt->actorNUID, pkt->abilityName);
+  const std::string actorName = NetworkManager::Get().GetCharacterNameByNUID(pkt->actorNUID);
 
   if (pkt->isPassive) {
-    Overlay::Log("[NET] Forcing Passive Trigger: NUID=%u Ability=%s",
-                 pkt->actorNUID, pkt->abilityName);
+    Overlay::Log("[NET] Received Direct Trigger: '%s' for %s (NUID %u)",
+                 pkt->abilityName, actorName.c_str(), pkt->actorNUID);
     
     if (Character *c = NetworkManager::Get().GetCharacter(pkt->actorNUID)) {
       TurnAction turnAction{};
@@ -614,13 +613,18 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
       }
       
       if (turnAction.ability) {
+          Overlay::Log("[TRIGGER] Direct Executing: '%s' for %s",
+                       pkt->abilityName, actorName.c_str());
           GameUtils::SetRNGState(pkt->rngState);
           ParaboxAPI::ForceAbilityTrigger(turnAction.ability, &turnAction);
       } else {
-          Overlay::Log("[NET] Failed to find passive/ability: %s", pkt->abilityName);
+          Overlay::Log("[TRIGGER] [ERROR] Could not resolve passive/ability '%s' for %s",
+                       pkt->abilityName, actorName.c_str());
       }
     }
   } else {
+    Overlay::Log("[NET] Received Queued Action: '%s' for %s (Type %d, NUID %u)",
+                 pkt->abilityName, actorName.c_str(), pkt->actionType, pkt->actorNUID);
     ActionPacket action{};
     action.type = PacketType::TurnAction;
     action.data.action = *pkt;
@@ -678,12 +682,12 @@ void NetworkManager::EnqueueReplayAction(const ActionPacket &pkt) {
 void NetworkManager::InitializeEntityMapping() {
   ResetEntityMapping();
 
-  auto fighters = GameUtils::GetFighters();
+  const auto fighters = GameUtils::GetFighters();
   // Entities at the start of combat are loaded in *always* in the same order,
   // allowing us to use NUIDs for networking.
   // Thanks, Tyler <3
 
-  Overlay::Log("NUID: Initializing mapping for %zu fighters", fighters.size());
+  Overlay::Log("[NUID] Initializing mapping for %zu fighters", fighters.size());
 
   for (Character *c : fighters) {
     if (!c)
@@ -693,7 +697,7 @@ void NetworkManager::InitializeEntityMapping() {
     m_charToNuid[c] = nuid;
     m_nuidToChar[nuid] = c;
 
-    Overlay::Log("NUID: Map [%d] -> Character %p (%s)", nuid, c,
+    Overlay::Log("[NUID] Map [%u] -> Character: %s", nuid,
                  c->name.to_utf8().c_str());
   }
 
@@ -719,6 +723,16 @@ Character *NetworkManager::GetCharacter(const uint32_t nuid) {
     return it->second;
   }
   return nullptr;
+}
+
+std::string NetworkManager::GetCharacterNameByNUID(const uint32_t nuid) {
+  const Character *c = GetCharacter(nuid);
+  if (!c) return "NUID:" + std::to_string(nuid);
+  std::string name = c->name.to_utf8();
+  if (name.empty() || name == "UNKNOWN" || name == "NULL") {
+    return "Fighter(NUID:" + std::to_string(nuid) + ")";
+  }
+  return name;
 }
 
 void NetworkManager::UpdateDynamicEntities() {

@@ -112,9 +112,11 @@ target_include_directories(Mewtiplayer PRIVATE
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/external/mew-ui-api/mew_ui_api.c PROPERTIES LANGUAGE CXX)
 
 # Compile flags
-target_compile_options(Mewtiplayer PRIVATE -fms-extensions)
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(Mewtiplayer PRIVATE -fasync-exceptions -fexceptions -fcxx-exceptions)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(Mewtiplayer PRIVATE -fms-extensions)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(Mewtiplayer PRIVATE -fasync-exceptions -fexceptions -fcxx-exceptions)
+    endif()
 endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(Mewtiplayer PRIVATE -g -gdwarf-4)

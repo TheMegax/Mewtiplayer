@@ -6,6 +6,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND NOT FORCE_LINUX)
         set(CMAKE_TOOLCHAIN_FILE
             "${CMAKE_CURRENT_SOURCE_DIR}/clang-msvc-toolchain.cmake"
             CACHE FILEPATH "Clang MSVC Toolchain" FORCE)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/clang-msvc-toolchain.cmake")
     endif()
 endif()
 
@@ -17,6 +18,7 @@ endif()
 
 # ── Global settings ──────────────────────────────────────────────────────────
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded" CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

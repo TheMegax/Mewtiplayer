@@ -34,6 +34,13 @@ set(XWIN_SDK_UCRT_LIB "${XWIN_DIR}/sdk/lib/ucrt/x86_64")
 # Set system include/library flags
 set(CMAKE_C_FLAGS_INIT "${CMAKE_C_FLAGS_INIT} -Xclang -internal-isystem -Xclang ${XWIN_CRT_INCLUDE} -Xclang -internal-isystem -Xclang ${XWIN_SDK_UCRT_INCLUDE} -Xclang -internal-isystem -Xclang ${XWIN_SDK_INCLUDE} -Xclang -internal-isystem -Xclang ${XWIN_SDK_SHARED_INCLUDE}")
 set(CMAKE_CXX_FLAGS_INIT "${CMAKE_CXX_FLAGS_INIT} -Xclang -internal-isystem -Xclang ${XWIN_CRT_INCLUDE} -Xclang -internal-isystem -Xclang ${XWIN_SDK_UCRT_INCLUDE} -Xclang -internal-isystem -Xclang ${XWIN_SDK_INCLUDE} -Xclang -internal-isystem -Xclang ${XWIN_SDK_SHARED_INCLUDE}")
+set(CMAKE_RC_FLAGS_INIT "-I${XWIN_CRT_INCLUDE} -I${XWIN_SDK_UCRT_INCLUDE} -I${XWIN_SDK_INCLUDE} -I${XWIN_SDK_SHARED_INCLUDE}")
+
+# Use DWARF debug format to avoid Clang CodeView (-gcodeview) bug with MSVC SEH __try blocks
+set(CMAKE_C_FLAGS_DEBUG_INIT "-g -gdwarf-4 -O0")
+set(CMAKE_CXX_FLAGS_DEBUG_INIT "-g -gdwarf-4 -O0")
+set(CMAKE_C_FLAGS_RELWITHDEBINFO_INIT "-g -gdwarf-4 -O2")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO_INIT "-g -gdwarf-4 -O2")
 
 # Linker library search paths
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-L${XWIN_CRT_LIB} -L${XWIN_SDK_LIB} -L${XWIN_SDK_UCRT_LIB}")

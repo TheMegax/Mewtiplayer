@@ -1,4 +1,5 @@
 #include "events/CombatSubscribers.h"
+#include "NetworkManager.h"
 #include "ModState.h"
 #include "Overlay.h"
 #include <windows.h>
@@ -40,16 +41,17 @@ bool g_injectedInCurrentCall = false;
 void NotifyEnqueueResult(void* result) {
     if (g_injectedInCurrentCall) {
         g_injectedInCurrentCall = false;
+        const uint32_t nuid = g_lastInjectedActionPacket.data.action.actorNUID;
+        const char* ability = g_lastInjectedActionPacket.data.action.abilityName;
+        const std::string actorName = NetworkManager::Get().GetCharacterNameByNUID(nuid);
+
         if (!result) {
-            Overlay::Log("[ENQUEUE] [WARN] g_origEnqueueAction returned NULL! Engine rejected injected action (Type %d, NUID %u). Re-pushing to queue front for retry.",
-                         g_lastInjectedActionPacket.data.action.actionType,
-                         g_lastInjectedActionPacket.data.action.actorNUID);
+            Overlay::Log("[ENQUEUE] [WARN] Engine rejected injected action '%s' for %s (NUID %u) - retrying",
+                         ability, actorName.c_str(), nuid);
             g_pendingInjections.push_front(g_lastInjectedActionPacket);
         } else {
-            Overlay::Log("[ENQUEUE] [OK] g_origEnqueueAction returned %p for injected action (Type %d, NUID %u).",
-                         result,
-                         g_lastInjectedActionPacket.data.action.actionType,
-                         g_lastInjectedActionPacket.data.action.actorNUID);
+            Overlay::Log("[ENQUEUE] Action injected successfully: '%s' for %s (NUID %u)",
+                         ability, actorName.c_str(), nuid);
         }
     }
 }
@@ -115,7 +117,7 @@ void RegisterCombatSubscribers() {
             }
 
             const uint8_t isPlayerCat = ev.character->isPlayerCat;
-            Overlay::Log("BeginTurn: [%ls] UID:%lld Class:%s IsPlayerCat:%d",
+            Overlay::Log("[TURN] Begin Turn: [%ls] UID:%lld Class:%s IsPlayerCat:%d",
                          name.c_str(), uniqueId, className, isPlayerCat);
 
             if (uniqueId != -1) {
@@ -193,8 +195,8 @@ void RegisterCombatSubscribers() {
                         PacketType::TurnAction, &passivePkt, sizeof(passivePkt), true);
 
                     isSyncAction = true;
-                    Overlay::Log("[TRIGGER] PASSIVE Broadcast: %s for NUID %u",
-                                 abilityName.c_str(), triggerNUID);
+                    Overlay::Log("[TRIGGER] PASSIVE Broadcast: '%s' for %s (NUID %u)",
+                                 abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
                 }
 
                 if (isMainAction) {
@@ -210,62 +212,60 @@ void RegisterCombatSubscribers() {
 
                     g_deferredBroadcastPending = false;
                     isSyncAction = true;
-                    Overlay::Log("[TRIGGER] Flushed deferred broadcast: '%s' for NUID %u",
-                                 g_deferredActionPkt.abilityName, g_deferredActionPkt.actorNUID);
-                }
-            } else if (!isSyncAction && triggerNUID != 0xFFFFFFFF) {
-                // This is a passive reaction (e.g. GasBlast, BoomerCatExplode)
-                // fired AFTER the main action
-                Component *passiveComp = abilityOwner ? GameUtils::FindCharacterPassive(abilityOwner, abilityName.c_str()) : nullptr;
-                if (passiveComp || ev.turnAction->type == 7 || (abilityOwner && !abilityOwner->isPlayerCat)) {
-                    static std::pair<uint32_t, std::string> lastBroadcastPassive = {0xFFFFFFFF, ""};
-                    static ULONGLONG lastPassiveTime = 0;
-                    ULONGLONG now = GetTickCount64();
-
-                    if (lastBroadcastPassive.first != triggerNUID || lastBroadcastPassive.second != abilityName || (now - lastPassiveTime > 300)) {
-                        lastBroadcastPassive = {triggerNUID, abilityName};
-                        lastPassiveTime = now;
-
-                        TurnActionPacket passivePkt{};
-                        passivePkt.actorNUID = triggerNUID;
-                        passivePkt.actionType = ev.turnAction->type;
-                        passivePkt.isPassive = true;
-                        GameUtils::GetRNGState(passivePkt.rngState);
-                        memset(passivePkt.abilityName, 0, sizeof(passivePkt.abilityName));
-                        strncpy_s(passivePkt.abilityName, abilityName.c_str(), _TRUNCATE);
-                        passivePkt.targetX  = ev.turnAction->targetX;
-                        passivePkt.targetY  = ev.turnAction->targetY;
-                        passivePkt.target2X = ev.turnAction->target2X;
-                        passivePkt.target2Y = ev.turnAction->target2Y;
-                        passivePkt.unk_28   = ev.turnAction->unk_28;
-                        passivePkt.unk_2C   = ev.turnAction->unk_2C;
-                        passivePkt.flag_30  = ev.turnAction->flag_30;
-                        passivePkt.flag_31  = ev.turnAction->flag_31;
-                        passivePkt.flag_32  = ev.turnAction->flag_32;
-                        passivePkt.flag_33  = ev.turnAction->flag_33;
-                        passivePkt.flag_34  = ev.turnAction->flag_34;
-                        passivePkt.flag_35  = ev.turnAction->flag_35;
-                        passivePkt.flag_36  = ev.turnAction->flag_36;
-
-                        ActionPacket actPkt{};
-                        actPkt.type = PacketType::TurnAction;
-                        actPkt.data.action = passivePkt;
-                        NetworkManager::Get().RecordAction(actPkt);
-                        NetworkManager::Get().BroadcastPacket(
-                            PacketType::TurnAction, &passivePkt, sizeof(passivePkt), true);
-
-                        isSyncAction = true;
-                        Overlay::Log("[TRIGGER] HOST PASSIVE Broadcast: %s for NUID %u",
-                                     abilityName.c_str(), triggerNUID);
-                    }
+                    Overlay::Log("[TRIGGER] Flushed deferred broadcast: '%s' for %s (NUID %u)",
+                                 g_deferredActionPkt.abilityName, NetworkManager::Get().GetCharacterNameByNUID(g_deferredActorNUID).c_str(), g_deferredActorNUID);
                 }
             }
             // ---- End deferred broadcast handling ----
 
+            // ---- Authoritative turn: broadcast all auto actions ----
+            // After the deferred main action has been flushed (or when no
+            // deferred broadcast is pending), any further actions that fire
+            // during our turn need to be broadcast to remote clients.
+            if (!g_deferredBroadcastPending && !isSyncAction &&
+                triggerNUID != 0xFFFFFFFF) {
+                const uint64_t myID = SteamUser()->GetSteamID().ConvertToUint64();
+                const uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
+                const uint64_t ownerID = NetworkManager::Get().GetNUIDOwner(activeNUID);
+                if (ownerID != 0 && ownerID == myID) {
+                    TurnActionPacket autoPkt{};
+                    autoPkt.actorNUID = triggerNUID;
+                    autoPkt.actionType = ev.turnAction->type;
+                    autoPkt.isPassive = true; // Trigger immediately on receipt via ForceAbilityTrigger
+                    GameUtils::GetRNGState(autoPkt.rngState);
+                    memset(autoPkt.abilityName, 0, sizeof(autoPkt.abilityName));
+                    strncpy_s(autoPkt.abilityName, abilityName.c_str(), _TRUNCATE);
+                    autoPkt.targetX  = ev.turnAction->targetX;
+                    autoPkt.targetY  = ev.turnAction->targetY;
+                    autoPkt.target2X = ev.turnAction->target2X;
+                    autoPkt.target2Y = ev.turnAction->target2Y;
+                    autoPkt.unk_28   = ev.turnAction->unk_28;
+                    autoPkt.unk_2C   = ev.turnAction->unk_2C;
+                    autoPkt.flag_30  = ev.turnAction->flag_30;
+                    autoPkt.flag_31  = ev.turnAction->flag_31;
+                    autoPkt.flag_32  = ev.turnAction->flag_32;
+                    autoPkt.flag_33  = ev.turnAction->flag_33;
+                    autoPkt.flag_34  = ev.turnAction->flag_34;
+                    autoPkt.flag_35  = ev.turnAction->flag_35;
+                    autoPkt.flag_36  = ev.turnAction->flag_36;
+
+                    NetworkManager::Get().BroadcastPacket(
+                        PacketType::TurnAction, &autoPkt, sizeof(autoPkt), true);
+
+                    isSyncAction = true;
+                    Overlay::Log("[TRIGGER] AUTO Broadcast: '%s' for %s (NUID %u)",
+                                 abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
+                }
+            }
+
+            std::string actorName = (abilityOwner) ? abilityOwner->name.to_utf8() : "Unknown";
+            if (actorName.empty() || actorName == "UNKNOWN" || actorName == "NULL") {
+                actorName = NetworkManager::Get().GetCharacterNameByNUID(triggerNUID);
+            }
             char buf[512];
             snprintf(buf, sizeof(buf),
-                     "[%s ACTION] UID:%lld | %s | T1:(%d,%d) | T2:(%d,%d)",
-                     isSyncAction ? "SYNC" : "AUTO", sourceUID, abilityName.c_str(),
+                     "[%s ACTION] Actor:%s | %s | T1:(%d,%d) | T2:(%d,%d)",
+                     isSyncAction ? "SYNC" : "AUTO", actorName.c_str(), abilityName.c_str(),
                      ev.turnAction->targetX, ev.turnAction->targetY, ev.turnAction->target2X,
                      ev.turnAction->target2Y);
             Overlay::Log(buf);
@@ -273,6 +273,25 @@ void RegisterCombatSubscribers() {
     });
 
     ParaboxAPI::OnEnqueueAction.Subscribe([](ParaboxAPI::EnqueueActionEvent& ev) {
+        // ---- Authoritative turn: cancel all local actions on remote clients ----
+        // Must run FIRST, before the injection check, so that suppressed actions
+        // (type set to 0) fall through into the injection path below.
+        // The controller broadcasts all actions. Remote clients only inject.
+        if (ev.actionData && ev.actionData->type > 1) {
+            const uint32_t activeNUID_sup = NetworkManager::Get().GetActiveNUID();
+            if (activeNUID_sup != 0xFFFFFFFF) {
+                const uint64_t myID_sup = SteamUser()->GetSteamID().ConvertToUint64();
+                const uint64_t ownerID_sup = NetworkManager::Get().GetNUIDOwner(activeNUID_sup);
+                if (ownerID_sup != 0 && ownerID_sup != myID_sup) {
+                    if (g_modState.talkative) {
+                        Overlay::Log("[ENQUEUE] Suppressed local action Type=%d (remote turn for %s)",
+                                     ev.actionData->type, NetworkManager::Get().GetCharacterNameByNUID(activeNUID_sup).c_str());
+                    }
+                    ev.actionData->type = 0; // Demote to idle
+                }
+            }
+        }
+
         g_lastActionQueue = ev.queue;
         g_isQueueEmpty = ev.actionData && ev.actionData->type <= 1;
 
@@ -289,16 +308,16 @@ void RegisterCombatSubscribers() {
                         const auto uy = static_cast<uint32_t>(facing.ny);
                         uint64_t packed = static_cast<uint64_t>(ux) | static_cast<uint64_t>(uy) << 32;
                         if (g_modState.talkative) {
-                            Overlay::Log("[ENQUEUE] Injecting facing for NUID %u | Target:(%d,%d)",
-                                         facing.actorNUID, facing.nx, facing.ny);
+                            Overlay::Log("[INJECT] Injecting facing for %s (NUID %u) | Target:(%d,%d)",
+                                         NetworkManager::Get().GetCharacterNameByNUID(facing.actorNUID).c_str(), facing.actorNUID, facing.nx, facing.ny);
                         }
                         
                         ParaboxAPI::ForceFaceDirection(c, packed, facing.anim, facing.force);
                     }
                 } else {
                     if (g_modState.talkative) {
-                        Overlay::Log("[ENQUEUE] Dropping stale TurnFacing for NUID %u (Active is %u)",
-                                     facing.actorNUID, activeNUID);
+                        Overlay::Log("[ENQUEUE] Dropping stale TurnFacing for %s (NUID %u)",
+                                     NetworkManager::Get().GetCharacterNameByNUID(facing.actorNUID).c_str(), facing.actorNUID);
                     }
                 }
                 g_pendingInjections.pop_front();
@@ -313,31 +332,38 @@ void RegisterCombatSubscribers() {
                     NetworkManager::Get().GetCharacter(pending.actorNUID);
 
                 if (!pendingActor) {
-                    Overlay::Log("[ENQUEUE] [ERROR] Could not resolve character for NUID %u - dropping pending action '%s'",
+                    Overlay::Log("[ENQUEUE] [ERROR] Could not resolve character for NUID %u - dropping action '%s'",
                                  pending.actorNUID, pending.abilityName);
                     g_pendingInjections.pop_front();
                 } else if (const uint64_t ownerID = NetworkManager::Get().GetNUIDOwner(pending.actorNUID);
                            ownerID == 0 && !pendingActor->isPlayerCat && pending.actionType == 3) {
                     // For unowned AI / NPC characters (ownerID == 0 and !isPlayerCat), local AI executes on both sides.
                     // Ignore AI EndTurn packets on receipt.
-                    Overlay::Log("[ENQUEUE] Ignored AI EndTurn for NUID %u", pending.actorNUID);
+                    Overlay::Log("[ENQUEUE] Ignored AI EndTurn for %s (NUID %u)",
+                                 NetworkManager::Get().GetCharacterNameByNUID(pending.actorNUID).c_str(), pending.actorNUID);
                     g_pendingInjections.pop_front();
                 } else if (pending.actorNUID != activeNUID && !pending.isPassive) {
-                    // Packet is for a different character.
-                    // Leave in g_pendingInjections until activeNUID matches.
-                    return;
+                    // During a remote player's turn, allow injection regardless
+                    // of NUID mismatch — the controller is authoritative.
+                    const uint64_t myID_inj = SteamUser()->GetSteamID().ConvertToUint64();
+                    const uint64_t ownerID_inj = NetworkManager::Get().GetNUIDOwner(activeNUID);
+                    const bool isRemoteTurn = (ownerID_inj != 0 && ownerID_inj != myID_inj);
+                    if (!isRemoteTurn) {
+                        // Packet is for a different character.
+                        // Leave in g_pendingInjections until activeNUID matches.
+                        return;
+                    }
                 } else {
                     std::string abilityName(pending.abilityName);
                     Ability *ability = nullptr;
                     if (abilityName != "NULL") {
                         ability = GameUtils::FindCharacterAbility(pendingActor, abilityName.c_str());
                         if (!ability) {
-                            Component* passive = GameUtils::FindCharacterPassive(pendingActor, abilityName.c_str());
-                            if (passive) {
+                            if (Component* passive = GameUtils::FindCharacterPassive(pendingActor, abilityName.c_str())) {
                                 ability = (Ability*)passive;
                             } else {
-                                Overlay::Log("[ENQUEUE] [ERROR] Could not resolve ability/passive '%s' for NUID %u - dropping",
-                                             pending.abilityName, pending.actorNUID);
+                                Overlay::Log("[ENQUEUE] [ERROR] Could not resolve ability/passive '%s' for %s (NUID %u) - dropping",
+                                             pending.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pending.actorNUID).c_str(), pending.actorNUID);
                                 g_pendingInjections.pop_front();
                                 return; // Let original function handle
                             }

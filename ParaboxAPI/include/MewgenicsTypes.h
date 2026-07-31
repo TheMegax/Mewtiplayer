@@ -542,7 +542,9 @@ struct Character {
   Ability *ability0;                    // 0x0C8 (It is only valid for the first ability cast then disappears)
   Ability *defaultMove;                 // 0x0D0
   Ability *basicAttack;                 // 0x0D8
-  char _padding_1a[0x10];               // 0x0E0
+  Ability *bonusAbility;                // 0x0E0
+  char _padding_1a[0x4];                // 0x0E8
+  uint32_t spellCount;                  // 0x0EC
   Ability **spells;                     // 0x0F0
   char _padding_1b[0x198];              // 0x0F8 -- TODO: Check item actions later, they may be an array too
   MsvcReleaseModeWString name;          // 0x290
@@ -587,13 +589,24 @@ struct Character {
   bool isElite;                         // 0xCDF
   char _padding_12[0x14];               // 0xCE0
   int32_t characterType;                // 0xCF4 (Enemy, Small, Boss, Cat, Object)
+  char _padding_13[0x17C];              // 0xCF8
+  uint32_t passivesCount;               // 0xE74
+  Ability **passives;                   // 0xE78
 };
+static_assert(offsetof(Character, ability0) == 0x0C8, "Character offset mismatch");
+static_assert(offsetof(Character, defaultMove) == 0x0D0, "Character offset mismatch");
+static_assert(offsetof(Character, basicAttack) == 0x0D8, "Character offset mismatch");
+static_assert(offsetof(Character, bonusAbility) == 0x0E0, "Character offset mismatch");
+static_assert(offsetof(Character, spellCount) == 0x0EC, "Character offset mismatch");
+static_assert(offsetof(Character, spells) == 0x0F0, "Character offset mismatch");
 static_assert(offsetof(Character, name) == 0x290, "Character offset mismatch");
 static_assert(offsetof(Character, currentHP) == 0x4B0, "Character offset mismatch");
 static_assert(offsetof(Character, maxHP) == 0x4BC, "Character offset mismatch");
 static_assert(offsetof(Character, strength) == 0x5A0, "Character offset mismatch");
 static_assert(offsetof(Character, buffedStr) == 0x6F0, "Character offset mismatch");
 static_assert(offsetof(Character, characterType) == 0xCF4, "Character offset mismatch");
+static_assert(offsetof(Character, passivesCount) == 0xE74, "Character offset mismatch");
+static_assert(offsetof(Character, passives) == 0xE78, "Character offset mismatch");
 
 struct UIAbilitySlotVTable {
   void *unk0;

@@ -47,9 +47,11 @@ target_include_directories(ParaboxAPI PRIVATE
 )
 
 # Compile flags
-target_compile_options(ParaboxAPI PRIVATE -fms-extensions)
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(ParaboxAPI PRIVATE -fasync-exceptions -fexceptions -fcxx-exceptions)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(ParaboxAPI PRIVATE -fms-extensions)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(ParaboxAPI PRIVATE -fasync-exceptions -fexceptions -fcxx-exceptions)
+    endif()
 endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(ParaboxAPI PRIVATE -g -gdwarf-4)
