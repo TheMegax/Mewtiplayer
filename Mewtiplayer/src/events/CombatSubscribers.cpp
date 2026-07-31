@@ -24,6 +24,11 @@ bool g_deferredBroadcastPending = false;
 TurnActionPacket g_deferredActionPkt = {};
 uint32_t g_deferredActorNUID = 0xFFFFFFFF;
 
+bool g_isMainActionActive = false;
+uint32_t g_activeMainActionActorNUID = 0xFFFFFFFF;
+Ability *g_activeMainActionAbilityPtr = nullptr;
+std::string g_activeMainActionAbilityName;
+
 bool g_startedCombat = false;
 bool g_isQueueEmpty = false;
 bool g_inCombatDetected = false;
@@ -71,6 +76,11 @@ void ResetCombatSubscribersState() {
     g_deferredActionPkt = {};
     g_deferredActorNUID = 0xFFFFFFFF;
 
+    g_isMainActionActive = false;
+    g_activeMainActionActorNUID = 0xFFFFFFFF;
+    g_activeMainActionAbilityPtr = nullptr;
+    g_activeMainActionAbilityName.clear();
+
     g_startedCombat = false;
     g_isQueueEmpty = false;
     g_inCombatDetected = false;
@@ -109,7 +119,7 @@ void RegisterCombatSubscribers() {
 
         if (memcmp(currentRNG, g_lastFrameRNG, sizeof(currentRNG)) != 0) {
             memcpy(g_lastFrameRNG, currentRNG, sizeof(currentRNG));
-            Overlay::Log("[RNG-FRAME] %s RNG Advanced: %08X %08X %08X %08X",
+            Overlay::Log("[RNG] %s RNG Advanced: %08X %08X %08X %08X",
                          NetworkManager::Get().IsHost() ? "[HOST]" : "[CLIENT]",
                          currentRNG[0], currentRNG[1], currentRNG[2], currentRNG[3]);
         }
@@ -126,6 +136,10 @@ void RegisterCombatSubscribers() {
         g_startedCombat = true;
         g_isCombatUIProcessing = false;
         g_deferredBroadcastPending = false; // Safety: clear stale deferred state
+        g_isMainActionActive = false;
+        g_activeMainActionActorNUID = 0xFFFFFFFF;
+        g_activeMainActionAbilityPtr = nullptr;
+        g_activeMainActionAbilityName.clear();
 
         if (ev.character) {
             std::wstring name = L"Unknown";
@@ -192,6 +206,10 @@ void RegisterCombatSubscribers() {
                 ? NetworkManager::Get().GetNUID(abilityOwner)
                 : 0xFFFFFFFF;
 
+            if (!isSyncAction && g_isMainActionActive) {
+                isSyncAction = true;
+            }
+
             // ---- Deferred broadcast: capture passives, flush main action ----
             if (g_deferredBroadcastPending) {
                 bool isMainAction =
@@ -247,6 +265,10 @@ void RegisterCombatSubscribers() {
 
                     g_deferredBroadcastPending = false;
                     isSyncAction = true;
+                    g_isMainActionActive = true;
+                    g_activeMainActionActorNUID = g_deferredActorNUID;
+                    g_activeMainActionAbilityPtr = ev.ability;
+                    g_activeMainActionAbilityName = abilityName;
                     Overlay::Log("[TRIGGER] Flushed deferred broadcast: '%s' for %s (NUID %u)",
                                  g_deferredActionPkt.abilityName, NetworkManager::Get().GetCharacterNameByNUID(g_deferredActorNUID).c_str(), g_deferredActorNUID);
                 }
@@ -321,22 +343,40 @@ void RegisterCombatSubscribers() {
         // The controller broadcasts all actions. Remote clients only inject.
         // Internal engine actions (like Type 7) are allowed to resolve locally.
         if (ev.actionData && ev.actionData->type > 1 && ev.actionData->type != 7) {
-            const uint32_t activeNUID_sup = NetworkManager::Get().GetActiveNUID();
-            if (activeNUID_sup != 0xFFFFFFFF) {
-                const uint64_t myID_sup = SteamUser()->GetSteamID().ConvertToUint64();
-                const uint64_t ownerID_sup = NetworkManager::Get().GetNUIDOwner(activeNUID_sup);
-                if (ownerID_sup != 0 && ownerID_sup != myID_sup) {
-                    if (g_modState.talkative) {
-                        Overlay::Log("[ENQUEUE] Suppressed local action Type=%d (remote turn for %s)",
-                                     ev.actionData->type, NetworkManager::Get().GetCharacterNameByNUID(activeNUID_sup).c_str());
+            Character *actor = ev.actionData->actor;
+            uint32_t actionActorNUID = actor ? NetworkManager::Get().GetNUID(actor) : 0xFFFFFFFF;
+            uint64_t actionActorOwnerID = NetworkManager::Get().GetNUIDOwner(actionActorNUID);
+            bool isPlayerCat = (actor && actor->isPlayerCat) ||
+                               (actionActorNUID != 0xFFFFFFFF && NetworkManager::Get().GetCharacter(actionActorNUID) && NetworkManager::Get().GetCharacter(actionActorNUID)->isPlayerCat);
+            bool isAIAction = (actionActorOwnerID == 0 && !isPlayerCat);
+
+            if (!isAIAction) {
+                const uint32_t activeNUID_sup = NetworkManager::Get().GetActiveNUID();
+                if (activeNUID_sup != 0xFFFFFFFF) {
+                    const uint64_t myID_sup = SteamUser()->GetSteamID().ConvertToUint64();
+                    const uint64_t ownerID_sup = NetworkManager::Get().GetNUIDOwner(activeNUID_sup);
+                    if (ownerID_sup != 0 && ownerID_sup != myID_sup) {
+                        if (g_modState.talkative) {
+                            Overlay::Log("[ENQUEUE] Suppressed local action Type=%d for %s (remote turn for %s)",
+                                         ev.actionData->type,
+                                         NetworkManager::Get().GetCharacterNameByNUID(actionActorNUID).c_str(),
+                                         NetworkManager::Get().GetCharacterNameByNUID(activeNUID_sup).c_str());
+                        }
+                        ev.actionData->type = 0; // Demote to idle
                     }
-                    ev.actionData->type = 0; // Demote to idle
                 }
             }
         }
 
         g_lastActionQueue = ev.queue;
         g_isQueueEmpty = ev.actionData && ev.actionData->type <= 1;
+
+        if (g_isQueueEmpty && g_pendingInjections.empty() && !g_deferredBroadcastPending) {
+            g_isMainActionActive = false;
+            g_activeMainActionActorNUID = 0xFFFFFFFF;
+            g_activeMainActionAbilityPtr = nullptr;
+            g_activeMainActionAbilityName.clear();
+        }
 
         if (ev.actionData && ev.actionData->type <= 1 && !g_pendingInjections.empty()) {
             // Peek for TurnAction specifically, or handle TurnFacing immediately
@@ -421,6 +461,11 @@ void RegisterCombatSubscribers() {
                     g_injectedInCurrentCall = true;
                     g_isInjectedActionPending = true;
                     g_injectedAbilityPtr = ability;
+
+                    g_isMainActionActive = true;
+                    g_activeMainActionActorNUID = pktCopy.actorNUID;
+                    g_activeMainActionAbilityPtr = ability;
+                    g_activeMainActionAbilityName = pktCopy.abilityName;
 
                     ev.actionData->type = pktCopy.actionType;
                     ev.actionData->ability = ability;
@@ -616,6 +661,11 @@ void RegisterCombatSubscribers() {
                     g_deferredBroadcastPending = true;
                     g_deferredActionPkt = pkt;
                     g_deferredActorNUID = nuid;
+
+                    g_isMainActionActive = true;
+                    g_activeMainActionActorNUID = nuid;
+                    g_activeMainActionAbilityPtr = ability;
+                    g_activeMainActionAbilityName = pkt.abilityName;
                     Overlay::Log("[NET] Deferred broadcast of '%s' for NUID: %d",
                                  pkt.abilityName, nuid);
                 }
