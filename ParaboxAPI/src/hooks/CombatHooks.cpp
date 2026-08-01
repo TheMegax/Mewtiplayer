@@ -12,6 +12,7 @@ HOOK_DEFINE(FaceDirection, void, void*, uint64_t, bool, bool)
 HOOK_DEFINE(SlotUpdateDynamicValue, void*, void*, void*)
 HOOK_DEFINE(ProcessCombatInput, void*, CombatUIContext*, void*)
 HOOK_DEFINE(RouteCombatInput, void*, CombatUIContext*, void*, void*, void*)
+HOOK_DEFINE(PossessionUpdate, void, void*, unsigned char)
 
 static void Hook_TurnStart(TurnControl *tc) {
     ParaboxAPI::TurnStartEvent ev = {};
@@ -124,6 +125,16 @@ static void *__fastcall Hook_RouteCombatInput(CombatUIContext *ctx, void *outRes
     return g_origRouteCombatInput(ctx, outResult, param3, param4);
 }
 
+static void __fastcall Hook_PossessionUpdate(void *character, unsigned char param_2) {
+    if (!character) return;
+    auto *c = static_cast<Character *>(character);
+    if (!c->possessionComponent) return; // Prevent crash when possession component at offset 0xC8 is NULL
+
+    if (g_origPossessionUpdate) {
+        g_origPossessionUpdate(character, param_2);
+    }
+}
+
 void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
     HOOK_INSTALL(mj, gameBase, BeginTurn,
         "48 89 5C 24 08 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 B0 FC FF FF", 16);
@@ -151,6 +162,9 @@ void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
 
     HOOK_INSTALL(mj, gameBase, RouteCombatInput,
         "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38", 15);
+
+    HOOK_INSTALL(mj, gameBase, PossessionUpdate,
+        "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 81 EC 40 01 00 00", 16);
 }
 
 namespace ParaboxAPI {

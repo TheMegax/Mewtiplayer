@@ -196,12 +196,7 @@ void RegisterCombatSubscribers() {
 
         if (ev.ability && ev.turnAction) {
             const std::string abilityName = GameUtils::GetAbilityName(ev.ability).to_string();
-            int64_t sourceUID = -1;
             Character *abilityOwner = ev.ability->owner;
-            if (abilityOwner && abilityOwner->persistentChar) {
-                sourceUID = abilityOwner->persistentChar->sql_key;
-            }
-
             uint32_t triggerNUID = abilityOwner
                 ? NetworkManager::Get().GetNUID(abilityOwner)
                 : 0xFFFFFFFF;
@@ -606,7 +601,13 @@ void RegisterCombatSubscribers() {
         uint32_t nuid = actor ? NetworkManager::Get().GetNUID(actor) : 0xFFFFFFFF;
         std::string actorName = actor ? actor->name.to_utf8() : "UNKNOWN";
 
-        if (g_waitingForPlayerAction) {
+        const uint64_t myID_enqueue = SteamUser()->GetSteamID().ConvertToUint64();
+        const uint32_t activeNUID_enqueue = NetworkManager::Get().GetActiveNUID();
+        const uint64_t ownerID_enqueue = NetworkManager::Get().GetNUIDOwner(activeNUID_enqueue);
+        const bool isMyAuthoritativeTurn = ownerID_enqueue != 0 && ownerID_enqueue == myID_enqueue;
+        const bool isTurnAction = (ev.actionData->type > 1 && ev.actionData->type != 7);
+
+        if (const bool shouldSync = g_waitingForPlayerAction || (isMyAuthoritativeTurn && isTurnAction)) {
             g_waitingForPlayerAction = false;
             g_isSyncActionPending = true;
 

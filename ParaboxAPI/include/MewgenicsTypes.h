@@ -539,7 +539,10 @@ struct Character {
   char _padding_0[0x80];                // 0x008
   PersistentCharacter *persistentChar;  // 0x088
   char _padding_1[0x38];                // 0x090
-  Ability *ability0;                    // 0x0C8 (It is only valid for the first ability cast then disappears)
+  union {
+    Ability *ability0;                    // 0x0C8 (It is only valid for the first ability cast then disappears)
+    void *possessionComponent;            // 0x0C8 (Dybbuk possession / temporary component)
+  };
   Ability *defaultMove;                 // 0x0D0
   Ability *basicAttack;                 // 0x0D8
   Ability *bonusAbility;                // 0x0E0
