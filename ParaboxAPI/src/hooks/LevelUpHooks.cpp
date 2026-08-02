@@ -138,7 +138,7 @@ void LevelUpHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
     0);
 
   HOOK_INSTALL(mj, gameBase, LevelUpScreen_Reroll,
-    "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55 41 56 41 57 48 8d 6c 24 c9 48 81 ec",
+    "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55 41 56 41 57 48 8d 6c 24 c9 48 81 ec 00 01 00 00 48 8b f1 45 33 ed 8b 91 e4 00 00 00",
     0);
 
   HOOK_INSTALL(mj, gameBase, AbilityChooser_init,

@@ -52,7 +52,16 @@ void RegisterLevelUpSubscribers() {
 
     ParaboxAPI::OnLevelUpScreenReroll.Subscribe([](ParaboxAPI::LevelUpScreenRerollEvent& ev) {
         if (NetworkManager::Get().GetCurrentLobby().IsValid()) {
-            if (const PersistentCharacter* cat = ev.self->catData) {
+            const PersistentCharacter* cat = nullptr;
+            const auto it = g_levelUpScreenToCat.find(ev.self);
+            if (it != g_levelUpScreenToCat.end()) {
+                cat = it->second;
+            }
+            if (!cat) {
+                cat = ev.self->catData;
+            }
+
+            if (cat) {
                 const uint64_t ownerSteamID = NetworkManager::Get().GetCatOwner(cat->sql_key);
                 const uint64_t localSteamID = SteamUser()->GetSteamID().ConvertToUint64();
                 if (ownerSteamID != 0 && ownerSteamID != localSteamID) {
@@ -107,13 +116,29 @@ void RegisterLevelUpSubscribers() {
 
 // Synced Trigger Implementations
 void TriggerLevelUpSelectOption(const int64_t catUID, const uint32_t optionIndex) {
-    glaiel::LevelUpScreen* screen = ParaboxAPI::GetActiveLevelUpScreen();
+    glaiel::LevelUpScreen* screen = nullptr;
+    const PersistentCharacter* cat = nullptr;
+
+    for (const auto& [scr, c] : g_levelUpScreenToCat) {
+        if (c && c->sql_key == catUID) {
+            screen = scr;
+            cat = c;
+            break;
+        }
+    }
+
     if (!screen || !GameUtils::IsComponentValid(screen)) {
-        Overlay::Log("[LEVELUP] TriggerLevelUpSelectOption error: g_activeLevelUpScreen is null or invalid.");
+        screen = ParaboxAPI::GetActiveLevelUpScreen();
+        if (screen && GameUtils::IsComponentValid(screen)) {
+            cat = screen->catData;
+        }
+    }
+
+    if (!screen || !GameUtils::IsComponentValid(screen)) {
+        Overlay::Log("[LEVELUP] TriggerLevelUpSelectOption error: target LevelUpScreen is null or invalid.");
         return;
     }
 
-    PersistentCharacter* cat = screen->catData;
     if (!cat || cat->sql_key != catUID) {
         Overlay::Log("[LEVELUP] TriggerLevelUpSelectOption error: active screen cat UID (%lld) does not match packet UID (%lld).",
                      cat ? cat->sql_key : -1, catUID);
@@ -138,20 +163,36 @@ void TriggerLevelUpSelectOption(const int64_t catUID, const uint32_t optionIndex
 }
 
 void TriggerLevelUpReroll(const int64_t catUID) {
-    glaiel::LevelUpScreen* screen = ParaboxAPI::GetActiveLevelUpScreen();
+    glaiel::LevelUpScreen* screen = nullptr;
+    const PersistentCharacter* cat = nullptr;
+
+    for (const auto& [scr, c] : g_levelUpScreenToCat) {
+        if (c && c->sql_key == catUID) {
+            screen = scr;
+            cat = c;
+            break;
+        }
+    }
+
     if (!screen || !GameUtils::IsComponentValid(screen)) {
-        Overlay::Log("[LEVELUP] TriggerLevelUpReroll error: g_activeLevelUpScreen is null or invalid.");
+        screen = ParaboxAPI::GetActiveLevelUpScreen();
+        if (screen && GameUtils::IsComponentValid(screen)) {
+            cat = screen->catData;
+        }
+    }
+
+    if (!screen || !GameUtils::IsComponentValid(screen)) {
+        Overlay::Log("[LEVELUP] TriggerLevelUpReroll error: target LevelUpScreen is null or invalid.");
         return;
     }
 
-    const PersistentCharacter* cat = screen->catData;
     if (!cat || cat->sql_key != catUID) {
         Overlay::Log("[LEVELUP] TriggerLevelUpReroll error: active screen cat UID (%lld) does not match packet UID (%lld).",
                      cat ? cat->sql_key : -1, catUID);
         return;
     }
 
-    Overlay::Log("[LEVELUP] Triggering synced Reroll.");
+    Overlay::Log("[LEVELUP] Triggering synced Reroll for cat UID %lld.", catUID);
     ParaboxAPI::ForceLevelUpScreenReroll(screen);
 }
 
