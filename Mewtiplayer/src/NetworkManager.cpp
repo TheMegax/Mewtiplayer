@@ -652,7 +652,9 @@ void NetworkManager::HandleTurnFacing(CSteamID remoteID, const void *data,
     g_pendingInjections.push_back(action);
   } else {
     if (Character *c = GetCharacter(pkt->actorNUID)) {
-      const uint64_t packed = (uint64_t)pkt->nx | (static_cast<uint64_t>(pkt->ny) << 32);
+      const auto ux = static_cast<uint32_t>(pkt->nx);
+      const auto uy = static_cast<uint32_t>(pkt->ny);
+      const uint64_t packed = static_cast<uint64_t>(ux) | (static_cast<uint64_t>(uy) << 32);
       ParaboxAPI::ForceFaceDirection(c, packed, pkt->anim, pkt->force);
     }
   }

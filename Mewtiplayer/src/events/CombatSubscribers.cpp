@@ -311,12 +311,9 @@ void RegisterCombatSubscribers() {
                     Overlay::Log("[TRIGGER] AUTO Broadcast: '%s' for %s (NUID %u)",
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
                 } else if (ownerID != 0 && ownerID != myID) {
-                    // During a remote turn, controller is authoritative and broadcasts passives.
-                    // Suppress natural local triggers on remote clients to prevent double-execution.
-                    Overlay::Log("[TRIGGER] Suppressed natural local AbilityTrigger '%s' for %s on remote client",
+                    // Log natural local triggers on remote clients without canceling the event to avoid breaking engine queue
+                    Overlay::Log("[TRIGGER] Natural local AbilityTrigger '%s' for %s on remote client",
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str());
-                    ev.Cancel();
-                    return;
                 }
             }
 
@@ -437,7 +434,7 @@ void RegisterCombatSubscribers() {
                 } else {
                     std::string abilityName(pending.abilityName);
                     Ability *ability = nullptr;
-                    if (abilityName != "NULL") {
+                    if (abilityName != "NULL" && abilityName != "EndTurn" && abilityName != "Escape" && pending.actionType != 3 && pending.actionType != 5) {
                         ability = GameUtils::FindCharacterAbility(pendingActor, abilityName.c_str());
                         if (!ability) {
                             if (Component* passive = GameUtils::FindCharacterPassive(pendingActor, abilityName.c_str())) {
@@ -554,7 +551,7 @@ void RegisterCombatSubscribers() {
                 pkt.actorNUID = nuid;
                 pkt.actionType = 3;
                 memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
-                strncpy_s(pkt.abilityName, "NULL", _TRUNCATE);
+                strncpy_s(pkt.abilityName, "EndTurn", _TRUNCATE);
                 pkt.targetX = ev.actionData->targetX;
                 pkt.targetY = ev.actionData->targetY;
                 pkt.target2X = ev.actionData->target2X;
@@ -583,6 +580,11 @@ void RegisterCombatSubscribers() {
                 NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
                                                       sizeof(pkt), !g_modState.packetTesting);
                 Overlay::Log("[NET] Broadcast EndTurn for NUID %u", nuid);
+
+                g_isMainActionActive = true;
+                g_activeMainActionActorNUID = nuid;
+                g_activeMainActionAbilityPtr = nullptr;
+                g_activeMainActionAbilityName = "EndTurn";
                 if (g_modState.packetTesting) {
                     ev.actionData->type = 0; // Cancel this action
                     Overlay::Log("[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
@@ -617,6 +619,13 @@ void RegisterCombatSubscribers() {
                 pkt.actionType = ev.actionData->type;
 
                 std::string abilityName = GameUtils::GetAbilityName(ability).to_string();
+                if (abilityName == "NULL" || abilityName == "UNKNOWN" || abilityName.empty()) {
+                    if (ev.actionData->type == 3) {
+                        abilityName = "EndTurn";
+                    } else if (ev.actionData->type == 5) {
+                        abilityName = "Escape";
+                    }
+                }
                 memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
                 strncpy_s(pkt.abilityName, abilityName.c_str(), _TRUNCATE);
 
@@ -657,6 +666,23 @@ void RegisterCombatSubscribers() {
                     ev.actionData->type = 0; // Cancel this action
                     Overlay::Log("[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
                                  pkt.abilityName, nuid);
+                } else if (!ability || strcmp(pkt.abilityName, "NULL") == 0 || strcmp(pkt.abilityName, "EndTurn") == 0 || strcmp(pkt.abilityName, "Escape") == 0 || pkt.actionType == 5 || pkt.actionType == 3) {
+                    // Non-ability actions (such as Escape, Type 5) do not trigger OnAbilityTrigger.
+                    // Broadcast them immediately so remote peers receive the action.
+                    ActionPacket actPkt{};
+                    actPkt.type = PacketType::TurnAction;
+                    actPkt.data.action = pkt;
+                    NetworkManager::Get().RecordAction(actPkt);
+                    NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
+                                                          sizeof(pkt), true);
+
+                    g_isMainActionActive = true;
+                    g_activeMainActionActorNUID = nuid;
+                    g_activeMainActionAbilityPtr = ability;
+                    g_activeMainActionAbilityName = pkt.abilityName;
+
+                    Overlay::Log("[NET] Broadcast non-ability action '%s' (Type %d) for NUID: %d",
+                                 pkt.abilityName, pkt.actionType, nuid);
                 } else {
                     // Defer the broadcast until OnAbilityTrigger fires.
                     // This lets us capture any passive reactions (e.g.
