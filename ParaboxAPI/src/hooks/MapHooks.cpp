@@ -20,7 +20,8 @@ static void __fastcall Hook_MapNode_Click(void *self) {
     const void* targetMapNode = nullptr;
     
     if ((uintptr_t)self > 0x10000) {
-        targetMapNode = *(void**)((char*)self + 8);
+        const auto* closure = static_cast<const glaiel::MapNodeClosure*>(self);
+        targetMapNode = closure->node;
     }
 
     const auto *mapScreen = static_cast<const glaiel::MapScreen*>(mapScreenPtr);
@@ -44,6 +45,18 @@ static void __fastcall Hook_MapNode_Click(void *self) {
     return;
   }
 
+  if (self && (uintptr_t)self > 0x10000) {
+    auto* closure = static_cast<glaiel::MapNodeClosure*>(self);
+    glaiel::MapNode* node = closure ? closure->node : nullptr;
+    if (node && (ParaboxAPI::g_isHandlingNetworkMapNodeSync || node->nodeType == 4)) {
+      if (node->mapScreen && node->mapScreen->mapState) {
+        node->mapScreen->mapState->selectedNode = node;
+        node->mapScreen->pendingFlag = 0;
+        return;
+      }
+    }
+  }
+
   if (g_origMapNode_Click) {
     g_origMapNode_Click(self);
   }
@@ -65,11 +78,22 @@ static void __fastcall Hook_MapScreen_EnterNode(void *self, void *node) {
 }
 
 namespace ParaboxAPI {
+  PARABOX_API bool g_isHandlingNetworkMapNodeSync = false;
+
   PARABOX_API void ForceMapNodeClick(void* matchedNode) {
-    if (g_origMapNode_Click) {
-      void* dummyClosure[2] = { nullptr, matchedNode };
-      g_origMapNode_Click(dummyClosure);
+    if (!matchedNode) return;
+
+    auto* node = static_cast<glaiel::MapNode*>(matchedNode);
+    if (g_isHandlingNetworkMapNodeSync || node->nodeType == 4) {
+      if (node->mapScreen && node->mapScreen->mapState) {
+        node->mapScreen->mapState->selectedNode = node;
+        node->mapScreen->pendingFlag = 0;
+        return;
+      }
     }
+
+    void* dummyClosure[2] = { nullptr, matchedNode };
+    Hook_MapNode_Click(dummyClosure);
   }
 
   PARABOX_API void ForceMapInventoryOpen() {

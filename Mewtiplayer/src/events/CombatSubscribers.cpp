@@ -618,7 +618,7 @@ void RegisterCombatSubscribers() {
         const bool isMyAuthoritativeTurn = ownerID_enqueue != 0 && ownerID_enqueue == myID_enqueue;
         const bool isTurnAction = (ev.actionData->type > 1 && ev.actionData->type != 7);
 
-        if (const bool shouldSync = g_waitingForPlayerAction || (isMyAuthoritativeTurn && isTurnAction)) {
+        if (g_waitingForPlayerAction || (isMyAuthoritativeTurn && isTurnAction)) {
             g_waitingForPlayerAction = false;
             g_isSyncActionPending = true;
 

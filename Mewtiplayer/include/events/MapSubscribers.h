@@ -1,9 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include "ParaboxAPI.h"
 
 extern uint32_t g_pendingMapNodeSyncIndex;
-extern bool g_isHandlingNetworkMapNodeSync;
+using ParaboxAPI::g_isHandlingNetworkMapNodeSync;
 
 void MapHooks_UITick();
 void MapHooks_Shutdown();

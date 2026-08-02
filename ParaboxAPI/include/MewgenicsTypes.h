@@ -380,11 +380,40 @@ struct AbilityChooser : Component {
 };
 static_assert(offsetof(AbilityChooser, selectedSlotIndex) == 0x48, "AbilityChooser offset mismatch");
 
+struct MapState {
+  char _padding_0[0x60];       // 0x00 to 0x60
+  void *selectedNode;          // 0x60
+};
+static_assert(offsetof(MapState, selectedNode) == 0x60, "MapState offset mismatch");
+
+struct MapScreen;
+
+struct MapNode : Component {
+  char _padding_0[0x138 - 0x38]; // 0x38 to 0x138
+  int32_t nodeType;              // 0x138
+  char _padding_1[0x170 - 0x13C];// 0x13C to 0x170
+  MapScreen *mapScreen;          // 0x170
+};
+static_assert(offsetof(MapNode, nodeType) == 0x138, "MapNode offset mismatch");
+static_assert(offsetof(MapNode, mapScreen) == 0x170, "MapNode offset mismatch");
+
 struct MapScreen : Component {
   char _padding_0[0x78 - 0x38];    // 0x38 to 0x78
-  podvector<void *> nodes;         // 0x78
+  podvector<void *> nodes;         // 0x78 to 0x88
+  char _padding_1[0xa0 - 0x88];    // 0x88 to 0xa0
+  MapState *mapState;              // 0xa0 to 0xa8
+  char _padding_2[0x1e7 - 0xa8];   // 0xa8 to 0x1e7
+  uint8_t pendingFlag;             // 0x1e7
 };
 static_assert(offsetof(MapScreen, nodes) == 0x78, "MapScreen offset mismatch");
+static_assert(offsetof(MapScreen, mapState) == 0xa0, "MapScreen offset mismatch");
+static_assert(offsetof(MapScreen, pendingFlag) == 0x1e7, "MapScreen offset mismatch");
+
+struct MapNodeClosure {
+  void *vtable;                    // 0x00
+  MapNode *node;                   // 0x08
+};
+static_assert(offsetof(MapNodeClosure, node) == 0x08, "MapNodeClosure offset mismatch");
 
 struct CatSelector : Component {
   char _padding_0[0x88 - 0x38];    // 0x38 to 0x88

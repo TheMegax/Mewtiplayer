@@ -12,7 +12,6 @@
 // ---------------------------------------------------------------------------
 
 uint32_t g_pendingMapNodeSyncIndex = 0xFFFFFFFF;
-bool g_isHandlingNetworkMapNodeSync = false;
 
 static MewUISceneBinding g_mapScene = {};
 static bool g_mapSceneInitialized = false;
@@ -83,6 +82,7 @@ void ForceMapInventoryOpen() {
 void RegisterMapSubscribers() {
     ParaboxAPI::OnMapNodeClick.Subscribe([](ParaboxAPI::MapNodeClickEvent& ev) {
         if (!NetworkManager::Get().GetCurrentLobby().IsValid()) return;
+        if (ParaboxAPI::g_isHandlingNetworkMapNodeSync) return;
 
         if (ev.nodeIndex != 0xFFFFFFFF) {
             MapNodeSyncPacket pkt = {};
@@ -122,5 +122,7 @@ void TriggerMapNodeSync(const uint32_t nodeIndex) {
     }
 
     Overlay::Log("[MAP] Triggering network-synced Click (index %u)", nodeIndex);
+    ParaboxAPI::g_isHandlingNetworkMapNodeSync = true;
     ParaboxAPI::ForceMapNodeClick(matchedNode);
+    ParaboxAPI::g_isHandlingNetworkMapNodeSync = false;
 }

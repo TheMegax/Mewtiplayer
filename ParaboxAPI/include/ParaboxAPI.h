@@ -400,6 +400,7 @@ PARABOX_API void *GetMapScreen();
 
 
 // Map API
+PARABOX_API extern bool g_isHandlingNetworkMapNodeSync;
 PARABOX_API void ForceMapNodeClick(void* matchedNode);
 PARABOX_API void ForceMapInventoryOpen();
 
