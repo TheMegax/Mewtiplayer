@@ -6,10 +6,12 @@
 #include "SteamABICompat.h"
 #include "mew_ui_api.h"
 #include "GameUtils.h"
+#include <set>
 
 TurnControl *g_currentTurnControl = nullptr;
 bool g_isCombatUIProcessing = false;
 std::unordered_set<void *> g_castableAbilities;
+static std::set<std::pair<uint32_t, std::string>> g_recentlyExecutedPassives;
 
 // We use this to distinguish between UI-initiated and engine-initiated actions
 // It is set in Hook_EnqueueAction and consumed in Hook_AbilityTrigger
@@ -94,6 +96,7 @@ void ResetCombatSubscribersState() {
 
     g_injectedInCurrentCall = false;
     g_lastInjectedActionPacket = {};
+    g_recentlyExecutedPassives.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +139,7 @@ void RegisterCombatSubscribers() {
         g_startedCombat = true;
         g_isCombatUIProcessing = false;
         g_deferredBroadcastPending = false; // Safety: clear stale deferred state
+        g_recentlyExecutedPassives.clear();
         g_isMainActionActive = false;
         g_activeMainActionActorNUID = 0xFFFFFFFF;
         g_activeMainActionAbilityPtr = nullptr;
@@ -200,10 +204,6 @@ void RegisterCombatSubscribers() {
             uint32_t triggerNUID = abilityOwner
                 ? NetworkManager::Get().GetNUID(abilityOwner)
                 : 0xFFFFFFFF;
-
-            if (!isSyncAction && g_isMainActionActive) {
-                isSyncAction = true;
-            }
 
             // ---- Deferred broadcast: capture passives, flush main action ----
             if (g_deferredBroadcastPending) {
@@ -314,6 +314,9 @@ void RegisterCombatSubscribers() {
                     // Log natural local triggers on remote clients without canceling the event to avoid breaking engine queue
                     Overlay::Log("[TRIGGER] Natural local AbilityTrigger '%s' for %s on remote client",
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str());
+                    if (triggerNUID != 0xFFFFFFFF) {
+                        g_recentlyExecutedPassives.insert({triggerNUID, abilityName});
+                    }
                 }
             }
 
@@ -340,25 +343,19 @@ void RegisterCombatSubscribers() {
         if (ev.actionData && ev.actionData->type > 1 && ev.actionData->type != 7) {
             Character *actor = ev.actionData->actor;
             uint32_t actionActorNUID = actor ? NetworkManager::Get().GetNUID(actor) : 0xFFFFFFFF;
-            uint64_t actionActorOwnerID = NetworkManager::Get().GetNUIDOwner(actionActorNUID);
-            bool isPlayerCat = (actor && actor->isPlayerCat) ||
-                               (actionActorNUID != 0xFFFFFFFF && NetworkManager::Get().GetCharacter(actionActorNUID) && NetworkManager::Get().GetCharacter(actionActorNUID)->isPlayerCat);
-            bool isAIAction = (actionActorOwnerID == 0 && !isPlayerCat);
 
-            if (!isAIAction) {
-                const uint32_t activeNUID_sup = NetworkManager::Get().GetActiveNUID();
-                if (activeNUID_sup != 0xFFFFFFFF) {
-                    const uint64_t myID_sup = SteamUser()->GetSteamID().ConvertToUint64();
-                    const uint64_t ownerID_sup = NetworkManager::Get().GetNUIDOwner(activeNUID_sup);
-                    if (ownerID_sup != 0 && ownerID_sup != myID_sup) {
-                        if (g_modState.talkative) {
-                            Overlay::Log("[ENQUEUE] Suppressed local action Type=%d for %s (remote turn for %s)",
-                                         ev.actionData->type,
-                                         NetworkManager::Get().GetCharacterNameByNUID(actionActorNUID).c_str(),
-                                         NetworkManager::Get().GetCharacterNameByNUID(activeNUID_sup).c_str());
-                        }
-                        ev.actionData->type = 0; // Demote to idle
+            const uint32_t activeNUID_sup = NetworkManager::Get().GetActiveNUID();
+            if (activeNUID_sup != 0xFFFFFFFF) {
+                const uint64_t myID_sup = SteamUser()->GetSteamID().ConvertToUint64();
+                const uint64_t ownerID_sup = NetworkManager::Get().GetNUIDOwner(activeNUID_sup);
+                if (ownerID_sup != 0 && ownerID_sup != myID_sup) {
+                    if (g_modState.talkative) {
+                        Overlay::Log("[ENQUEUE] Suppressed local action Type=%d for %s (remote turn for %s)",
+                                     ev.actionData->type,
+                                     NetworkManager::Get().GetCharacterNameByNUID(actionActorNUID).c_str(),
+                                     NetworkManager::Get().GetCharacterNameByNUID(activeNUID_sup).c_str());
                     }
+                    ev.actionData->type = 0; // Demote to idle
                 }
             }
         }
@@ -404,6 +401,18 @@ void RegisterCombatSubscribers() {
             if (!g_pendingInjections.empty() &&
                 g_pendingInjections.front().type == PacketType::TurnAction) {
                 const TurnActionPacket &pending = g_pendingInjections.front().data.action;
+
+                if (pending.isPassive) {
+                    auto key = std::make_pair(pending.actorNUID, std::string(pending.abilityName));
+                    if (g_recentlyExecutedPassives.count(key) > 0) {
+                        Overlay::Log("[ENQUEUE] Dropping duplicate passive '%s' for %s (NUID %u) as already executed naturally",
+                                     pending.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pending.actorNUID).c_str(), pending.actorNUID);
+                        g_recentlyExecutedPassives.erase(key);
+                        g_pendingInjections.pop_front();
+                        return;
+                    }
+                }
+
                 uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
                 uint32_t currentNUID = NetworkManager::Get().GetNUID(ev.actionData->actor);
                 Character *pendingActor =

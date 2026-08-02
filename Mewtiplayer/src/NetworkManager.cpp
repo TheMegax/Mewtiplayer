@@ -583,54 +583,14 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
   const auto *pkt = (const TurnActionPacket *)data;
   const std::string actorName = NetworkManager::Get().GetCharacterNameByNUID(pkt->actorNUID);
 
-  if (pkt->isPassive) {
-    Overlay::Log("[NET] Received Direct Trigger: '%s' for %s (NUID %u)",
-                 pkt->abilityName, actorName.c_str(), pkt->actorNUID);
-    
-    if (Character *c = NetworkManager::Get().GetCharacter(pkt->actorNUID)) {
-      TurnAction turnAction{};
-      turnAction.type = pkt->actionType;
-      turnAction.targetX = pkt->targetX;
-      turnAction.targetY = pkt->targetY;
-      turnAction.target2X = pkt->target2X;
-      turnAction.target2Y = pkt->target2Y;
-      turnAction.unk_28 = pkt->unk_28;
-      turnAction.unk_2C = pkt->unk_2C;
-      turnAction.flag_30 = pkt->flag_30;
-      turnAction.flag_31 = pkt->flag_31;
-      turnAction.flag_32 = pkt->flag_32;
-      turnAction.flag_33 = pkt->flag_33;
-      turnAction.flag_34 = pkt->flag_34;
-      turnAction.flag_35 = pkt->flag_35;
-      turnAction.flag_36 = pkt->flag_36;
-      turnAction.actor = c;
-      
-      Component *comp = GameUtils::FindCharacterPassive(c, pkt->abilityName);
-      if (comp) {
-          turnAction.ability = reinterpret_cast<Ability *>(comp);
-      } else {
-          turnAction.ability = GameUtils::FindCharacterAbility(c, pkt->abilityName);
-      }
-      
-      if (turnAction.ability) {
-          Overlay::Log("[TRIGGER] Direct Executing: '%s' for %s",
-                       pkt->abilityName, actorName.c_str());
-          GameUtils::SetRNGState(pkt->rngState);
-          ParaboxAPI::ForceAbilityTrigger(turnAction.ability, &turnAction);
-      } else {
-          Overlay::Log("[TRIGGER] [ERROR] Could not resolve passive/ability '%s' for %s",
-                       pkt->abilityName, actorName.c_str());
-      }
-    }
-  } else {
-    Overlay::Log("[NET] Received Queued Action: '%s' for %s (Type %d, NUID %u)",
-                 pkt->abilityName, actorName.c_str(), pkt->actionType, pkt->actorNUID);
-    ActionPacket action{};
-    action.type = PacketType::TurnAction;
-    action.data.action = *pkt;
+  Overlay::Log("[NET] Received Queued Action: '%s' for %s (Type %d, NUID %u%s)",
+               pkt->abilityName, actorName.c_str(), pkt->actionType, pkt->actorNUID,
+               pkt->isPassive ? ", Passive" : "");
+  ActionPacket action{};
+  action.type = PacketType::TurnAction;
+  action.data.action = *pkt;
 
-    g_pendingInjections.push_back(action);
-  }
+  g_pendingInjections.push_back(action);
 }
 
 void NetworkManager::HandleTurnFacing(CSteamID remoteID, const void *data,
