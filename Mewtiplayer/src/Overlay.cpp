@@ -5,6 +5,7 @@
 #include "MewSQL.h"
 #include "InputGhost.h"
 #include "NetworkManager.h"
+#include "ChatManager.h"
 #include "hooks/AdventureBoxHooks.h"
 #include "imgui.h"
 #include "mew_ui_api.h"
@@ -824,6 +825,9 @@ static void RenderScenesTab() {
 static void InternalRender() {
   // Draw remote cursors
   RenderRemoteCursors();
+
+  // Draw Chat UI
+  ChatManager::Get().Render();
 
   if (!g_visible)
     return;

@@ -172,6 +172,8 @@ template <typename T> struct ComponentVTable {
   void *_reserved3;
 };
 
+struct DamageNumber;
+
 struct Component {
   const ComponentVTable<Component> *vtable; // 0x00
   uint32_t _objid;                          // 0x08
@@ -189,12 +191,28 @@ struct Component {
 };
 static_assert(sizeof(Component) == 0x38, "Component size mismatch");
 
+struct DamageNumber : Component {
+  char _padding_dn1[0x08];                  // 0x38
+  Component *childSprite;                   // 0x40
+  char _padding_dn2[0x08];                  // 0x48
+  double duration;                          // 0x50
+  char _padding_dn3[0x10];                  // 0x58
+  double speed;                             // 0x68
+};
+static_assert(offsetof(DamageNumber, timescale) == 0x30, "DamageNumber timescale offset mismatch");
+static_assert(offsetof(DamageNumber, childSprite) == 0x40, "DamageNumber childSprite offset mismatch");
+static_assert(offsetof(DamageNumber, duration) == 0x50, "DamageNumber duration offset mismatch");
+static_assert(offsetof(DamageNumber, speed) == 0x68, "DamageNumber speed offset mismatch");
+
 struct Scene {
   Director *director;                      // 0x000
   podvector<Entity *> Entities;            // 0x008
   podvector<Component *> *ComponentLists;  // 0x018
   void *CachedActiveComponentLists;        // 0x020
-  char _padding_1[0x488];                  // 0x028
+  char _padding_1[0x0B4];                  // 0x028
+  int32_t damageNumberCount;               // 0x0DC
+  DamageNumber **damageNumbers;            // 0x0E0
+  char _padding_1b[0x3C8];                 // 0x0E8
   bool doing_scene_destruction;            // 0x4B0
   char _padding_2[0x7];                    // 0x4B1
   MsvcReleaseModeXString name;             // 0x4B8
@@ -205,6 +223,8 @@ struct Scene {
   int32_t catList2Count;                   // 0x644
   PersistentCharacter **catListPtr;        // 0x648
 };
+static_assert(offsetof(Scene, damageNumberCount) == 0x0DC, "Scene offset mismatch");
+static_assert(offsetof(Scene, damageNumbers) == 0x0E0, "Scene offset mismatch");
 static_assert(offsetof(Scene, doing_scene_destruction) == 0x4B0, "Scene offset mismatch");
 static_assert(offsetof(Scene, name) == 0x4B8, "Scene offset mismatch");
 static_assert(offsetof(Scene, petListCount) == 0x5BC, "Scene offset mismatch");

@@ -6,6 +6,7 @@ set(MEWTIPLAYER_SOURCES
     src/Mewtiplayer.cpp
 
     # Mewtiplayer-specific modules
+    include/ChatManager.h      src/ChatManager.cpp
     include/CrashHandler.h     src/CrashHandler.cpp
     include/ImGuiHook.h        src/ImGuiHook.cpp
     include/InputGhost.h       src/InputGhost.cpp

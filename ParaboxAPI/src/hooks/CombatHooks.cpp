@@ -16,6 +16,12 @@ HOOK_DEFINE(PossessionUpdate, void, void*, unsigned char)
 HOOK_DEFINE(CombatMenuShow, void, void*, void*, void*)
 HOOK_DEFINE(CombatMenuHide, void, void*)
 
+using ShowCombatPopup_t = void(__fastcall *)(void *self, MsvcReleaseModeXString *text, void *entityOverride);
+using PostPopupAnim_t   = void(__fastcall *)(void *self, MsvcReleaseModeXString *animName);
+
+static ShowCombatPopup_t g_fnShowCombatPopup = nullptr;
+static PostPopupAnim_t   g_fnPostPopupAnim = nullptr;
+
 static void Hook_TurnStart(TurnControl *tc) {
     ParaboxAPI::TurnStartEvent ev = {};
     ev.tc = tc;
@@ -199,6 +205,14 @@ void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
 
     HOOK_INSTALL(mj, gameBase, CombatMenuHide,
         "48 89 5C 24 18 48 89 6C 24 20 57 41 56 41 57 48 83 EC 50 80 B9 40 01 00 00 00", 15);
+
+    SCAN_SET(mj, gameBase, ShowCombatPopup,
+        "4C 89 44 24 18 48 89 54 24 10 53 56 57 48 83 EC 60 49 8B F8 48 8B DA 4D 85 C0",
+        g_fnShowCombatPopup);
+
+    SCAN_SET(mj, gameBase, PostPopupAnim,
+        "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 70 48 8B DA 33 F6 48 8B 79 38",
+        g_fnPostPopupAnim);
 }
 
 namespace ParaboxAPI {
@@ -223,6 +237,51 @@ PARABOX_API void ForceCombatMenuHide(void *menu) {
 PARABOX_API void ForceCombatMenuShow(void *menu, void *actions, void *param3) {
     if (g_origCombatMenuShow) {
         g_origCombatMenuShow(menu, actions, param3);
+    }
+}
+
+static void MakeInlineXString(MsvcReleaseModeXString &xs, const char *str, size_t len) {
+    xs.Mysize = len;
+    if (len < 16) {
+        xs.Myres = 15;
+        memcpy(xs.Bx.Buf, str, len);
+        xs.Bx.Buf[len] = '\0';
+    } else {
+        auto buf = static_cast<char *>(GameAllocate(len + 1));
+        memcpy(buf, str, len);
+        buf[len] = '\0';
+        xs.Bx.Ptr = buf;
+        xs.Myres = len;
+    }
+}
+
+PARABOX_API void ShowCombatPopup(Character *character, const char *text, float speedScale) {
+    if (!g_fnShowCombatPopup || !character || !text || text[0] == '\0') return;
+
+    const size_t len = strlen(text);
+    MsvcReleaseModeXString xs = {};
+    MakeInlineXString(xs, text, len);
+
+    const auto *comp = reinterpret_cast<const Component *>(character);
+    Scene *scene = (comp && comp->entity) ? comp->entity->scene : nullptr;
+    const int countBefore = scene ? scene->damageNumberCount : 0;
+
+    g_fnShowCombatPopup(character, &xs, character);
+
+    if (g_fnPostPopupAnim) {
+        MsvcReleaseModeXString emptyAnim = {};
+        emptyAnim.Mysize = 0;
+        emptyAnim.Myres = 15;
+        emptyAnim.Bx.Buf[0] = '\0';
+        g_fnPostPopupAnim(character, &emptyAnim);
+    }
+
+    if (scene && scene->damageNumberCount > countBefore && scene->damageNumbers) {
+        if (DamageNumber *dn = scene->damageNumbers[scene->damageNumberCount - 1]) {
+            if (dn->entity) {
+                dn->entity->timescale = static_cast<double>(speedScale);
+            }
+        }
     }
 }
 

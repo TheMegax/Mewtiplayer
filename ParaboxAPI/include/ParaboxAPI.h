@@ -447,4 +447,7 @@ PARABOX_API void ForceWorldEventSelectOption(int64_t catUID, uint32_t optionInde
 PARABOX_API void ForceWorldEventSelectCat(int64_t selectedCatUID);
 PARABOX_API void ForceWorldEventClickEnd(uint8_t buttonType);
 
+// Combat API
+PARABOX_API void ShowCombatPopup(Character *character, const char *text, float speedScale = 0.35f);
+
 } // namespace ParaboxAPI

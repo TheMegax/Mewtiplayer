@@ -12,6 +12,7 @@
 #include "hooks/AdventureBoxHooks.h"
 #include "hooks/ClassChooserHooks.h"
 #include "hooks/StorageHooks.h"
+#include "ChatManager.h"
 #include "hooks/SaveHooks.h"
 #include <cstring>
 #include <algorithm>
@@ -202,6 +203,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::ShopFastForward:
       HandleShopFastForward(payload, payloadLen);
       break;
+    case PacketType::ChatMessage:
+      HandleChatMessage(remoteID, payload, payloadLen);
+      break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -337,6 +341,12 @@ void NetworkManager::UpdateNUIDOwnership() {
 }
 
 bool NetworkManager::IsInputBlocked(const uint64_t steamID) {
+  if (SteamUser() && steamID == SteamUser()->GetSteamID().ConvertToUint64()) {
+    if (ChatManager::Get().IsTyping()) {
+      return true;
+    }
+  }
+
   if (!m_CurrentLobby.IsValid())
     return false;
   if (!m_combatActive)
@@ -480,6 +490,7 @@ void NetworkManager::HostLobby(const char *lobbyName) {
 void NetworkManager::LeaveLobby() {
   if (m_CurrentLobby.IsValid()) {
     Overlay::Log("[NETWORK] Leaving lobby %llu...", m_CurrentLobby.ConvertToUint64());
+    ChatManager::Get().AddSystemMessage("Left lobby.");
     SteamMatchmaking()->LeaveLobby(m_CurrentLobby);
     m_CurrentLobby.Clear();
     m_combatActive = false;
@@ -559,6 +570,7 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback, const bool bIOFai
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "mewtiplayer",
                                    m_ModID.c_str());
   Overlay::Log("[NETWORK] [OK] Lobby created: %llu", m_CurrentLobby.ConvertToUint64());
+  ChatManager::Get().AddSystemMessage("Lobby created: " + m_PendingLobbyName);
 }
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
@@ -566,6 +578,7 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
     Overlay::Log("[NETWORK] [ERR] Failed to join lobby (Response: %d)",
                  pCallback->m_EChatRoomEnterResponse);
+    ChatManager::Get().AddSystemMessage("Failed to join lobby.");
     return;
   }
   m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
@@ -577,6 +590,7 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   ResetLobbyReadyStates();
 
   Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
+  ChatManager::Get().AddSystemMessage("Joined lobby.");
 
   if (g_modState.autoJoin) {
     m_AutoJoinFinished = true;
@@ -1587,4 +1601,28 @@ void NetworkManager::HandleShopFastForward(const void* data, uint32_t length) {
   if (length != sizeof(ShopFastForwardPacket)) return;
   Overlay::Log("[SHOP] Received ShopFastForward");
   ParaboxAPI::ForceShopFastForward();
+}
+
+void NetworkManager::SendChatMessage(const std::string &message) {
+  if (message.empty()) return;
+
+  ChatMessagePacket pkt{};
+  strncpy_s(pkt.message, message.c_str(), _TRUNCATE);
+
+  BroadcastPacket(PacketType::ChatMessage, &pkt, sizeof(pkt), true);
+
+  const uint64_t myID = SteamUser() ? SteamUser()->GetSteamID().ConvertToUint64() : 0;
+  const char *myName = SteamFriends() ? SteamFriends()->GetPersonaName() : "Me";
+  ChatManager::Get().AddMessage(myID, (myName && myName[0]) ? myName : "Me", message);
+}
+
+void NetworkManager::HandleChatMessage(CSteamID remoteID, const void *data, uint32_t length) {
+  if (length != sizeof(ChatMessagePacket)) return;
+
+  const auto *pkt = (const ChatMessagePacket *)data;
+  const uint64_t senderID = remoteID.ConvertToUint64();
+  const char *senderName = SteamFriends() ? SteamFriends()->GetFriendPersonaName(remoteID) : nullptr;
+
+  std::string nameStr = (senderName && senderName[0]) ? senderName : ("Player " + std::to_string(senderID % 1000));
+  ChatManager::Get().AddMessage(senderID, nameStr, pkt->message);
 }

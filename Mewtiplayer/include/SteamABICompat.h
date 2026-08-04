@@ -8,12 +8,16 @@
 class ISteamUserCompat {
 public:
     static CSteamID GetSteamID() {
-        return CSteamID(SteamAPI_ISteamUser_GetSteamID(SteamAPI_SteamUser()));
+        return {SteamAPI_ISteamUser_GetSteamID(SteamAPI_SteamUser())};
     }
 };
 
 class ISteamFriendsCompat {
 public:
+    static const char *GetPersonaName() {
+        return SteamAPI_ISteamFriends_GetPersonaName(SteamAPI_SteamFriends());
+    }
+
     static const char *GetFriendPersonaName(const CSteamID steamIDFriend) {
         return SteamAPI_ISteamFriends_GetFriendPersonaName(SteamAPI_SteamFriends(), steamIDFriend.ConvertToUint64());
     }

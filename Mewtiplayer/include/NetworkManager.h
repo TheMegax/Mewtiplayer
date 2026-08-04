@@ -55,7 +55,15 @@ enum class PacketType : uint8_t {
   ShopExitButton,
   ShopChestClick,
   ShopFastForward,
+  // --- Chat ---
+  ChatMessage,
 };
+
+#pragma pack(push, 1)
+struct ChatMessagePacket {
+  char message[256];
+};
+#pragma pack(pop)
 
 #pragma pack(push, 1)
 struct MouseMoveData {
@@ -352,6 +360,7 @@ public:
   int GetLobbyMemberCatCount(uint64_t steamID);
   void SendLocalCatCount();
   void RestoreOwnershipFromSave(const char* saveName);
+  void SendChatMessage(const std::string &message);
 
 
 private:
@@ -430,6 +439,7 @@ private:
   void HandleShopExitButton(const void* data, uint32_t length);
   void HandleShopChestClick(const void* data, uint32_t length);
   void HandleShopFastForward(const void* data, uint32_t length);
+  void HandleChatMessage(CSteamID remoteID, const void *data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;
