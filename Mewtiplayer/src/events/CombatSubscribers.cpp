@@ -277,10 +277,12 @@ void RegisterCombatSubscribers() {
             // After the deferred main action has been flushed (or when no
             // deferred broadcast is pending), any further actions that fire
             // during our turn need to be broadcast to remote clients.
+            const uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
+            const bool isSelfTrigger = (triggerNUID != 0xFFFFFFFF && triggerNUID == activeNUID);
+
             if (!g_deferredBroadcastPending && !isSyncAction &&
-                triggerNUID != 0xFFFFFFFF) {
+                triggerNUID != 0xFFFFFFFF && !isSelfTrigger) {
                 const uint64_t myID = SteamUser()->GetSteamID().ConvertToUint64();
-                const uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
                 const uint64_t ownerID = NetworkManager::Get().GetNUIDOwner(activeNUID);
                 if (ownerID != 0 && ownerID == myID) {
                     TurnActionPacket autoPkt{};

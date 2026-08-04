@@ -6,9 +6,13 @@
 #include "ParaboxAPI.h"
 #include "MewgenicsTypes.h"
 #include <vector>
+#include <functional>
 
 // Cache for the active event component
 static glaiel::WorldEvent* g_activeWorldEvent = nullptr;
+
+// Cache for active custom end button callback
+static std::function<void()> g_activeCustomEndButtonCallback = nullptr;
 
 // Synchronization override
 static PersistentCharacter* g_overrideSelectedCat = nullptr;
@@ -20,10 +24,12 @@ HOOK_DEFINE(WorldEvent_ClickCat, void, glaiel::WorldEventClickEvent* param_1)
 HOOK_DEFINE(GetSelectedCat, PersistentCharacter*, void* param_1, uint64_t param_2)
 HOOK_DEFINE(WorldEvent_ClickEnd1, void, glaiel::WorldEventClickEvent* param_1)
 HOOK_DEFINE(WorldEvent_ClickEnd2, void, glaiel::WorldEventClickEvent* param_1)
+HOOK_DEFINE(WorldEvent_add_end_button, void, glaiel::WorldEvent* self, MsvcReleaseModeXString* tokenString, void* callbackPtr)
 
 
 static void __fastcall Hook_WorldEvent_init(glaiel::WorldEvent* self, void* param2, void* param3) {
   g_activeWorldEvent = self;
+  g_activeCustomEndButtonCallback = nullptr;
   
   if (g_origWorldEvent_init) {
     g_origWorldEvent_init(self, param2, param3);
@@ -130,6 +136,33 @@ static void __fastcall Hook_WorldEvent_ClickEnd2(glaiel::WorldEventClickEvent* p
 
   if (g_origWorldEvent_ClickEnd2) {
     g_origWorldEvent_ClickEnd2(param_1);
+  }
+}
+
+static void __fastcall Hook_WorldEvent_add_end_button(glaiel::WorldEvent* self, MsvcReleaseModeXString* tokenString, void* callbackPtr) {
+  const auto* origFuncPtr = static_cast<std::function<void()>*>(callbackPtr);
+  std::function<void()> origFunc = (origFuncPtr && *origFuncPtr) ? *origFuncPtr : nullptr;
+  std::string tokenStr = tokenString ? tokenString->copy_to_native_string() : "";
+
+  g_activeCustomEndButtonCallback = origFunc;
+
+  std::function wrappedFunc = [self, tokenStr, origFunc]() {
+    ParaboxAPI::WorldEventClickEndCustomEvent ev = {};
+    ev.self = self;
+    ev.tokenString = tokenStr.c_str();
+    ParaboxAPI::OnWorldEventClickEndCustom.Publish(ev);
+
+    if (ev.cancelled) {
+      return;
+    }
+
+    if (origFunc) {
+      origFunc();
+    }
+  };
+
+  if (g_origWorldEvent_add_end_button) {
+    g_origWorldEvent_add_end_button(self, tokenString, &wrappedFunc);
   }
 }
 
@@ -290,6 +323,10 @@ PARABOX_API void ForceWorldEventClickEnd(uint8_t buttonType) {
     if (g_origWorldEvent_ClickEnd2) {
       g_origWorldEvent_ClickEnd2(&dummy);
     }
+  } else if (buttonType == 3) {
+    if (g_activeCustomEndButtonCallback) {
+      g_activeCustomEndButtonCallback();
+    }
   }
 }
 
@@ -319,4 +356,8 @@ void WorldEventHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
   HOOK_INSTALL(mj, gameBase, WorldEvent_ClickEnd2,
     "40 53 48 83 EC 40 48 8B 51 08 48 8B D9 80 BA F0 19 00 00 00 75 49 48 8B 05 ?? ?? ?? ?? 80 78 38 00 0F 85 C7 00 00 00 48 8B 40 18 48 89 54 24 50 48 8B 58 08 80 BB B0 04 00 00 00 0F 85 AD 00 00 00 48 8B CB E8 E7 A6 02 00",
     20);
+
+  HOOK_INSTALL(mj, gameBase, WorldEvent_add_end_button,
+    "4C 89 44 24 18 48 89 54 24 10 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 D9 48 81 EC F0 00 00 00",
+    25);
 }

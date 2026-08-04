@@ -299,9 +299,14 @@ struct WorldEventClickEnd2Event : EventBase {
     glaiel::WorldEvent *self;
 };
 
+struct WorldEventClickEndCustomEvent : EventBase {
+    glaiel::WorldEvent *self;
+    const char *tokenString;
+};
+
+
 // ---------------------------------------------------------------------------
-// Logging — redirectable so ParaboxAPI stays decoupled from Overlay.h
-// Mewtiplayer calls SetLogCallback(Overlay::LogV) during initialisation.
+// Logging callback. Can be redirected with SetLogCallback().
 // If no callback is set, messages go to OutputDebugStringA.
 // ---------------------------------------------------------------------------
 using LogCallback = void(*)(const char *fmt, va_list args);
@@ -376,6 +381,7 @@ extern PARABOX_API Event<WorldEventClickOptionEvent> OnWorldEventClickOption;
 extern PARABOX_API Event<WorldEventClickCatEvent>    OnWorldEventClickCat;
 extern PARABOX_API Event<WorldEventClickEnd1Event>   OnWorldEventClickEnd1;
 extern PARABOX_API Event<WorldEventClickEnd2Event>   OnWorldEventClickEnd2;
+extern PARABOX_API Event<WorldEventClickEndCustomEvent> OnWorldEventClickEndCustom;
 
 PARABOX_API void InstallHooks(MewjectorAPI *mj, uintptr_t gameBase);
 PARABOX_API void* GameAllocate(size_t size);

@@ -100,6 +100,21 @@ void RegisterWorldEventSubscribers() {
             Overlay::Log("[WORLDEVENT] Local owner clicked End2. Broadcasting sync.");
         }
     });
+
+    ParaboxAPI::OnWorldEventClickEndCustom.Subscribe([](ParaboxAPI::WorldEventClickEndCustomEvent& ev) {
+        if (NetworkManager::Get().GetCurrentLobby().IsValid()) {
+            if (!CanInteract(ev.self)) {
+                Overlay::Log("[WORLDEVENT] Blocked ClickEndCustom (%s) for non-owner/non-host.", ev.tokenString ? ev.tokenString : "unknown");
+                ev.Cancel();
+                return;
+            }
+
+            WorldEventClickEndPacket pkt = {};
+            pkt.buttonType = 3;
+            NetworkManager::Get().BroadcastPacket(PacketType::WorldEventClickEnd, &pkt, sizeof(pkt), true);
+            Overlay::Log("[WORLDEVENT] Local owner clicked EndCustom (%s). Broadcasting sync.", ev.tokenString ? ev.tokenString : "unknown");
+        }
+    });
 }
 
 // Trigger functions called from network thread

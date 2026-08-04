@@ -92,6 +92,7 @@ PARABOX_API Event<WorldEventClickOptionEvent> OnWorldEventClickOption;
 PARABOX_API Event<WorldEventClickCatEvent>    OnWorldEventClickCat;
 PARABOX_API Event<WorldEventClickEnd1Event>   OnWorldEventClickEnd1;
 PARABOX_API Event<WorldEventClickEnd2Event>   OnWorldEventClickEnd2;
+PARABOX_API Event<WorldEventClickEndCustomEvent> OnWorldEventClickEndCustom;
 
 } // namespace ParaboxAPI
 
