@@ -120,7 +120,10 @@ void HandleStorageItemSyncInternal(const void *data, const uint32_t length) {
     Overlay::Log("[STORAGE] Received storage item sync from player %llu: slot %d (cat %lld)",
                  packet->steamID, packet->slotIndex, packet->catID);
 
+    ParaboxAPI::g_isHandlingNetworkStorageItemSync = true;
     ParaboxAPI::UpdateStorageItemSlot(packet->slotIndex, packet->catID);
+    ParaboxAPI::g_isHandlingNetworkStorageItemSync = false;
+
     ParaboxAPI::RefreshCatSelectorUI();
 }
 
@@ -180,9 +183,12 @@ void RegisterStorageSubscribers() {
                 }
             }
         }
+    });
 
+    ParaboxAPI::OnInventoryItemBoxEquipped.Subscribe([](ParaboxAPI::InventoryItemBoxEquippedEvent& ev) {
         if (!NetworkManager::Get().GetCurrentLobby().IsValid()) return;
-        
+        if (ParaboxAPI::g_isHandlingNetworkStorageItemSync) return;
+
         const int32_t slotIndex = ParaboxAPI::FindStorageSlotIndex(ev.self);
         if (slotIndex == -1) return;
 

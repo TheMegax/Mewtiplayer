@@ -10,11 +10,24 @@ typedef void (__fastcall *RefreshInventoryScreen_t)(void *inventoryScreen);
 static RefreshInventoryScreen_t g_RefreshInventoryScreen = nullptr;
 
 HOOK_DEFINE(InventoryItemBox_Click, void, void *)
+HOOK_DEFINE(InventoryItemBox_EquipInternal, void, void **)
 HOOK_DEFINE(SceneManager_CreateScene, void *, void *, void *)
 HOOK_DEFINE(Scene_AddComponent, void, void *, void *)
 HOOK_DEFINE(InventoryScreen2_Close, void, void *)
 
 static std::vector<void *>* g_storageItemBoxes = new std::vector<void *>();
+
+static void __fastcall Hook_InventoryItemBox_EquipInternal(void **itemBoxPtr) {
+  if (g_origInventoryItemBox_EquipInternal) {
+    g_origInventoryItemBox_EquipInternal(itemBoxPtr);
+  }
+
+  if (!ParaboxAPI::g_isHandlingNetworkStorageItemSync && itemBoxPtr && *itemBoxPtr) {
+    ParaboxAPI::InventoryItemBoxEquippedEvent ev = {};
+    ev.self = *itemBoxPtr;
+    ParaboxAPI::OnInventoryItemBoxEquipped.Publish(ev);
+  }
+}
 
 static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr) {
   ParaboxAPI::SceneManagerCreateSceneEvent ev = {};
@@ -112,6 +125,8 @@ static void __fastcall Hook_InventoryScreen2_Close(void *self) {
 
 namespace ParaboxAPI {
 
+PARABOX_API bool g_isHandlingNetworkStorageItemSync = false;
+
 PARABOX_API int32_t FindStorageSlotIndex(const void *clickedBox) {
   for (size_t i = 0; i < g_storageItemBoxes->size(); i++) {
     if ((*g_storageItemBoxes)[i] == clickedBox) {
@@ -124,18 +139,28 @@ PARABOX_API int32_t FindStorageSlotIndex(const void *clickedBox) {
 PARABOX_API void UpdateStorageItemSlot(int32_t slotIndex, int64_t catID) {
   if (slotIndex >= 0 && static_cast<size_t>(slotIndex) < g_storageItemBoxes->size()) {
     void *comp = (*g_storageItemBoxes)[slotIndex];
-    if (g_origInventoryItemBox_Click) {
-      auto *itemBox = static_cast<glaiel::InventoryItemBox *>(comp);
-      if (auto *inventoryScreen = static_cast<glaiel::InventoryScreen *>(itemBox->inventoryScreen)) {
-        int64_t *screenCatIDPtr = &inventoryScreen->catID;
-        const int64_t origCatID = *screenCatIDPtr;
-        *screenCatIDPtr = catID;
+    auto *itemBox = static_cast<glaiel::InventoryItemBox *>(comp);
+    if (auto *inventoryScreen = static_cast<glaiel::InventoryScreen *>(itemBox->inventoryScreen)) {
+      int64_t *screenCatIDPtr = &inventoryScreen->catID;
+      const int64_t origCatID = *screenCatIDPtr;
+      *screenCatIDPtr = catID;
+
+      if (g_origInventoryItemBox_EquipInternal) {
+        void* compPtr = comp;
+        g_origInventoryItemBox_EquipInternal(&compPtr);
+      } else if (g_origInventoryItemBox_Click) {
         g_origInventoryItemBox_Click(comp);
-        *screenCatIDPtr = origCatID;
-        if (g_RefreshInventoryScreen) {
-          g_RefreshInventoryScreen(inventoryScreen);
-        }
-      } else {
+      }
+
+      *screenCatIDPtr = origCatID;
+      if (g_RefreshInventoryScreen) {
+        g_RefreshInventoryScreen(inventoryScreen);
+      }
+    } else {
+      if (g_origInventoryItemBox_EquipInternal) {
+        void* compPtr = comp;
+        g_origInventoryItemBox_EquipInternal(&compPtr);
+      } else if (g_origInventoryItemBox_Click) {
         g_origInventoryItemBox_Click(comp);
       }
     }
@@ -177,6 +202,10 @@ void StorageHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
 
   HOOK_INSTALL(mj, gameBase, InventoryItemBox_Click,
     "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1 48 81 EC E8 00 00 00 4C 8B E9 C7 45 67 00 00 00 00",
+    0);
+
+  HOOK_INSTALL(mj, gameBase, InventoryItemBox_EquipInternal,
+    "48 8B C4 48 89 58 20 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 38 FF FF FF 48 81 EC 90 01 00 00",
     0);
 
   HOOK_INSTALL(mj, gameBase, InventoryScreen2_Close,

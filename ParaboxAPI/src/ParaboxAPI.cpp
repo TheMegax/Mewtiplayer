@@ -69,6 +69,7 @@ PARABOX_API Event<ClassChooserLockInEvent>     OnClassChooserLockIn;
 PARABOX_API Event<SceneManagerCreateSceneEvent> OnSceneManagerCreateScene;
 PARABOX_API Event<SceneAddComponentEvent>       OnSceneAddComponent;
 PARABOX_API Event<InventoryItemBoxClickEvent>   OnInventoryItemBoxClick;
+PARABOX_API Event<InventoryItemBoxEquippedEvent> OnInventoryItemBoxEquipped;
 PARABOX_API Event<InventoryScreen2CloseEvent>   OnInventoryScreen2Close;
 
 // Map events

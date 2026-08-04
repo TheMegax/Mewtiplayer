@@ -215,6 +215,10 @@ struct InventoryItemBoxClickEvent : EventBase {
     void *self;
 };
 
+struct InventoryItemBoxEquippedEvent : EventBase {
+    void *self;
+};
+
 struct InventoryScreen2CloseEvent : EventBase {
     void *self;
 };
@@ -358,6 +362,7 @@ extern PARABOX_API Event<ClassChooserLockInEvent>     OnClassChooserLockIn;
 extern PARABOX_API Event<SceneManagerCreateSceneEvent> OnSceneManagerCreateScene;
 extern PARABOX_API Event<SceneAddComponentEvent>       OnSceneAddComponent;
 extern PARABOX_API Event<InventoryItemBoxClickEvent>   OnInventoryItemBoxClick;
+extern PARABOX_API Event<InventoryItemBoxEquippedEvent> OnInventoryItemBoxEquipped;
 extern PARABOX_API Event<InventoryScreen2CloseEvent>   OnInventoryScreen2Close;
 
 // Map events
@@ -398,6 +403,7 @@ PARABOX_API const char *ResolveCollarNameFromIndex(int32_t collarIndex);
 PARABOX_API void ForceClassChooserLockIn(void *lambdaThis);
 
 // Storage API
+PARABOX_API extern bool g_isHandlingNetworkStorageItemSync;
 PARABOX_API int32_t FindStorageSlotIndex(const void *clickedBox);
 PARABOX_API void UpdateStorageItemSlot(int32_t slotIndex, int64_t catID);
 PARABOX_API int64_t ResolveSelectedCatID();
