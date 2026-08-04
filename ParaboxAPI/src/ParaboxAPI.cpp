@@ -47,6 +47,8 @@ PARABOX_API Event<FaceDirectionEvent>          OnFaceDirection;
 PARABOX_API Event<SlotUpdateDynamicValueEvent> OnSlotUpdateDynamicValue;
 PARABOX_API Event<ProcessCombatInputEvent>     OnProcessCombatInput;
 PARABOX_API Event<RouteCombatInputEvent>       OnRouteCombatInput;
+PARABOX_API Event<CombatMenuShowEvent>         OnCombatMenuShow;
+PARABOX_API Event<CombatMenuHideEvent>         OnCombatMenuHide;
 
 // Save events
 PARABOX_API Event<CreateStrayCatEvent>         OnCreateStrayCat;

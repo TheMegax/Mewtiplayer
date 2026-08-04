@@ -143,15 +143,6 @@ struct alignas(8) Internal_SDL_Event {
 };
 
 bool Hooked_SDL_SetCursor(const SDL_Cursor cursor) {
-  if (NetworkManager::Get().IsInputBlocked(
-          SteamUser()->GetSteamID().ConvertToUint64())) {
-    for (auto const &pair : g_CursorToType) {
-      if (pair.second == 13) { // 13 is "invalid"
-        return g_Original_SDL_SetCursor ? g_Original_SDL_SetCursor(pair.first)
-                                        : false;
-      }
-    }
-  }
   return g_Original_SDL_SetCursor ? g_Original_SDL_SetCursor(cursor) : false;
 }
 
@@ -441,16 +432,6 @@ void Update() {
     }
   }
 
-  // If blocked, force invalid cursor
-  if (nm.IsInputBlocked(SteamUser()->GetSteamID().ConvertToUint64())) {
-    for (auto const &pair : g_CursorToType) {
-      if (pair.second == 13) {
-        if (g_Original_SDL_SetCursor)
-          g_Original_SDL_SetCursor(pair.first);
-        break;
-      }
-    }
-  }
 }
 
 bool IsCalibrated() { return g_HasObserved; }

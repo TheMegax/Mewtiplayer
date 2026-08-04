@@ -13,6 +13,8 @@ HOOK_DEFINE(SlotUpdateDynamicValue, void*, void*, void*)
 HOOK_DEFINE(ProcessCombatInput, void*, CombatUIContext*, void*)
 HOOK_DEFINE(RouteCombatInput, void*, CombatUIContext*, void*, void*, void*)
 HOOK_DEFINE(PossessionUpdate, void, void*, unsigned char)
+HOOK_DEFINE(CombatMenuShow, void, void*, void*, void*)
+HOOK_DEFINE(CombatMenuHide, void, void*)
 
 static void Hook_TurnStart(TurnControl *tc) {
     ParaboxAPI::TurnStartEvent ev = {};
@@ -135,6 +137,32 @@ static void __fastcall Hook_PossessionUpdate(void *character, unsigned char para
     }
 }
 
+static void __fastcall Hook_CombatMenuShow(void *menu, void *actions, void *param3) {
+    ParaboxAPI::CombatMenuShowEvent ev = {};
+    ev.menu = menu;
+    ev.actions = actions;
+    ev.param3 = param3;
+    ParaboxAPI::OnCombatMenuShow.Publish(ev);
+
+    if (ev.cancelled)
+        return;
+
+    if (g_origCombatMenuShow)
+        g_origCombatMenuShow(menu, actions, param3);
+}
+
+static void __fastcall Hook_CombatMenuHide(void *menu) {
+    ParaboxAPI::CombatMenuHideEvent ev = {};
+    ev.menu = menu;
+    ParaboxAPI::OnCombatMenuHide.Publish(ev);
+
+    if (ev.cancelled)
+        return;
+
+    if (g_origCombatMenuHide)
+        g_origCombatMenuHide(menu);
+}
+
 void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
     HOOK_INSTALL(mj, gameBase, BeginTurn,
         "48 89 5C 24 08 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 B0 FC FF FF", 16);
@@ -165,6 +193,12 @@ void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
 
     HOOK_INSTALL(mj, gameBase, PossessionUpdate,
         "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 81 EC 40 01 00 00", 16);
+
+    HOOK_INSTALL(mj, gameBase, CombatMenuShow,
+        "48 8B C4 48 89 58 18 48 89 50 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 C8 FD FF FF", 15);
+
+    HOOK_INSTALL(mj, gameBase, CombatMenuHide,
+        "48 89 5C 24 18 48 89 6C 24 20 57 41 56 41 57 48 83 EC 50 80 B9 40 01 00 00 00", 15);
 }
 
 namespace ParaboxAPI {
@@ -177,6 +211,18 @@ PARABOX_API void ForceFaceDirection(void* character, uint64_t packed, bool anim,
 PARABOX_API void ForceSlotUpdateDynamicValue(void* rcx, void* rdx) {
     if (g_origSlotUpdateDynamicValue) {
         g_origSlotUpdateDynamicValue(rcx, rdx);
+    }
+}
+
+PARABOX_API void ForceCombatMenuHide(void *menu) {
+    if (g_origCombatMenuHide) {
+        g_origCombatMenuHide(menu);
+    }
+}
+
+PARABOX_API void ForceCombatMenuShow(void *menu, void *actions, void *param3) {
+    if (g_origCombatMenuShow) {
+        g_origCombatMenuShow(menu, actions, param3);
     }
 }
 

@@ -128,6 +128,15 @@ void RegisterCombatSubscribers() {
         }
     });
 
+    ParaboxAPI::OnCombatMenuShow.Subscribe([](ParaboxAPI::CombatMenuShowEvent& ev) {
+        if (NetworkManager::Get().IsCombatActive() &&
+            NetworkManager::Get().IsInputBlocked(
+                SteamUser()->GetSteamID().ConvertToUint64())) {
+            ev.Cancel();
+            ParaboxAPI::ForceCombatMenuHide(ev.menu);
+        }
+    });
+
     ParaboxAPI::OnTurnStart.Subscribe([](ParaboxAPI::TurnStartEvent& ev) {
         if (ev.tc) {
             g_currentTurnControl = ev.tc;
@@ -806,6 +815,17 @@ void RegisterCombatSubscribers() {
     });
 
     ParaboxAPI::OnProcessCombatInput.Subscribe([](ParaboxAPI::ProcessCombatInputEvent& ev) {
+        if (NetworkManager::Get().IsInputBlocked(
+                SteamUser()->GetSteamID().ConvertToUint64())) {
+            if (ev.outResult) {
+                auto *out = static_cast<uint32_t *>(ev.outResult);
+                memset(out, 0, 132);
+                out[0] = 1;
+                ev.returnValue = ev.outResult;
+            }
+            ev.Cancel();
+            return;
+        }
         g_isCombatUIProcessing = true;
         if (ev.ctx && ev.ctx->entityManager) {
             auto entities = GameUtils::GetUIAbilitySlots(ev.ctx->entityManager);
@@ -818,5 +838,17 @@ void RegisterCombatSubscribers() {
     ParaboxAPI::OnRouteCombatInput.Subscribe([](ParaboxAPI::RouteCombatInputEvent& ev) {
         g_isCombatUIProcessing = false;
         g_castableAbilities.clear();
+
+        if (NetworkManager::Get().IsInputBlocked(
+                SteamUser()->GetSteamID().ConvertToUint64())) {
+            if (ev.outResult) {
+                auto *out = static_cast<uint32_t *>(ev.outResult);
+                memset(out, 0, 132);
+                out[0] = 3;
+                ev.returnValue = ev.outResult;
+            }
+            ev.Cancel();
+        }
     });
+
 }

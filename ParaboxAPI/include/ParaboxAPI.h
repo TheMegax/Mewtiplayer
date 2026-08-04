@@ -134,6 +134,16 @@ struct RouteCombatInputEvent : EventBase {
     void *returnValue = nullptr;
 };
 
+struct CombatMenuShowEvent : EventBase {
+    void *menu;
+    void *actions;
+    void *param3;
+};
+
+struct CombatMenuHideEvent : EventBase {
+    void *menu;
+};
+
 struct CreateStrayCatEvent : EventBase {
     void *catsManager;
     void *returnValue = nullptr;
@@ -336,11 +346,15 @@ extern PARABOX_API Event<FaceDirectionEvent>          OnFaceDirection;
 extern PARABOX_API Event<SlotUpdateDynamicValueEvent> OnSlotUpdateDynamicValue;
 extern PARABOX_API Event<ProcessCombatInputEvent>     OnProcessCombatInput;
 extern PARABOX_API Event<RouteCombatInputEvent>       OnRouteCombatInput;
+extern PARABOX_API Event<CombatMenuShowEvent>         OnCombatMenuShow;
+extern PARABOX_API Event<CombatMenuHideEvent>         OnCombatMenuHide;
 
 PARABOX_API void ForceEnqueueAction(void *queue, TurnAction *actionData);
 PARABOX_API void ForceAbilityTrigger(Ability *ability, TurnAction *turnAction);
 PARABOX_API void ForceFaceDirection(void* character, uint64_t packed, bool anim, bool force);
 PARABOX_API void ForceSlotUpdateDynamicValue(void* rcx, void* rdx);
+PARABOX_API void ForceCombatMenuHide(void *menu);
+PARABOX_API void ForceCombatMenuShow(void *menu, void *actions, void *param3 = nullptr);
 // Save events
 extern PARABOX_API Event<CreateStrayCatEvent>         OnCreateStrayCat;
 extern PARABOX_API Event<GetCollarVectorEvent>        OnGetCollarVector;
