@@ -593,7 +593,10 @@ struct Character {
   Ability **spells;                     // 0x0F0
   char _padding_1b[0x198];              // 0x0F8 -- TODO: Check item actions later, they may be an array too
   MsvcReleaseModeWString name;          // 0x290
-  char _padding_2[0x1D9];               // 0x2B0
+  char _padding_2[0x1B8];               // 0x2B0
+  Character *spawner;                   // 0x468
+  uint64_t spawnerToken;                // 0x470
+  char _padding_2a[0x11];               // 0x478
   uint8_t isPlayerCat;                  // 0x489
   char _padding_3[0x26];                // 0x48A
   int32_t currentHP;                    // 0x4B0
@@ -645,6 +648,8 @@ static_assert(offsetof(Character, bonusAbility) == 0x0E0, "Character offset mism
 static_assert(offsetof(Character, spellCount) == 0x0EC, "Character offset mismatch");
 static_assert(offsetof(Character, spells) == 0x0F0, "Character offset mismatch");
 static_assert(offsetof(Character, name) == 0x290, "Character offset mismatch");
+static_assert(offsetof(Character, spawner) == 0x468, "Character offset mismatch");
+static_assert(offsetof(Character, spawnerToken) == 0x470, "Character offset mismatch");
 static_assert(offsetof(Character, currentHP) == 0x4B0, "Character offset mismatch");
 static_assert(offsetof(Character, maxHP) == 0x4BC, "Character offset mismatch");
 static_assert(offsetof(Character, strength) == 0x5A0, "Character offset mismatch");

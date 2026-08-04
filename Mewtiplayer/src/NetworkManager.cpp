@@ -268,6 +268,7 @@ void NetworkManager::HandleNUIDOwnershipSync(const void *data, const uint32_t le
 }
 
 void NetworkManager::UpdateNUIDOwnership() {
+  // Direct persistent character ownership
   for (const auto &[character, nuid] : m_charToNuid) {
     if (!character)
       continue;
@@ -293,6 +294,45 @@ void NetworkManager::UpdateNUIDOwnership() {
     if (ownerSteamID != 0) {
       m_nuidOwnership[nuid] = ownerSteamID;
     }
+  }
+
+  // Familiar ownership inheritance via spawner hierarchy
+  for (int pass = 0; pass < 5; ++pass) {
+    bool newlyAssigned = false;
+    for (const auto &[character, nuid] : m_charToNuid) {
+      if (!character)
+        continue;
+
+      // Skip if already owned
+      const auto ownedIt = m_nuidOwnership.find(nuid);
+      if (ownedIt != m_nuidOwnership.end() && ownedIt->second != 0)
+        continue;
+
+      Character *spawner = character->spawner;
+      if (!spawner)
+        continue;
+
+      // Validate spawner token
+      const uint64_t expectedToken = *(uint64_t *)((char *)spawner - 8);
+      if (character->spawnerToken != expectedToken)
+        continue;
+
+      const auto spawnerNuidIt = m_charToNuid.find(spawner);
+      if (spawnerNuidIt == m_charToNuid.end())
+        continue;
+
+      const uint32_t spawnerNuid = spawnerNuidIt->second;
+      const auto spawnerOwnerIt = m_nuidOwnership.find(spawnerNuid);
+      if (spawnerOwnerIt != m_nuidOwnership.end() && spawnerOwnerIt->second != 0) {
+        m_nuidOwnership[nuid] = spawnerOwnerIt->second;
+        newlyAssigned = true;
+        const char *name = SteamFriends()->GetFriendPersonaName(spawnerOwnerIt->second);
+        Overlay::Log("[NETWORK] Familiar Ownership Inherited: NUID %u (%s) -> Owned by %s (via Spawner NUID %u)",
+                     nuid, character->name.to_utf8().c_str(), name ? name : "Unknown", spawnerNuid);
+      }
+    }
+    if (!newlyAssigned)
+      break;
   }
 }
 
