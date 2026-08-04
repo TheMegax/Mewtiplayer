@@ -34,6 +34,14 @@ void RegisterShopSubscribers() {
         }
     });
 
+    ParaboxAPI::OnShopFastForward.Subscribe([](ParaboxAPI::ShopFastForwardEvent& ev) {
+        if (NetworkManager::Get().GetCurrentLobby().IsValid()) {
+            ShopFastForwardPacket pkt = {};
+            NetworkManager::Get().BroadcastPacket(PacketType::ShopFastForward, &pkt, sizeof(pkt), true);
+            Overlay::Log("[SHOP] Broadcast ShopFastForward");
+        }
+    });
+
     // For whatever reason, the game decides to use a different, misc RNG here instead of the seeded one.
     // This overrides that behavior, forcing it to select one option.
     ParaboxAPI::OnShopLevelUp.Subscribe([](ParaboxAPI::ShopLevelUpEvent& ev) {

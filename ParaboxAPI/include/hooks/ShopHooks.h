@@ -34,10 +34,17 @@ struct ShopChestClickEvent {
 
 extern PARABOX_API Event<ShopChestClickEvent> OnShopChestClick;
 
+struct ShopFastForwardEvent {
+  void* shopInstance;
+};
+
+extern PARABOX_API Event<ShopFastForwardEvent> OnShopFastForward;
+
 PARABOX_API void ForceShopBuyItem(uint32_t itemIndex);
 PARABOX_API void ForceShopExitButton();
 
 PARABOX_API void ForceShopChestClick();
+PARABOX_API void ForceShopFastForward();
 PARABOX_API void* PickRandomCat(void* vec);
 
 } // namespace ParaboxAPI

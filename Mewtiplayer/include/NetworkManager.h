@@ -54,6 +54,7 @@ enum class PacketType : uint8_t {
   ShopBuyItem,
   ShopExitButton,
   ShopChestClick,
+  ShopFastForward,
 };
 
 #pragma pack(push, 1)
@@ -254,6 +255,10 @@ struct ShopExitButtonPacket {
 struct ShopChestClickPacket {
   uint8_t dummy;
 };
+
+struct ShopFastForwardPacket {
+  uint8_t dummy;
+};
 #pragma pack(pop)
 
 enum class SaveSyncState : uint8_t {
@@ -424,6 +429,7 @@ private:
   void HandleShopBuyItem(const void* data, uint32_t length);
   void HandleShopExitButton(const void* data, uint32_t length);
   void HandleShopChestClick(const void* data, uint32_t length);
+  void HandleShopFastForward(const void* data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

@@ -380,6 +380,19 @@ struct AbilityChooser : Component {
 };
 static_assert(offsetof(AbilityChooser, selectedSlotIndex) == 0x48, "AbilityChooser offset mismatch");
 
+struct ShopItem {
+  char data[0xC0];
+};
+
+struct Shop : Component {
+  char _padding_0[0x60 - 0x38];    // 0x38 to 0x60
+  MsvcReleaseModeVector<ShopItem> items; // 0x60
+  char _padding_1[0x80 - 0x78];    // 0x78 to 0x80
+  double timer;                    // 0x80
+};
+static_assert(offsetof(Shop, items) == 0x60, "Shop offset mismatch");
+static_assert(offsetof(Shop, timer) == 0x80, "Shop offset mismatch");
+
 struct MapState {
   char _padding_0[0x60];       // 0x00 to 0x60
   void *selectedNode;          // 0x60

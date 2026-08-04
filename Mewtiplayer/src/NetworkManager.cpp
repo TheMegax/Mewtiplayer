@@ -199,6 +199,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::ShopChestClick:
       HandleShopChestClick(payload, payloadLen);
       break;
+    case PacketType::ShopFastForward:
+      HandleShopFastForward(payload, payloadLen);
+      break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -1538,4 +1541,10 @@ void NetworkManager::HandleShopChestClick(const void* data, uint32_t length) {
   if (length != sizeof(ShopChestClickPacket)) return;
   Overlay::Log("[SHOP] Received ShopChestClick");
   ParaboxAPI::ForceShopChestClick();
+}
+
+void NetworkManager::HandleShopFastForward(const void* data, uint32_t length) {
+  if (length != sizeof(ShopFastForwardPacket)) return;
+  Overlay::Log("[SHOP] Received ShopFastForward");
+  ParaboxAPI::ForceShopFastForward();
 }
