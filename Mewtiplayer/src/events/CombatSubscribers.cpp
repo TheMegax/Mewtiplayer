@@ -16,6 +16,37 @@ struct PendingPassiveRecord {
     ULONGLONG lastTimestamp = 0;
 };
 static std::map<std::pair<uint32_t, std::string>, PendingPassiveRecord> g_pendingNaturalPassives;
+// Tracks passives that were force-executed via network packet before the engine
+// had a chance to trigger them naturally. When the natural trigger fires later,
+// we cancel it to prevent double execution.
+static std::map<std::pair<uint32_t, std::string>, PendingPassiveRecord> g_forceExecutedPassives;
+
+static void RecordForceExecutedPassive(uint32_t nuid, const std::string& abilityName) {
+    if (nuid == 0xFFFFFFFF || abilityName.empty()) return;
+    auto key = std::make_pair(nuid, abilityName);
+    g_forceExecutedPassives[key].count++;
+    g_forceExecutedPassives[key].lastTimestamp = GetTickCount64();
+    Overlay::Log("[PASSIVE] Recorded force-executed passive '%s' for NUID %u (count: %d)",
+                 abilityName.c_str(), nuid, g_forceExecutedPassives[key].count);
+}
+
+static bool ConsumeForceExecutedPassive(uint32_t nuid, const std::string& abilityName) {
+    if (nuid == 0xFFFFFFFF || abilityName.empty()) return false;
+    auto key = std::make_pair(nuid, abilityName);
+    auto it = g_forceExecutedPassives.find(key);
+    if (it != g_forceExecutedPassives.end() && it->second.count > 0) {
+        ULONGLONG now = GetTickCount64();
+        if (now - it->second.lastTimestamp <= 10000) {
+            it->second.count--;
+            if (it->second.count <= 0) {
+                g_forceExecutedPassives.erase(it);
+            }
+            return true;
+        }
+        g_forceExecutedPassives.erase(it);
+    }
+    return false;
+}
 
 void RecordNaturalPassiveTrigger(uint32_t nuid, const std::string& abilityName) {
     if (nuid == 0xFFFFFFFF || abilityName.empty()) return;
@@ -59,6 +90,7 @@ bool ConsumeNaturalPassiveTrigger(uint32_t nuid, const std::string& abilityName)
 
 void ResetNaturalPassiveTriggers() {
     g_pendingNaturalPassives.clear();
+    g_forceExecutedPassives.clear();
 }
 
 // We use this to distinguish between UI-initiated and engine-initiated actions
@@ -369,7 +401,15 @@ void RegisterCombatSubscribers() {
                     Overlay::Log("[TRIGGER] AUTO Broadcast: '%s' for %s (NUID %u)",
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
                 } else if (ownerID != 0 && ownerID != myID) {
-                    // Log natural local triggers on remote clients without canceling the event to avoid breaking engine queue
+                    // Natural local trigger on remote client. Check if the passive was
+                    // already force-executed via a network packet — if so, cancel the
+                    // duplicate natural trigger to prevent double execution.
+                    if (triggerNUID != 0xFFFFFFFF && ConsumeForceExecutedPassive(triggerNUID, abilityName)) {
+                        Overlay::Log("[TRIGGER] Suppressed duplicate natural trigger '%s' for %s (NUID %u) — already force-executed via network",
+                                     abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
+                        ev.Cancel();
+                        return;
+                    }
                     Overlay::Log("[TRIGGER] Natural local AbilityTrigger '%s' for %s on remote client",
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str());
                     if (triggerNUID != 0xFFFFFFFF) {
@@ -534,78 +574,85 @@ void RegisterCombatSubscribers() {
                 g_activeMainActionAbilityPtr = ability;
                 g_activeMainActionAbilityName = pktCopy.abilityName;
 
-                    if (pktCopy.actorNUID != currentNUID) {
-                        // Out-of-turn action injection: execute directly on pendingActor via ForceAbilityTrigger
-                        // to avoid passing an mismatched actor into currentNUID's queue.
-                        GameUtils::SetRNGState(pktCopy.rngState);
-
-                        TurnAction actionToRun{};
-                        actionToRun.type = pktCopy.actionType;
-                        actionToRun.ability = ability;
-                        actionToRun.actor = pendingActor;
-                        actionToRun.targetX = pktCopy.targetX;
-                        actionToRun.targetY = pktCopy.targetY;
-                        actionToRun.target2X = pktCopy.target2X;
-                        actionToRun.target2Y = pktCopy.target2Y;
-                        actionToRun.unk_28 = pktCopy.unk_28;
-                        actionToRun.unk_2C = pktCopy.unk_2C;
-                        actionToRun.flag_30 = pktCopy.flag_30;
-                        actionToRun.flag_31 = pktCopy.flag_31;
-                        actionToRun.flag_32 = pktCopy.flag_32;
-                        actionToRun.flag_33 = pktCopy.flag_33;
-                        actionToRun.flag_34 = pktCopy.flag_34;
-                        actionToRun.flag_35 = pktCopy.flag_35;
-                        actionToRun.flag_36 = pktCopy.flag_36;
-                        actionToRun.magic84 = 0x544c5541; // "AULT"
-
-                        Overlay::Log("[ENQUEUE] Executed out-of-turn action '%s' for %s (NUID %u, current turn NUID %u) via ForceAbilityTrigger",
-                                     pktCopy.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pktCopy.actorNUID).c_str(), pktCopy.actorNUID, currentNUID);
-
-                        if (ability) {
-                            ParaboxAPI::ForceAbilityTrigger(ability, &actionToRun);
-                        }
-                        return;
+                if (pktCopy.actorNUID != currentNUID) {
+                    if (pktCopy.isPassive) {
+                        // Record that we're force-executing this passive via network.
+                        // If the engine later fires a natural trigger for the same passive,
+                        // OnAbilityTrigger will consume this record and cancel the duplicate.
+                        RecordForceExecutedPassive(pktCopy.actorNUID, pktCopy.abilityName);
                     }
 
-                    ev.actionData->type = pktCopy.actionType;
-                    ev.actionData->ability = ability;
-                    ev.actionData->actor = pendingActor;
-                    ev.actionData->targetX = pktCopy.targetX;
-                    ev.actionData->targetY = pktCopy.targetY;
-                    ev.actionData->target2X = pktCopy.target2X;
-                    ev.actionData->target2Y = pktCopy.target2Y;
-                    ev.actionData->unk_28 = pktCopy.unk_28;
-                    ev.actionData->unk_2C = pktCopy.unk_2C;
-                    ev.actionData->flag_30 = pktCopy.flag_30;
-                    ev.actionData->flag_31 = pktCopy.flag_31;
-                    ev.actionData->flag_32 = pktCopy.flag_32;
-                    ev.actionData->flag_33 = pktCopy.flag_33;
-                    ev.actionData->flag_34 = pktCopy.flag_34;
-                    ev.actionData->flag_35 = pktCopy.flag_35;
-                    ev.actionData->flag_36 = pktCopy.flag_36;
-                    ev.actionData->magic84 = 0x544c5541; // "AULT"
-                    
+                    // Out-of-turn non-passive action injection: execute directly on pendingActor via ForceAbilityTrigger
+                    // to avoid passing a mismatched actor into currentNUID's queue.
                     GameUtils::SetRNGState(pktCopy.rngState);
 
-                    const auto fighters = GameUtils::GetFighters();
-                    bool isValidFighter = false;
-                    for (auto fighter : fighters) {
-                        if (fighter == pendingActor) {
-                            isValidFighter = true;
-                            break;
-                        }
-                    }
+                    TurnAction actionToRun{};
+                    actionToRun.type = pktCopy.actionType;
+                    actionToRun.ability = ability;
+                    actionToRun.actor = pendingActor;
+                    actionToRun.targetX = pktCopy.targetX;
+                    actionToRun.targetY = pktCopy.targetY;
+                    actionToRun.target2X = pktCopy.target2X;
+                    actionToRun.target2Y = pktCopy.target2Y;
+                    actionToRun.unk_28 = pktCopy.unk_28;
+                    actionToRun.unk_2C = pktCopy.unk_2C;
+                    actionToRun.flag_30 = pktCopy.flag_30;
+                    actionToRun.flag_31 = pktCopy.flag_31;
+                    actionToRun.flag_32 = pktCopy.flag_32;
+                    actionToRun.flag_33 = pktCopy.flag_33;
+                    actionToRun.flag_34 = pktCopy.flag_34;
+                    actionToRun.flag_35 = pktCopy.flag_35;
+                    actionToRun.flag_36 = pktCopy.flag_36;
+                    actionToRun.magic84 = 0x544c5541; // "AULT"
 
-                    Overlay::Log("[ENQUEUE] Injecting from queue: Type %d for NUID %u (current turn NUID %u, actor ptr %p, valid fighter: %s)",
-                                 pktCopy.actionType, pktCopy.actorNUID, currentNUID, (void*)pendingActor,
-                                 isValidFighter ? "YES" : "NO");
+                    Overlay::Log("[ENQUEUE] Executed out-of-turn action '%s' for %s (NUID %u, current turn NUID %u) via ForceAbilityTrigger",
+                                 pktCopy.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pktCopy.actorNUID).c_str(), pktCopy.actorNUID, currentNUID);
 
-                    if (!isValidFighter) {
-                        Overlay::Log("[ENQUEUE] [WARN] Injected actor ptr %p for NUID %u is NOT in active combat scene fighters list!",
-                                     (void*)pendingActor, pktCopy.actorNUID);
+                    if (ability) {
+                        ParaboxAPI::ForceAbilityTrigger(ability, &actionToRun);
                     }
-                    // It will proceed to original enqueue action automatically.
                     return;
+                }
+
+                ev.actionData->type = pktCopy.actionType;
+                ev.actionData->ability = ability;
+                ev.actionData->actor = pendingActor;
+                ev.actionData->targetX = pktCopy.targetX;
+                ev.actionData->targetY = pktCopy.targetY;
+                ev.actionData->target2X = pktCopy.target2X;
+                ev.actionData->target2Y = pktCopy.target2Y;
+                ev.actionData->unk_28 = pktCopy.unk_28;
+                ev.actionData->unk_2C = pktCopy.unk_2C;
+                ev.actionData->flag_30 = pktCopy.flag_30;
+                ev.actionData->flag_31 = pktCopy.flag_31;
+                ev.actionData->flag_32 = pktCopy.flag_32;
+                ev.actionData->flag_33 = pktCopy.flag_33;
+                ev.actionData->flag_34 = pktCopy.flag_34;
+                ev.actionData->flag_35 = pktCopy.flag_35;
+                ev.actionData->flag_36 = pktCopy.flag_36;
+                ev.actionData->magic84 = 0x544c5541; // "AULT"
+                
+                GameUtils::SetRNGState(pktCopy.rngState);
+
+                const auto fighters = GameUtils::GetFighters();
+                bool isValidFighter = false;
+                for (auto fighter : fighters) {
+                    if (fighter == pendingActor) {
+                        isValidFighter = true;
+                        break;
+                    }
+                }
+
+                Overlay::Log("[ENQUEUE] Injecting from queue: Type %d for NUID %u (current turn NUID %u, actor ptr %p, valid fighter: %s)",
+                             pktCopy.actionType, pktCopy.actorNUID, currentNUID, (void*)pendingActor,
+                             isValidFighter ? "YES" : "NO");
+
+                if (!isValidFighter) {
+                    Overlay::Log("[ENQUEUE] [WARN] Injected actor ptr %p for NUID %u is NOT in active combat scene fighters list!",
+                                 (void*)pendingActor, pktCopy.actorNUID);
+                }
+                // It will proceed to original enqueue action automatically.
+                return;
             }
 
             static ULONGLONG lastLogTime = 0;
