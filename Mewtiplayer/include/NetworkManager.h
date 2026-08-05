@@ -412,8 +412,8 @@ private:
   void HandleMouseMove(const void *data, uint32_t length);
   void HandleCatOwnershipSync(const void *data, uint32_t length);
   void HandleNUIDOwnershipSync(const void *data, uint32_t length);
-  static void HandleTurnAction(CSteamID remoteID, const void *data, uint32_t length);
-  void HandleTurnFacing(CSteamID remoteID, const void *data, uint32_t length);
+  static void HandleTurnAction(const void *data, uint32_t length);
+  void HandleTurnFacing(const void *data, uint32_t length);
   void HandleSaveCatRequest(CSteamID remoteID);
   void HandleSaveCatResponse(CSteamID remoteID, const void *data, uint32_t length);
   void HandleSaveFileTransfer(CSteamID remoteID, const void *data, uint32_t length);

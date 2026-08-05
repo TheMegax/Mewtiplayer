@@ -11,7 +11,31 @@
 TurnControl *g_currentTurnControl = nullptr;
 bool g_isCombatUIProcessing = false;
 std::unordered_set<void *> g_castableAbilities;
-static std::set<std::pair<uint32_t, std::string>> g_recentlyExecutedPassives;
+static std::map<std::pair<uint32_t, std::string>, ULONGLONG> g_recentlyExecutedPassives;
+
+void RecordRecentlyExecutedPassive(uint32_t nuid, const std::string& abilityName) {
+    if (nuid == 0xFFFFFFFF || abilityName.empty()) return;
+    g_recentlyExecutedPassives[{nuid, abilityName}] = GetTickCount64();
+}
+
+bool IsPassiveRecentlyExecuted(uint32_t nuid, const std::string& abilityName) {
+    if (nuid == 0xFFFFFFFF || abilityName.empty()) return false;
+    const auto key = std::make_pair(nuid, abilityName);
+    const auto it = g_recentlyExecutedPassives.find(key);
+    if (it != g_recentlyExecutedPassives.end()) {
+        const ULONGLONG now = GetTickCount64();
+        if (now - it->second <= 10000) {
+            return true;
+        }
+        g_recentlyExecutedPassives.erase(it);
+    }
+    return false;
+}
+
+void ClearRecentlyExecutedPassive(uint32_t nuid, const std::string& abilityName) {
+    const auto key = std::make_pair(nuid, abilityName);
+    g_recentlyExecutedPassives.erase(key);
+}
 
 // We use this to distinguish between UI-initiated and engine-initiated actions
 // It is set in Hook_EnqueueAction and consumed in Hook_AbilityTrigger
@@ -148,7 +172,6 @@ void RegisterCombatSubscribers() {
         g_startedCombat = true;
         g_isCombatUIProcessing = false;
         g_deferredBroadcastPending = false; // Safety: clear stale deferred state
-        g_recentlyExecutedPassives.clear();
         g_isMainActionActive = false;
         g_activeMainActionActorNUID = 0xFFFFFFFF;
         g_activeMainActionAbilityPtr = nullptr;
@@ -326,7 +349,20 @@ void RegisterCombatSubscribers() {
                     Overlay::Log("[TRIGGER] Natural local AbilityTrigger '%s' for %s on remote client",
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str());
                     if (triggerNUID != 0xFFFFFFFF) {
-                        g_recentlyExecutedPassives.insert({triggerNUID, abilityName});
+                        RecordRecentlyExecutedPassive(triggerNUID, abilityName);
+
+                        for (auto it = g_pendingInjections.begin(); it != g_pendingInjections.end(); ) {
+                            if (it->type == PacketType::TurnAction && it->data.action.isPassive) {
+                                if (it->data.action.actorNUID == triggerNUID &&
+                                    strcmp(it->data.action.abilityName, abilityName.c_str()) == 0) {
+                                    Overlay::Log("[TRIGGER] Immediately removed matching pending passive packet '%s' for %s (NUID %u) from queue",
+                                                 abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
+                                    it = g_pendingInjections.erase(it);
+                                    continue;
+                                }
+                            }
+                            ++it;
+                        }
                     }
                 }
             }
@@ -414,11 +450,10 @@ void RegisterCombatSubscribers() {
                 const TurnActionPacket &pending = g_pendingInjections.front().data.action;
 
                 if (pending.isPassive) {
-                    auto key = std::make_pair(pending.actorNUID, std::string(pending.abilityName));
-                    if (g_recentlyExecutedPassives.count(key) > 0) {
+                    if (IsPassiveRecentlyExecuted(pending.actorNUID, pending.abilityName)) {
                         Overlay::Log("[ENQUEUE] Dropping duplicate passive '%s' for %s (NUID %u) as already executed naturally",
                                      pending.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pending.actorNUID).c_str(), pending.actorNUID);
-                        g_recentlyExecutedPassives.erase(key);
+                        ClearRecentlyExecutedPassive(pending.actorNUID, pending.abilityName);
                         g_pendingInjections.pop_front();
                         return;
                     }

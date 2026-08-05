@@ -9,6 +9,7 @@
 #include "mewjector.h"
 #include "MewSQL.h"
 #include "EventSubscribers.h"
+#include "events/CombatSubscribers.h"
 #include "hooks/AdventureBoxHooks.h"
 #include "hooks/ClassChooserHooks.h"
 #include "hooks/StorageHooks.h"
@@ -125,10 +126,10 @@ void NetworkManager::ReceivePackets() {
       EndCombat();
       break;
     case PacketType::TurnAction:
-      HandleTurnAction(remoteID, payload, payloadLen);
+      HandleTurnAction(payload, payloadLen);
       break;
     case PacketType::TurnFacing:
-      HandleTurnFacing(remoteID, payload, payloadLen);
+      HandleTurnFacing(payload, payloadLen);
       break;
     case PacketType::SaveCatRequest:
       HandleSaveCatRequest(remoteID);
@@ -626,13 +627,20 @@ void NetworkManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t *pParam) 
   JoinLobby(pParam->m_steamIDLobby);
 }
 
-void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
+void NetworkManager::HandleTurnAction(const void *data,
                                       const uint32_t length) {
   if (length != sizeof(TurnActionPacket))
     return;
 
   const auto *pkt = (const TurnActionPacket *)data;
-  const std::string actorName = NetworkManager::Get().GetCharacterNameByNUID(pkt->actorNUID);
+  const std::string actorName = Get().GetCharacterNameByNUID(pkt->actorNUID);
+
+  if (pkt->isPassive && IsPassiveRecentlyExecuted(pkt->actorNUID, pkt->abilityName)) {
+    Overlay::Log("[NET] Dropped duplicate incoming passive packet '%s' for %s (NUID %u) as already executed naturally",
+                 pkt->abilityName, actorName.c_str(), pkt->actorNUID);
+    ClearRecentlyExecutedPassive(pkt->actorNUID, pkt->abilityName);
+    return;
+  }
 
   Overlay::Log("[NET] Received Queued Action: '%s' for %s (Type %d, NUID %u%s)",
                pkt->abilityName, actorName.c_str(), pkt->actionType, pkt->actorNUID,
@@ -644,7 +652,7 @@ void NetworkManager::HandleTurnAction(CSteamID remoteID, const void *data,
   g_pendingInjections.push_back(action);
 }
 
-void NetworkManager::HandleTurnFacing(CSteamID remoteID, const void *data,
+void NetworkManager::HandleTurnFacing(const void *data,
                                       const uint32_t length) {
   if (length != sizeof(TurnFacingPacket))
     return;
