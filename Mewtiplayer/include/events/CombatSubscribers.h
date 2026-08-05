@@ -40,6 +40,6 @@ void NotifyEnqueueResult(void* result);
 void ResetCombatSubscribersState();
 void RegisterCombatSubscribers();
 
-void RecordRecentlyExecutedPassive(uint32_t nuid, const std::string& abilityName);
-bool IsPassiveRecentlyExecuted(uint32_t nuid, const std::string& abilityName);
-void ClearRecentlyExecutedPassive(uint32_t nuid, const std::string& abilityName);
+void RecordNaturalPassiveTrigger(uint32_t nuid, const std::string& abilityName);
+bool ConsumeNaturalPassiveTrigger(uint32_t nuid, const std::string& abilityName);
+void ResetNaturalPassiveTriggers();
