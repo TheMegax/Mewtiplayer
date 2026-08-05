@@ -83,8 +83,9 @@ void ChatManager::Render() {
     const float chatX = (float)vpX + 15.0f;
     const float chatY = (float)vpY + ((float)vpH * 0.70f) - chatH - 10.0f;
 
-    ImGui::SetNextWindowPos(ImVec2(chatX, chatY), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(chatW, chatH), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(chatX, chatY), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(chatW, chatH), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(200.0f, 100.0f), ImVec2((float)vpW, (float)vpH));
 
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.08f, 0.10f, 0.70f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.30f, 0.30f, 0.35f, 0.60f));
@@ -93,46 +94,64 @@ void ChatManager::Render() {
         m_focusInputNextFrame = true;
     }
 
-    if (ImGui::Begin("Chat", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
-        ImGui::BeginChild("##chat_scroll", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            for (const auto &msg : m_messages) {
-                if (msg.isSystem) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.20f, 1.0f), "[%s] [System] %s", msg.timestamp.c_str(), msg.text.c_str());
-                } else {
-                    ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.0f), "[%s] %s: %s", msg.timestamp.c_str(), msg.senderName.c_str(), msg.text.c_str());
+    if (ImGui::Begin("Chat", nullptr)) {
+        const ImVec2 winPos = ImGui::GetWindowPos();
+        const ImVec2 winSize = ImGui::GetWindowSize();
+        const float minX = (float)vpX;
+        const float minY = (float)vpY;
+        const float maxX = (float)(vpX + vpW);
+        const float maxY = (float)(vpY + vpH);
+
+        const float clampedX = std::clamp(winPos.x, minX, std::max(minX, maxX - winSize.x));
+        const float clampedY = std::clamp(winPos.y, minY, std::max(minY, maxY - winSize.y));
+
+        if (clampedX != winPos.x || clampedY != winPos.y) {
+            ImGui::SetWindowPos(ImVec2(clampedX, clampedY));
+        }
+
+        if (!ImGui::IsWindowCollapsed()) {
+            ImGui::BeginChild("##chat_scroll", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                ImGui::PushTextWrapPos(0.0f);
+                for (const auto &msg : m_messages) {
+                    if (msg.isSystem) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.20f, 1.0f), "[%s] [System] %s", msg.timestamp.c_str(), msg.text.c_str());
+                    } else {
+                        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.0f), "[%s] %s: %s", msg.timestamp.c_str(), msg.senderName.c_str(), msg.text.c_str());
+                    }
+                }
+                ImGui::PopTextWrapPos();
+
+                if (m_scrollToBottom || ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+                    ImGui::SetScrollHereY(1.0f);
+                    m_scrollToBottom = false;
                 }
             }
+            ImGui::EndChild();
 
-            if (m_scrollToBottom || ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
-                ImGui::SetScrollHereY(1.0f);
-                m_scrollToBottom = false;
+            if (m_focusInputNextFrame) {
+                ImGui::SetKeyboardFocusHere();
+                m_focusInputNextFrame = false;
             }
-        }
-        ImGui::EndChild();
 
-        if (m_focusInputNextFrame) {
-            ImGui::SetKeyboardFocusHere();
-            m_focusInputNextFrame = false;
-        }
+            ImGui::SetNextItemWidth(-1.0f);
+            const bool submitted = ImGui::InputText("##chat_input_field", m_inputBuf, sizeof(m_inputBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+            m_isTyping = ImGui::IsItemActive() || ImGui::IsItemFocused();
 
-        ImGui::SetNextItemWidth(-1.0f);
-        const bool submitted = ImGui::InputText("##chat_input_field", m_inputBuf, sizeof(m_inputBuf), ImGuiInputTextFlags_EnterReturnsTrue);
-        m_isTyping = ImGui::IsItemActive() || ImGui::IsItemFocused();
-
-        if (submitted) {
-            if (m_inputBuf[0] != '\0') {
-                NetworkManager::Get().SendChatMessage(m_inputBuf);
-                m_inputBuf[0] = '\0';
+            if (submitted) {
+                if (m_inputBuf[0] != '\0') {
+                    NetworkManager::Get().SendChatMessage(m_inputBuf);
+                    m_inputBuf[0] = '\0';
+                }
+                ImGui::SetKeyboardFocusHere(-1);
+                m_isTyping = false;
             }
-            ImGui::SetKeyboardFocusHere(-1);
-            m_isTyping = false;
-        }
 
-        if (m_isTyping && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-            ImGui::SetKeyboardFocusHere(-1);
-            m_isTyping = false;
+            if (m_isTyping && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                ImGui::SetKeyboardFocusHere(-1);
+                m_isTyping = false;
+            }
         }
     }
     ImGui::End();

@@ -1,4 +1,5 @@
 #include "ImGuiHook.h"
+#include "ChatManager.h"
 #include "SteamABICompat.h"
 #include "NetworkManager.h"
 #include "Overlay.h"
@@ -46,6 +47,13 @@ static LRESULT CALLBACK ImGui_WndProc(const HWND hWnd, const UINT uMsg, WPARAM w
   if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
     return true;
 
+  // Block keyboard input passing through to the game while typing in chat
+  const bool isKeyboardMsg = uMsg == WM_KEYDOWN || uMsg == WM_KEYUP ||
+                             uMsg == WM_CHAR || uMsg == WM_SYSKEYDOWN ||
+                             uMsg == WM_SYSKEYUP || uMsg == WM_UNICHAR;
+  if (isKeyboardMsg && ChatManager::Get().IsTyping()) {
+    return 1;
+  }
 
   // Mouse event sync
   const bool isSimulated = (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||

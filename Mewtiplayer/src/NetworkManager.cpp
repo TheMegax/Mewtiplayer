@@ -341,12 +341,6 @@ void NetworkManager::UpdateNUIDOwnership() {
 }
 
 bool NetworkManager::IsInputBlocked(const uint64_t steamID) {
-  if (SteamUser() && steamID == SteamUser()->GetSteamID().ConvertToUint64()) {
-    if (ChatManager::Get().IsTyping()) {
-      return true;
-    }
-  }
-
   if (!m_CurrentLobby.IsValid())
     return false;
   if (!m_combatActive)
