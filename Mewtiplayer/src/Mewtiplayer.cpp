@@ -19,12 +19,11 @@ extern const ParaboxAPI::String CUSTOM_SAVE_NAME = ParaboxAPI::MakeString("mewti
 
 static MewjectorAPI mj;
 
-// Forward declaration — defined below DllMain
 void InitializeMewUI();
 
 
 // ---------------------------------------------------------------------------
-// ParaboxAPI subscribers — centralised Mewtiplayer logic
+// ParaboxAPI subscribers
 // ---------------------------------------------------------------------------
 
 void RegisterSubscribers() {

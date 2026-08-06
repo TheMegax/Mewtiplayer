@@ -402,10 +402,10 @@ void RegisterCombatSubscribers() {
                                  abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
                 } else if (ownerID != 0 && ownerID != myID) {
                     // Natural local trigger on remote client. Check if the passive was
-                    // already force-executed via a network packet — if so, cancel the
+                    // already force-executed via a network packet. If so, cancel the
                     // duplicate natural trigger to prevent double execution.
                     if (triggerNUID != 0xFFFFFFFF && ConsumeForceExecutedPassive(triggerNUID, abilityName)) {
-                        Overlay::Log("[TRIGGER] Suppressed duplicate natural trigger '%s' for %s (NUID %u) — already force-executed via network",
+                        Overlay::Log("[TRIGGER] Suppressed duplicate natural trigger '%s' for %s (NUID %u). Already force-executed via network",
                                      abilityName.c_str(), NetworkManager::Get().GetCharacterNameByNUID(triggerNUID).c_str(), triggerNUID);
                         ev.Cancel();
                         return;
@@ -533,7 +533,7 @@ void RegisterCombatSubscribers() {
                 
                 if (pending.actorNUID != activeNUID && !pending.isPassive) {
                     // During a remote turn (remote player or AI turn on client), allow injection regardless
-                    // of NUID mismatch — the controller/host is authoritative.
+                    // of NUID mismatch, the controller/host is authoritative.
                     const uint64_t myID_inj = SteamUser()->GetSteamID().ConvertToUint64();
                     const uint64_t ownerID_inj = NetworkManager::Get().GetNUIDOwner(activeNUID);
                     const bool isMyTurn = (ownerID_inj != 0 && ownerID_inj == myID_inj);

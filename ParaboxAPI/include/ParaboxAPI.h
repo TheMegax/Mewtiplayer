@@ -2,6 +2,7 @@
 #include <functional>
 #include <vector>
 #include <cstdarg>
+#include <cstdint>
 #include "mewjector.h"
 
 #ifdef PARABOX_EXPORTS
@@ -318,6 +319,25 @@ struct WorldEventClickEndCustomEvent : EventBase {
     const char *tokenString;
 };
 
+// ---------------------------------------------------------------------------
+// Event types — PopupHooks
+// ---------------------------------------------------------------------------
+
+/// Fired just before any YesNoPrompt dialog is shown (native or custom).
+/// `prompt` is the raw UTF-8 body text. Cancel to suppress the popup.
+struct PopupShowEvent : EventBase {
+    void       *self;    ///< YesNoPrompt component pointer (may be null during construction)
+    const char *prompt;  ///< Dialog body text (read-only, valid only during the callback)
+    bool        okOnly;  ///< True if this is a single-button OK variant
+};
+
+/// Fired when the user clicks YES (choice == true) or NO (choice == false)
+/// on a popup created via ShowYesNoPopup / ShowOkPopup.
+struct PopupChoiceEvent : EventBase {
+    void *self;   ///< YesNoPrompt component pointer (may be null)
+    bool  choice; ///< true = YES clicked, false = NO clicked
+};
+
 
 // ---------------------------------------------------------------------------
 // Logging callback. Can be redirected with SetLogCallback().
@@ -331,7 +351,7 @@ PARABOX_API void SetEnqueueResultCallback(EnqueueResultCallback cb);
 PARABOX_API void Log(const char *fmt, ...);
 
 // ---------------------------------------------------------------------------
-// Global event instances — exported so other mods can subscribe
+// Global event instances
 // ---------------------------------------------------------------------------
 extern PARABOX_API Event<RunFrameEvent>    OnRunFrame;
 extern PARABOX_API Event<StevenSpawnEvent> OnStevenSpawn;
@@ -402,6 +422,10 @@ extern PARABOX_API Event<WorldEventClickEnd1Event>   OnWorldEventClickEnd1;
 extern PARABOX_API Event<WorldEventClickEnd2Event>   OnWorldEventClickEnd2;
 extern PARABOX_API Event<WorldEventClickEndCustomEvent> OnWorldEventClickEndCustom;
 
+// Popup events
+extern PARABOX_API Event<PopupShowEvent>   OnPopupShow;
+extern PARABOX_API Event<PopupChoiceEvent> OnPopupChoice;
+
 PARABOX_API void InstallHooks(MewjectorAPI *mj, uintptr_t gameBase);
 PARABOX_API void* GameAllocate(size_t size);
 
@@ -449,5 +473,30 @@ PARABOX_API void ForceWorldEventClickEnd(uint8_t buttonType);
 
 // Combat API
 PARABOX_API void ShowCombatPopup(Character *character, const char *text, float speedScale = 0.35f);
+
+// Popup API
+/// Show a Yes/No confirmation dialog using the game's YesNoPrompt system.
+/// `prompt` is a UTF-8 string (narrow char*).
+/// onYes / onNo are called (and OnPopupChoice fired) when the user clicks.
+/// Returns false if the popup could not be opened (scene is busy/destroying).
+PARABOX_API bool ShowYesNoPopup(
+    const char           *prompt,
+    std::function<void()> onYes = nullptr,
+    std::function<void()> onNo  = nullptr);
+
+/// Wide-string overload: converts prompt to UTF-8 and calls ShowYesNoPopup.
+PARABOX_API bool ShowYesNoPopup(
+    const wchar_t        *prompt,
+    std::function<void()> onYes = nullptr,
+    std::function<void()> onNo  = nullptr);
+
+/// Show a single-button OK dialog.  onOk is called on dismiss.
+PARABOX_API bool ShowOkPopup(
+    const char           *prompt,
+    std::function<void()> onOk = nullptr);
+
+PARABOX_API bool ShowOkPopup(
+    const wchar_t        *prompt,
+    std::function<void()> onOk = nullptr);
 
 } // namespace ParaboxAPI

@@ -142,6 +142,23 @@ struct MsvcReleaseModeWString {
   }
 };
 
+// MSVC std::function (64-bit Release mode)
+struct MsvcReleaseModeStdFunction {
+  uint64_t storage[7];
+  uint64_t vtable_ptr;
+};
+static_assert(sizeof(MsvcReleaseModeStdFunction) == 64, "MsvcReleaseModeStdFunction size mismatch");
+
+// MSVC std::function inline storage closure layout
+struct OurClosureInline {
+  const void *vtable;
+  std::function<void()> *fn_ptr;
+  uint64_t pad[5];
+  OurClosureInline *self_ptr;
+};
+static_assert(sizeof(OurClosureInline) == 64, "OurClosureInline size mismatch");
+
+
 struct Entity;
 struct Scene;
 struct Director;
