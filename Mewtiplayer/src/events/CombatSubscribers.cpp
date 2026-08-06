@@ -202,9 +202,11 @@ void RegisterCombatSubscribers() {
 
         if (memcmp(currentRNG, g_lastFrameRNG, sizeof(currentRNG)) != 0) {
             memcpy(g_lastFrameRNG, currentRNG, sizeof(currentRNG));
-            Overlay::Log("[RNG] %s RNG Advanced: %08X %08X %08X %08X",
-                         NetworkManager::Get().IsHost() ? "[HOST]" : "[CLIENT]",
-                         currentRNG[0], currentRNG[1], currentRNG[2], currentRNG[3]);
+            if (g_modState.talkative) {
+                Overlay::Log("[RNG] %s RNG Advanced: %08X %08X %08X %08X",
+                             NetworkManager::Get().IsHost() ? "[HOST]" : "[CLIENT]",
+                             currentRNG[0], currentRNG[1], currentRNG[2], currentRNG[3]);
+            }
         }
     });
 
@@ -222,6 +224,35 @@ void RegisterCombatSubscribers() {
             g_currentTurnControl = ev.tc;
             GameUtils::SetTurnControlPtr(&g_currentTurnControl);
         }
+
+        if (NetworkManager::Get().IsCombatActive()) {
+            NetworkManager::Get().CheckAndShowDesyncPopup();
+        }
+
+        // static bool g_combatPopupShown = false;
+        // if (!g_combatPopupShown) {
+        //     g_combatPopupShown = true;
+        //     const bool opened = ParaboxAPI::ShowYesNoPopup(
+        //     "[img:champion] Testing stuff! [img:champion]\n Can you see this?",
+        //         [] {
+        //             Overlay::Log("[POPUP] User clicked YES.");
+        //             ParaboxAPI::ShowOkPopup(
+        //                 "You clicked YES! [img:champion]\n Awesome.",
+        //                 [] { Overlay::Log("[POPUP] User clicked OK."); }
+        //             );
+        //         },
+        //         [] {
+        //             Overlay::Log("[POPUP] User clicked NO.");
+        //             ParaboxAPI::ShowOkPopup("Oh okay.",
+        //                 [] {
+        //                     Overlay::Log("[POPUP] User clicked OK.");
+        //                 });
+        //         }
+        //     );
+        //     if (!opened) {
+        //         Overlay::Log("[POPUP] ShowYesNoPopup returned false (scene was busy)");
+        //     }
+        // }
     });
 
     ParaboxAPI::OnBeginTurn.Subscribe([](ParaboxAPI::BeginTurnEvent& ev) {
@@ -232,6 +263,16 @@ void RegisterCombatSubscribers() {
         g_activeMainActionActorNUID = 0xFFFFFFFF;
         g_activeMainActionAbilityPtr = nullptr;
         g_activeMainActionAbilityName.clear();
+
+        if (NetworkManager::Get().IsCombatActive()) {
+            NetworkManager::Get().IncrementTurnNumber();
+            const uint32_t turnNum = NetworkManager::Get().GetCurrentTurnNumber();
+            NetworkManager::Get().RecordTurnState(turnNum);
+            if (NetworkManager::Get().IsHost()) {
+                NetworkManager::Get().SendDesyncCheck(turnNum);
+            }
+            NetworkManager::Get().CheckAndShowDesyncPopup();
+        }
 
         if (ev.character) {
             std::wstring name = L"Unknown";
@@ -424,8 +465,8 @@ void RegisterCombatSubscribers() {
             }
             char buf[512];
             snprintf(buf, sizeof(buf),
-                     "[%s ACTION] Actor:%s | %s | T1:(%d,%d) | T2:(%d,%d)",
-                     isSyncAction ? "SYNC" : "AUTO", actorName.c_str(), abilityName.c_str(),
+                     "[ACTION] Actor:%s | %s | T1:(%d,%d) | T2:(%d,%d)",
+                     actorName.c_str(), abilityName.c_str(),
                      ev.turnAction->targetX, ev.turnAction->targetY, ev.turnAction->target2X,
                      ev.turnAction->target2Y);
             Overlay::Log(buf);

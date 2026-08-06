@@ -13,6 +13,7 @@ struct ModState {
     bool autoLobby = false;
     bool talkative = false;
     bool autoJoin = false;
+    bool evilMode = false;
 };
 
 extern ModState g_modState;

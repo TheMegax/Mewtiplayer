@@ -70,6 +70,9 @@ PARABOX_API void StartCustomRun(int teamSize, int difficulty, int collarIndex);
 // Scenes
 PARABOX_API ParaboxAPI::Array<Scene *> GetCurrentScenes();
 PARABOX_API Scene *GetSceneByName(const char *name);
+typedef void (__fastcall *Director_DestroyScene_t)(Director* director, MsvcReleaseModeXString* sceneNameStr);
+PARABOX_API void SetDestroyScenePtr(Director_DestroyScene_t ptr);
+PARABOX_API void DestroyScene(const char *sceneName);
 PARABOX_API void SetTurnControlPtr(TurnControl **ptr);
 PARABOX_API TurnControl *GetTurnControl();
 PARABOX_API ParaboxAPI::Array<Character *> GetAllEntities();

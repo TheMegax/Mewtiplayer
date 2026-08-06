@@ -116,6 +116,10 @@ static void Initialize() {
         g_modState.talkative = true;
         Overlay::Log("[INIT] Talkative (verbose) logs Active!");
     }
+    if (strstr(cmdLine, "-evilmode")) {
+        g_modState.evilMode = true;
+        Overlay::Log("[INIT] Evil Mode Active!");
+    }
 
     g_modState.gameBase = mj.GetGameBase();
     Overlay::Log("Game base: %p", (void *)g_modState.gameBase);

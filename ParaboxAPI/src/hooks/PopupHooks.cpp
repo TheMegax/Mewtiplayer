@@ -170,9 +170,16 @@ PARABOX_API bool ShowYesNoPopup(
     MakeGameFunction(noFn, std::move(wrapNo));
 
     g_popupWasCreated = false;
-    g_fnShowYesNoPromptHigh(&str, &yesFn, &noFn, nullptr);
+    bool callSuccess = false;
+    __try {
+        g_fnShowYesNoPromptHigh(&str, &yesFn, &noFn, nullptr);
+        callSuccess = true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("[Popup] ShowYesNoPromptHigh caught SEH exception.");
+        callSuccess = false;
+    }
 
-    const bool opened = g_popupWasCreated;
+    const bool opened = callSuccess && g_popupWasCreated;
     g_popupWasCreated = false;
     if (!opened) {
         Log("[Popup] ShowYesNoPopup: popup rejected by scene.");
@@ -217,9 +224,16 @@ PARABOX_API bool ShowOkPopup(
     MakeGameFunction(okFn, std::move(wrapOk));
 
     g_popupWasCreated = false;
-    g_fnShowOkPromptHigh(&str, &okFn);
+    bool okCallSuccess = false;
+    __try {
+        g_fnShowOkPromptHigh(&str, &okFn);
+        okCallSuccess = true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("[Popup] ShowOkPromptHigh caught SEH exception.");
+        okCallSuccess = false;
+    }
 
-    const bool opened = g_popupWasCreated;
+    const bool opened = okCallSuccess && g_popupWasCreated;
     g_popupWasCreated = false;
     if (!opened) {
         Log("[Popup] ShowOkPopup: popup rejected by scene.");

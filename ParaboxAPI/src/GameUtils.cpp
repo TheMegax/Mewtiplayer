@@ -333,7 +333,7 @@ void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<Pa
     snprintf(buf, sizeof(buf), "%02x", i);
     hexStr += buf;
   }
-  hexStr += "'";
+  hexStr += '\'';
 
   const std::string query = "INSERT OR REPLACE INTO files VALUES ('unlocks', " + hexStr + ");";
   MewSQL::ExecSQLRaw(db, query.c_str());
@@ -500,7 +500,7 @@ void MergeInventoryBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<
         snprintf(buf, sizeof(buf), "%02x", b);
         hexStr += buf;
     }
-    hexStr += "'";
+    hexStr += '\'';
 
     const std::string query = "INSERT OR REPLACE INTO files VALUES ('inventory_storage', " + hexStr + ");";
     MewSQL::ExecSQLRaw(db, query.c_str());
@@ -577,6 +577,24 @@ void CreateMewtiplayerSave(const char *saveName) {
   }
 }
 
+static Director_DestroyScene_t g_DestroyScene = nullptr;
+void SetDestroyScenePtr(Director_DestroyScene_t ptr) { g_DestroyScene = ptr; }
+
+void DestroyScene(const char *sceneName) {
+  if (!g_DestroyScene) {
+    ParaboxAPI::Log("[SCENE] DestroyScene pointer is null!");
+    return;
+  }
+  MewDirector* md = GetMewDirectorSingleton();
+  if (!md || !md->director) {
+    ParaboxAPI::Log("[SCENE] MewDirector or Director is null!");
+    return;
+  }
+  MsvcReleaseModeXString str = {};
+  InitXString(str, sceneName);
+  g_DestroyScene(md->director, &str);
+}
+
 void LoadSaveFile(const char *saveName) {
   // This will initiate a fadeout sequence. At the end of it, it will initiate the save file with the given name,
   // creating a new mewdirector. It later takes the scene pointer from the fake save selection and destroys it,
@@ -588,10 +606,15 @@ void LoadSaveFile(const char *saveName) {
   }
 
   ParaboxAPI::Log("[SAVE] Triggering mod save load sequence...");
-  const MewDirector* md = GetMewDirectorSingleton();
+  MewDirector* md = GetMewDirectorSingleton();
   if (!md || !md->director) {
     ParaboxAPI::Log("[SAVE] MewDirector or Director is null!");
     return;
+  }
+
+  if (md->inCombat) {
+    ParaboxAPI::Log("[SAVE] MewDirector was in combat, deactivating combat state...");
+    md->inCombat = false;
   }
 
   auto scenes = GetCurrentScenes();
@@ -614,9 +637,12 @@ void LoadSaveFile(const char *saveName) {
   }
   Scene* targetScene = scenes[tutorialIndex - 1];
 
-  // Deconstruct scenes between Base and the targetScene
+  // Deconstruct and destroy scenes between Base and the targetScene
   for (int i = baseIndex + 1; i < tutorialIndex - 1; i++) {
     if (scenes[i]) {
+      std::string sceneName(scenes[i]->name.as_native_string_view());
+      ParaboxAPI::Log("[SAVE] Destroying intermediate scene '%s'", sceneName.c_str());
+      DestroyScene(sceneName.c_str());
       scenes[i]->doing_scene_destruction = true;
     }
   }
@@ -851,10 +877,10 @@ static Component* GetSpawnDatabaseComponent() {
     return nullptr;
 }
 
-Ability* CreateAbilityFromSpawnDatabase(Character* actor, const char* abilityName) {
+static Ability* CreateAbilityFromSpawnDatabase(Character* actor, const char* abilityName) {
     if (!actor || !abilityName || !*abilityName) return nullptr;
 
-    const auto gameBase = (uintptr_t)GetModuleHandleA(NULL);
+    const auto gameBase = (uintptr_t)GetModuleHandleA(nullptr);
     if (!gameBase) return nullptr;
 
     const auto fnCreate = (FnSpawnDatabaseCreateAbility)(void*)(gameBase + 0x7A99B0);
@@ -920,7 +946,7 @@ Ability *FindCharacterAbility(const Character *actor, const char *targetName_c) 
     const auto comps = GetSceneComponents(scene);
     for (auto* c : comps) {
       if (!c) continue;
-      Ability* aComp = reinterpret_cast<Ability*>(c);
+      auto* aComp = reinterpret_cast<Ability*>(c);
       if (CheckAbilityNameMatch(aComp, targetName)) {
         return aComp;
       }
@@ -1068,7 +1094,6 @@ void GetRNGState(void *outSeed32) {
   *(uint64_t *)(out + 6) = tls->rngState5;
 }
 
-// Note: Doesn't work, will need to look into it further
 uint32_t CalculateCRC32(const void *data, size_t size) {
   uint32_t crc = 0xFFFFFFFF;
   auto p = (const uint8_t *)data;

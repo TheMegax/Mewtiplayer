@@ -1,4 +1,5 @@
 #include "Overlay.h"
+#include "ModState.h"
 #include "SteamABICompat.h"
 #include "GameUtils.h"
 #include "ImGuiHook.h"
@@ -360,6 +361,28 @@ static void RenderNetworkTab() {
   }
 }
 
+static uint64_t rotl64(const uint64_t x, const int k) {
+  return (x << k) | (x >> (64 - k));
+}
+
+static void StepRNGState(uint32_t state[8]) {
+  auto* s = (uint64_t*)state;
+  const uint64_t t = s[1] << 17;
+
+  s[2] ^= s[0];
+  s[3] ^= s[1];
+  s[1] ^= s[2];
+  s[0] ^= s[3];
+
+  s[2] ^= t;
+
+  s[3] = rotl64(s[3], 45);
+
+  if (s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0) {
+    s[0] = 0xDEADBEEF;
+  }
+}
+
 static void RenderRNGTab() {
   uint32_t state[8] = {};
   GameUtils::GetRNGState(state);
@@ -383,6 +406,32 @@ static void RenderRNGTab() {
 
   ImGui::Separator();
   ImGui::TextWrapped("This displays the current 32-byte RNG state.");
+
+  if (g_modState.evilMode) {
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Evil Mode Testing Controls:");
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.1f, 0.1f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.0f, 0.0f, 1.0f));
+    if (ImGui::Button("FORCE DESYNC (Advance RNG 1 Step)")) {
+      StepRNGState(state);
+      GameUtils::SetRNGState(state);
+      Overlay::Log("[EVIL MODE] Advanced local RNG state by 1 step! New s[0]: 0x%08X", state[0]);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("FORCE DESYNC (Damage First Fighter HP -5)")) {
+      const auto fighters = GameUtils::GetFighters();
+      if (!fighters.empty() && fighters[0]) {
+        fighters[0]->currentHP -= 5;
+        Overlay::Log("[EVIL MODE] Reduced HP of unit %s to %d!",
+                     fighters[0]->name.to_utf8().c_str(), fighters[0]->currentHP);
+      } else {
+        Overlay::Log("[EVIL MODE] No active fighters found on board!");
+      }
+    }
+    ImGui::PopStyleColor(3);
+  }
 }
 
 static void RenderCombatTab() {
@@ -642,6 +691,9 @@ static void RenderRunTab() {
     }
   } else {
     if (ImGui::Button("Local Depart")) {
+      if (NetworkManager::Get().IsCombatActive()) {
+        NetworkManager::Get().EndCombat();
+      }
       GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
       GameUtils::CreateMewtiplayerSave(CUSTOM_SAVE_NAME.c_str());
       GameUtils::g_startCustomRunPending = true;
@@ -655,6 +707,9 @@ static void RenderRunTab() {
   const bool canContinue = MewSQL::SaveFileExists(CUSTOM_SAVE_NAME.c_str()) && IsSaveOnAdventure();
   if (canContinue) {
     if (ImGui::Button("Continue Run")) {
+      if (NetworkManager::Get().IsCombatActive()) {
+        NetworkManager::Get().EndCombat();
+      }
       GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
     }
   } else {

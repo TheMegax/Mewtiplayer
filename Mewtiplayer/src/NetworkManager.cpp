@@ -207,6 +207,18 @@ void NetworkManager::ReceivePackets() {
     case PacketType::ChatMessage:
       HandleChatMessage(remoteID, payload, payloadLen);
       break;
+    case PacketType::RNGCheckRequest:
+      HandleRNGCheckRequest(remoteID, payload, payloadLen);
+      break;
+    case PacketType::RNGCheckResponse:
+      HandleRNGCheckResponse(remoteID, payload, payloadLen);
+      break;
+    case PacketType::CombatDesyncDetected:
+      HandleCombatDesyncDetected();
+      break;
+    case PacketType::TriggerDesyncReload:
+      HandleTriggerDesyncReload();
+      break;
     default:
       Overlay::Log("[NETWORK] Received unknown packet type %u from %llu", hdr->type,
                    remoteID.ConvertToUint64());
@@ -433,6 +445,11 @@ void NetworkManager::RegisterCat(const int64_t uid, const char *name,
 }
 
 void NetworkManager::StartCombat() {
+  m_currentTurnNumber = 0;
+  m_turnRngHistory.clear();
+  m_pendingRngChecks.clear();
+  m_desyncDetected = false;
+  m_desyncPopupOpened = false;
   if (!m_combatActive) {
     m_combatActive = true;
     if (IsHost()) {
@@ -450,6 +467,11 @@ void NetworkManager::EndCombat() {
   m_combatActive = false;
   m_activeNUID = 0xFFFFFFFF;
   m_lastControllingPlayer = 0;
+
+  m_turnRngHistory.clear();
+  m_pendingRngChecks.clear();
+  m_desyncDetected = false;
+  m_desyncPopupOpened = false;
 
   ResetEntityMapping();
   ClearRecordedActions();
@@ -1332,6 +1354,9 @@ void NetworkManager::HandleSaveLoadSignal(const void *data, const uint32_t lengt
   }
 
   // Initiate save file loading sequence
+  if (IsCombatActive()) {
+    EndCombat();
+  }
   GameUtils::g_oldDirector = GameUtils::GetMewDirectorSingleton();
   GameUtils::g_startCustomRunPending = true;
 
@@ -1626,4 +1651,212 @@ void NetworkManager::HandleChatMessage(CSteamID remoteID, const void *data, uint
 
   std::string nameStr = (senderName && senderName[0]) ? senderName : ("Player " + std::to_string(senderID % 1000));
   ChatManager::Get().AddMessage(senderID, nameStr, pkt->message);
+}
+
+// ---------------------------------------------------------------------------
+// Combat State Verification & Desync Handling
+// ---------------------------------------------------------------------------
+
+uint32_t NetworkManager::ComputeCombatStateCRC() {
+  std::vector<uint8_t> buffer;
+
+  // 1. Append 32-byte TLS RNG state
+  uint32_t rngState[8] = {};
+  GameUtils::GetRNGState(rngState);
+  buffer.insert(buffer.end(), (const uint8_t*)rngState, (const uint8_t*)rngState + sizeof(rngState));
+
+  // 2. Fetch active fighters on board
+  const auto fighters = GameUtils::GetFighters();
+
+  // Collect NUID and character state to sort deterministically by NUID
+  std::vector<std::pair<uint32_t, Character*>> sortedFighters;
+  for (Character* c : fighters) {
+    if (!c) continue;
+    const uint32_t nuid = GetNUID(c);
+    sortedFighters.push_back({nuid, c});
+  }
+  std::sort(sortedFighters.begin(), sortedFighters.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
+
+  const uint32_t count = static_cast<uint32_t>(sortedFighters.size());
+  buffer.insert(buffer.end(), (const uint8_t*)&count, (const uint8_t*)&count + sizeof(count));
+
+  for (const auto& [nuid, c] : sortedFighters) {
+    #pragma pack(push, 1)
+    struct CharacterStateData {
+      uint32_t nuid;
+      int32_t currentHP;
+      int32_t barrierHP;
+      int32_t maxHP;
+      int32_t lives;
+      uint8_t isDead;
+      int64_t sqlKey;
+    } cdata = {};
+    #pragma pack(pop)
+
+    cdata.nuid = nuid;
+    cdata.currentHP = c->currentHP;
+    cdata.barrierHP = c->barrierHP;
+    cdata.maxHP = c->maxHP;
+    cdata.lives = c->lives;
+    cdata.isDead = c->isDead ? 1 : 0;
+    cdata.sqlKey = c->persistentChar ? c->persistentChar->sql_key : -1;
+
+    buffer.insert(buffer.end(), (const uint8_t*)&cdata, (const uint8_t*)&cdata + sizeof(cdata));
+  }
+
+  return GameUtils::CalculateCRC32(buffer.data(), buffer.size());
+}
+
+void NetworkManager::RecordTurnState(const uint32_t turnNum) {
+  const uint32_t localCrc = ComputeCombatStateCRC();
+  m_turnRngHistory[turnNum] = localCrc;
+
+  if (g_modState.talkative) {
+    Overlay::Log("[SYNC] Turn %u local state recorded: CRC=0x%08X", turnNum, localCrc);
+  }
+
+  // If client received a host check early (due to lag/timing), process queued check now
+  const auto it = m_pendingRngChecks.find(turnNum);
+  if (it != m_pendingRngChecks.end()) {
+    const uint32_t hostCrc = it->second;
+    m_pendingRngChecks.erase(it);
+
+    if (g_modState.talkative) {
+      Overlay::Log("[SYNC] Evaluating delayed state check for Turn %u: Client=0x%08X, Host=0x%08X",
+                   turnNum, localCrc, hostCrc);
+    }
+
+    RNGCheckResponsePacket respPkt = {};
+    respPkt.turnNumber = turnNum;
+    respPkt.clientRngCrc = localCrc;
+
+    SendPacketReliable(GetHostID(), PacketType::RNGCheckResponse, &respPkt, sizeof(respPkt));
+
+    if (localCrc != hostCrc) {
+      Overlay::Log("[DESYNC] Combat state mismatch detected locally on Turn %u! Local: 0x%08X, Host: 0x%08X",
+                   turnNum, localCrc, hostCrc);
+    }
+  }
+}
+
+void NetworkManager::SendDesyncCheck(const uint32_t turnNum) {
+  if (!IsHost()) return;
+
+  const auto it = m_turnRngHistory.find(turnNum);
+  const uint32_t hostCrc = (it != m_turnRngHistory.end()) ? it->second : 0;
+
+  RNGCheckRequestPacket reqPkt = {};
+  reqPkt.turnNumber = turnNum;
+  reqPkt.hostRngCrc = hostCrc;
+
+  BroadcastPacket(PacketType::RNGCheckRequest, &reqPkt, sizeof(reqPkt), true);
+  if (g_modState.talkative) {
+    Overlay::Log("[SYNC] Host sent state check for Turn %u (Host CRC: 0x%08X)", turnNum, hostCrc);
+  }
+}
+
+void NetworkManager::CheckAndShowDesyncPopup() {
+  if (!m_desyncDetected || m_desyncPopupOpened) return;
+
+  bool opened = false;
+  if (IsHost()) {
+    opened = ParaboxAPI::ShowOkPopup(
+        "[img:elite] Combat desynced! [img:elite]\nPress OK to restart combat...",
+        [this] { TriggerDesyncReload(); });
+  } else {
+    opened = ParaboxAPI::ShowOkPopup(
+        "[img:elite] Combat desynced! [img:elite]\nWaiting for host to restart combat...",
+        nullptr);
+  }
+
+  if (opened) {
+    m_desyncPopupOpened = true;
+    Overlay::Log("[DESYNC] Native game desync OK popup successfully opened!");
+  }
+}
+
+void NetworkManager::HandleRNGCheckRequest(const CSteamID remoteID, const void *data, const uint32_t length) {
+  if (length < sizeof(RNGCheckRequestPacket)) return;
+  const auto *pkt = (const RNGCheckRequestPacket *)data;
+
+  const uint32_t turnNum = pkt->turnNumber;
+  const uint32_t hostCrc = pkt->hostRngCrc;
+
+  const auto it = m_turnRngHistory.find(turnNum);
+  if (it != m_turnRngHistory.end()) {
+    const uint32_t clientCrc = it->second;
+    if (g_modState.talkative) {
+      Overlay::Log("[SYNC] Client evaluated state check for Turn %u: Client=0x%08X, Host=0x%08X",
+                   turnNum, clientCrc, hostCrc);
+    }
+
+    RNGCheckResponsePacket respPkt = {};
+    respPkt.turnNumber = turnNum;
+    respPkt.clientRngCrc = clientCrc;
+
+    SendPacketReliable(remoteID, PacketType::RNGCheckResponse, &respPkt, sizeof(respPkt));
+
+    if (clientCrc != hostCrc) {
+      Overlay::Log("[DESYNC] Combat state mismatch detected on Client for Turn %u! Client: 0x%08X, Host: 0x%08X",
+                   turnNum, clientCrc, hostCrc);
+      m_desyncDetected = true;
+    }
+  } else {
+    // Client has not reached this turn yet due to lag/timing. Queue request!
+    m_pendingRngChecks[turnNum] = hostCrc;
+    if (g_modState.talkative) {
+      Overlay::Log("[SYNC] Client queued state check for future Turn %u (Host CRC: 0x%08X)", turnNum, hostCrc);
+    }
+  }
+}
+
+void NetworkManager::HandleRNGCheckResponse(const CSteamID remoteID, const void *data, const uint32_t length) {
+  if (!IsHost()) return;
+  if (length < sizeof(RNGCheckResponsePacket)) return;
+
+  const auto *pkt = (const RNGCheckResponsePacket *)data;
+  const uint32_t turnNum = pkt->turnNumber;
+  const uint32_t clientCrc = pkt->clientRngCrc;
+
+  const auto it = m_turnRngHistory.find(turnNum);
+  const uint32_t hostCrc = (it != m_turnRngHistory.end()) ? it->second : 0;
+
+  if (clientCrc != hostCrc) {
+    Overlay::Log("[DESYNC] Combat state mismatch detected on Turn %u from Client %llu! Host: 0x%08X, Client: 0x%08X",
+                 turnNum, remoteID.ConvertToUint64(), hostCrc, clientCrc);
+
+    BroadcastPacket(PacketType::CombatDesyncDetected, nullptr, 0, true);
+
+    m_desyncDetected = true;
+  } else {
+    if (g_modState.talkative) {
+      Overlay::Log("[SYNC]Turn %u combat state matched with Client %llu (CRC: 0x%08X)",
+                   turnNum, remoteID.ConvertToUint64(), hostCrc);
+    }
+  }
+}
+
+void NetworkManager::HandleCombatDesyncDetected() {
+  Overlay::Log("[DESYNC] Combat desync notification received from Host!");
+  m_desyncDetected = true;
+}
+
+void NetworkManager::TriggerDesyncReload() {
+  Overlay::Log("[DESYNC] Host initiated desync reload restart sequence.");
+  m_desyncDetected = false;
+  m_desyncPopupOpened = false;
+  if (IsHost()) {
+    BroadcastPacket(PacketType::TriggerDesyncReload, nullptr, 0, true);
+  }
+  EndCombat();
+  GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
+}
+
+void NetworkManager::HandleTriggerDesyncReload() {
+  Overlay::Log("[DESYNC] Client received TriggerDesyncReload. Executing Continue Run...");
+  m_desyncDetected = false;
+  m_desyncPopupOpened = false;
+  EndCombat();
+  GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
 }

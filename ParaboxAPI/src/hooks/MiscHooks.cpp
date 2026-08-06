@@ -59,6 +59,12 @@ void MiscHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
         startRun);
     if (startRun) GameUtils::SetStartRunPtr(startRun);
 
+    GameUtils::Director_DestroyScene_t destroyScene = nullptr;
+    SCAN_SET(mj, gameBase, Director_DestroyScene,
+        "48 89 5C 24 08 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00",
+        destroyScene);
+    if (destroyScene) GameUtils::SetDestroyScenePtr(destroyScene);
+
     void **activeScenePtr = nullptr;
     SCAN_RESOLVE(mj, gameBase, ActiveSceneFunc,
         "48 89 5C 24 10 57 48 83 EC 20 33 FF 48 8B D9 48 85 C9 75 10 48 8B 1D",

@@ -57,6 +57,11 @@ enum class PacketType : uint8_t {
   ShopFastForward,
   // --- Chat ---
   ChatMessage,
+  // --- RNG Check / Desync ---
+  RNGCheckRequest,
+  RNGCheckResponse,
+  CombatDesyncDetected,
+  TriggerDesyncReload,
 };
 
 #pragma pack(push, 1)
@@ -175,6 +180,20 @@ struct SaveLoadSignalPacket {
 #pragma pack(push, 1)
 struct ButchBoxCatCountPacket {
   uint32_t catCount;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct RNGCheckRequestPacket {
+  uint32_t turnNumber;
+  uint32_t hostRngCrc;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct RNGCheckResponsePacket {
+  uint32_t turnNumber;
+  uint32_t clientRngCrc;
 };
 #pragma pack(pop)
 
@@ -362,6 +381,14 @@ public:
   void RestoreOwnershipFromSave(const char* saveName);
   void SendChatMessage(const std::string &message);
 
+  // Combat State Verification & Desync Handling
+  uint32_t ComputeCombatStateCRC();
+  void RecordTurnState(uint32_t turnNum);
+  void SendDesyncCheck(uint32_t turnNum);
+  void CheckAndShowDesyncPopup();
+  void TriggerDesyncReload();
+  uint32_t GetCurrentTurnNumber() const { return m_currentTurnNumber; }
+  void IncrementTurnNumber() { m_currentTurnNumber++; }
 
 private:
   NetworkManager() : m_mj(nullptr), m_AutoJoinStartTime(0), m_LastAutoJoinAttempt(0), m_AutoJoinFinished(false) { m_CurrentLobby.Clear(); }
@@ -383,6 +410,19 @@ private:
   std::map<int64_t, CatInfo> m_discoveredCats;
   std::map<uint32_t, uint64_t> m_nuidOwnership;
   uint64_t m_lastControllingPlayer = 0;
+
+  // RNG Verification & Desync state
+  uint32_t m_currentTurnNumber = 0;
+  std::map<uint32_t, uint32_t> m_turnRngHistory;   // turnNumber -> local RNG CRC32
+  std::map<uint32_t, uint32_t> m_pendingRngChecks; // turnNumber -> host RNG CRC32 (queued when client receives request early)
+
+  bool m_desyncDetected = false;
+  bool m_desyncPopupOpened = false;
+
+  void HandleRNGCheckRequest(const CSteamID remoteID, const void *data, uint32_t length);
+  void HandleRNGCheckResponse(const CSteamID remoteID, const void *data, uint32_t length);
+  void HandleCombatDesyncDetected();
+  void HandleTriggerDesyncReload();
 
   // NUID Mapping
   std::map<Character *, uint32_t> m_charToNuid;
