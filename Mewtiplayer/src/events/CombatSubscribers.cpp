@@ -573,16 +573,9 @@ void RegisterCombatSubscribers() {
                 }
                 
                 if (pending.actorNUID != activeNUID && !pending.isPassive) {
-                    // During a remote turn (remote player or AI turn on client), allow injection regardless
-                    // of NUID mismatch, the controller/host is authoritative.
-                    const uint64_t myID_inj = SteamUser()->GetSteamID().ConvertToUint64();
-                    const uint64_t ownerID_inj = NetworkManager::Get().GetNUIDOwner(activeNUID);
-                    const bool isMyTurn = (ownerID_inj != 0 && ownerID_inj == myID_inj);
-                    if (isMyTurn) {
-                        // Packet is for a different character during OUR local player turn.
-                        // Leave in g_pendingInjections until activeNUID matches.
-                        return;
-                    }
+                    // Non-passive actions are in-turn actions for pending.actorNUID's turn.
+                    // Leave in g_pendingInjections until activeNUID matches pending.actorNUID.
+                    return;
                 }
 
                 std::string abilityName(pending.abilityName);
@@ -621,37 +614,43 @@ void RegisterCombatSubscribers() {
                         // If the engine later fires a natural trigger for the same passive,
                         // OnAbilityTrigger will consume this record and cancel the duplicate.
                         RecordForceExecutedPassive(pktCopy.actorNUID, pktCopy.abilityName);
+
+                        // Out-of-turn passive action injection: execute directly on pendingActor via ForceAbilityTrigger
+                        // to avoid passing a mismatched actor into currentNUID's queue.
+                        GameUtils::SetRNGState(pktCopy.rngState);
+
+                        TurnAction actionToRun{};
+                        actionToRun.type = pktCopy.actionType;
+                        actionToRun.ability = ability;
+                        actionToRun.actor = pendingActor;
+                        actionToRun.targetX = pktCopy.targetX;
+                        actionToRun.targetY = pktCopy.targetY;
+                        actionToRun.target2X = pktCopy.target2X;
+                        actionToRun.target2Y = pktCopy.target2Y;
+                        actionToRun.unk_28 = pktCopy.unk_28;
+                        actionToRun.unk_2C = pktCopy.unk_2C;
+                        actionToRun.flag_30 = pktCopy.flag_30;
+                        actionToRun.flag_31 = pktCopy.flag_31;
+                        actionToRun.flag_32 = pktCopy.flag_32;
+                        actionToRun.flag_33 = pktCopy.flag_33;
+                        actionToRun.flag_34 = pktCopy.flag_34;
+                        actionToRun.flag_35 = pktCopy.flag_35;
+                        actionToRun.flag_36 = pktCopy.flag_36;
+                        actionToRun.magic84 = 0x544c5541; // "AULT"
+
+                        Overlay::Log("[ENQUEUE] Executed out-of-turn passive '%s' for %s (NUID %u, current turn NUID %u) via ForceAbilityTrigger",
+                                     pktCopy.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pktCopy.actorNUID).c_str(), pktCopy.actorNUID, currentNUID);
+
+                        if (ability) {
+                            ParaboxAPI::ForceAbilityTrigger(ability, &actionToRun);
+                        }
+                        return;
                     }
-
-                    // Out-of-turn non-passive action injection: execute directly on pendingActor via ForceAbilityTrigger
-                    // to avoid passing a mismatched actor into currentNUID's queue.
-                    GameUtils::SetRNGState(pktCopy.rngState);
-
-                    TurnAction actionToRun{};
-                    actionToRun.type = pktCopy.actionType;
-                    actionToRun.ability = ability;
-                    actionToRun.actor = pendingActor;
-                    actionToRun.targetX = pktCopy.targetX;
-                    actionToRun.targetY = pktCopy.targetY;
-                    actionToRun.target2X = pktCopy.target2X;
-                    actionToRun.target2Y = pktCopy.target2Y;
-                    actionToRun.unk_28 = pktCopy.unk_28;
-                    actionToRun.unk_2C = pktCopy.unk_2C;
-                    actionToRun.flag_30 = pktCopy.flag_30;
-                    actionToRun.flag_31 = pktCopy.flag_31;
-                    actionToRun.flag_32 = pktCopy.flag_32;
-                    actionToRun.flag_33 = pktCopy.flag_33;
-                    actionToRun.flag_34 = pktCopy.flag_34;
-                    actionToRun.flag_35 = pktCopy.flag_35;
-                    actionToRun.flag_36 = pktCopy.flag_36;
-                    actionToRun.magic84 = 0x544c5541; // "AULT"
-
-                    Overlay::Log("[ENQUEUE] Executed out-of-turn action '%s' for %s (NUID %u, current turn NUID %u) via ForceAbilityTrigger",
-                                 pktCopy.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pktCopy.actorNUID).c_str(), pktCopy.actorNUID, currentNUID);
-
-                    if (ability) {
-                        ParaboxAPI::ForceAbilityTrigger(ability, &actionToRun);
-                    }
+                    // Mismatched currentNUID for non-passive action. Put back into queue and wait for matching currentNUID.
+                    g_pendingInjections.push_front(actPktCopy);
+                    g_injectedInCurrentCall = false;
+                    g_isInjectedActionPending = false;
+                    g_injectedAbilityPtr = nullptr;
                     return;
                 }
 
