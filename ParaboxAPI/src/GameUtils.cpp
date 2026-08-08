@@ -761,11 +761,15 @@ ParaboxAPI::Array<Scene *> GetCurrentScenes() {
 
 ParaboxAPI::Array<Character *> GetAllEntities() {
   std::vector<Character *> result;
-  const TurnControl *tc = GetTurnControl();
-  if (!tc || !tc->context || !tc->context->entityManager || !tc->context->entityManager->stateBlock || !tc->context->entityManager->stateBlock->fighters || !tc->context->entityManager->stateBlock->fighters->data) return ParaboxAPI::MakeArray(result);
-  const FighterList *list = tc->context->entityManager->stateBlock->fighters;
-  for (uint32_t i = 0; i < list->count; i++) {
-    if (Character *c = list->data[i]) result.push_back(c);
+  __try {
+    const TurnControl *tc = GetTurnControl();
+    if (!tc || !tc->context || !tc->context->entityManager || !tc->context->entityManager->stateBlock || !tc->context->entityManager->stateBlock->fighters || !tc->context->entityManager->stateBlock->fighters->data) return ParaboxAPI::MakeArray(result);
+    const FighterList *list = tc->context->entityManager->stateBlock->fighters;
+    for (uint32_t i = 0; i < list->count; i++) {
+      if (Character *c = list->data[i]) result.push_back(c);
+    }
+  } __except(EXCEPTION_EXECUTE_HANDLER) {
+    result.clear();
   }
   return ParaboxAPI::MakeArray(result);
 }

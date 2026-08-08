@@ -31,10 +31,14 @@ void ChatManager::AddMessage(uint64_t senderSteamID, const std::string &senderNa
     }
     m_scrollToBottom = true;
 
-    for (auto *fighter : GameUtils::GetFighters()) {
-        if (fighter && fighter->persistentChar && NetworkManager::Get().GetCatOwner(fighter->persistentChar->sql_key) == senderSteamID) {
-            ParaboxAPI::ShowCombatPopup(fighter, text.c_str());
-            break;
+    // Only attempt to show popup text if we're in combat
+    const auto *tc = GameUtils::GetTurnControl();
+    if (tc && tc->context) {
+        for (auto *fighter : GameUtils::GetFighters()) {
+            if (fighter && fighter->persistentChar && NetworkManager::Get().GetCatOwner(fighter->persistentChar->sql_key) == senderSteamID) {
+                ParaboxAPI::ShowCombatPopup(fighter, text.c_str());
+                break;
+            }
         }
     }
 }
