@@ -142,8 +142,6 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
 
   g_open(dbFile, &pathStr);
 
-  GameUtils::FreeXString(pathStr);
-
   if (!dbFile || !IsValidDbPointer(dbFile->db)) {
     if (dbFile && g_DestructString) {
       g_DestructString(&dbFile->db_path_string);
@@ -177,9 +175,7 @@ void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const char* query) {
   GameUtils::InitXString(queryStr, query ? query : "");
 
   void* dummyFunc[8] = {}; // Dummy std::function block (64 bytes)
-  g_ExecSQL(dbFile, &queryStr, dummyFunc);
-
-  GameUtils::FreeXString(queryStr);
+  g_ExecSQL(dbFile, &queryStr, dummyFunc); // g_ExecSQL destructs queryStr
 }
 
 int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_t defaultVal) {
@@ -199,7 +195,7 @@ int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_
 
   SQLData outData = {};
 
-  g_Retrieve(dbFile, &outData, &tableStr, &keyData, 1);
+  g_Retrieve(dbFile, &outData, &tableStr, &keyData, 1); // g_Retrieve destructs tableStr
 
   int64_t result = defaultVal;
   if (outData.type == 5) {
@@ -207,7 +203,6 @@ int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_
   }
 
   GameUtils::FreeXString(keyStr);
-  GameUtils::FreeXString(tableStr);
   return result;
 }
 
@@ -226,14 +221,13 @@ ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, con
 
   SQLData outData = {};
 
-  g_Retrieve(dbFile, &outData, &tableStr, &keyData, 4);
+  g_Retrieve(dbFile, &outData, &tableStr, &keyData, 4); // g_Retrieve destructs tableStr
 
   if (outData.intVal != 0 && outData.length > 0) {
     result.resize(outData.length);
     memcpy(result.data(), (const void*)outData.intVal, outData.length);
   }
 
-  GameUtils::FreeXString(tableStr);
   return ParaboxAPI::MakeArray(result);
 }
 
@@ -255,7 +249,7 @@ ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(glaiel::SQLSaveFile* dbFile, 
 
   SQLData outData = {};
 
-  g_Retrieve(dbFile, &outData, &tableStr, &keyData, 4);
+  g_Retrieve(dbFile, &outData, &tableStr, &keyData, 4); // g_Retrieve destructs tableStr
 
   if (outData.intVal != 0 && outData.length > 0) {
     result.resize(outData.length);
@@ -263,7 +257,6 @@ ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(glaiel::SQLSaveFile* dbFile, 
   }
 
   GameUtils::FreeXString(keyStr);
-  GameUtils::FreeXString(tableStr);
   return ParaboxAPI::MakeArray(result);
 }
 

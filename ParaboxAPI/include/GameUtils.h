@@ -96,6 +96,8 @@ typedef void (__fastcall *DestructString_t)(MsvcReleaseModeXString* str);
 PARABOX_API void SetDestructStringPtr(DestructString_t ptr);
 PARABOX_API void InitXString(MsvcReleaseModeXString& xstr, const char* str);
 PARABOX_API void FreeXString(MsvcReleaseModeXString& xstr);
+PARABOX_API void InitWString(MsvcReleaseModeWString& wstr, const wchar_t* str);
+PARABOX_API void FreeWString(MsvcReleaseModeWString& wstr);
 
 // Returns the base address of the game's TLS block.
 // Assumes slot 0 for the main executable.

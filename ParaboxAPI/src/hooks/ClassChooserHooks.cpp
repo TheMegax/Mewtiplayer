@@ -160,7 +160,6 @@ PARABOX_API void ApplyCollarToCharacter(PersistentCharacter *cat, const char *co
   MsvcReleaseModeXString nameStr = {};
   GameUtils::InitXString(nameStr, collarName);
   g_ApplyCollar(cat, &nameStr);
-  GameUtils::FreeXString(nameStr);
 }
 
 PARABOX_API void RefreshClassChooserInventory() {

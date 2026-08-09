@@ -31,7 +31,9 @@ void InitXString(MsvcReleaseModeXString& xstr, const char* str_c) {
     memcpy(xstr.Bx.Buf, str.c_str(), len + 1);
     xstr.Myres = 15;
   } else {
-    xstr.Bx.Ptr = (char*)malloc(len + 1);
+    void* ptr = ParaboxAPI::GameAllocate(len + 1);
+    if (!ptr) ptr = malloc(len + 1);
+    xstr.Bx.Ptr = (char*)ptr;
     memcpy(xstr.Bx.Ptr, str.c_str(), len + 1);
     xstr.Myres = len;
   }
@@ -46,6 +48,34 @@ void FreeXString(MsvcReleaseModeXString& xstr) {
       free(xstr.Bx.Ptr);
     }
     memset(&xstr, 0, sizeof(xstr));
+  }
+}
+
+void InitWString(MsvcReleaseModeWString& wstr, const wchar_t* str_c) {
+  std::wstring str = str_c ? str_c : L"";
+  memset(&wstr, 0, sizeof(wstr));
+  const size_t len = str.length();
+  if (len < 8) {
+    memcpy(wstr.Bx.Buf, str.c_str(), (len + 1) * sizeof(wchar_t));
+    wstr.Myres = 7;
+  } else {
+    void* ptr = ParaboxAPI::GameAllocate((len + 1) * sizeof(wchar_t));
+    if (!ptr) ptr = malloc((len + 1) * sizeof(wchar_t));
+    wstr.Bx.Ptr = (wchar_t*)ptr;
+    memcpy(wstr.Bx.Ptr, str.c_str(), (len + 1) * sizeof(wchar_t));
+    wstr.Myres = len;
+  }
+  wstr.Mysize = len;
+}
+
+void FreeWString(MsvcReleaseModeWString& wstr) {
+  if (g_DestructString) {
+    g_DestructString((MsvcReleaseModeXString*)&wstr);
+  } else {
+    if (wstr.Myres >= 8 && wstr.Bx.Ptr) {
+      free(wstr.Bx.Ptr);
+    }
+    memset(&wstr, 0, sizeof(wstr));
   }
 }
 
@@ -528,9 +558,8 @@ void CreateSaveFile(const char *saveName) {
   InitXString(saveNameXStr, saveName);
 
   // Call original InitializeSave (offset +0x38 of tempDirector is GameStateMap)
-  g_InitializeSave(tempDirector->gameStateMap, &saveNameXStr);
+  g_InitializeSave(tempDirector->gameStateMap, &saveNameXStr); // g_InitializeSave destructs saveNameXStr
 
-  FreeXString(saveNameXStr);
   MewSQL::CloseActiveSaveConnection(tempDirector);
 
   if (g_DestructString) {
@@ -897,9 +926,7 @@ static Ability* CreateAbilityFromSpawnDatabase(Character* actor, const char* abi
     MsvcReleaseModeXString nameStr = {};
     InitXString(nameStr, abilityName);
 
-    Ability* createdAbility = SafeInvokeCreateAbility(fnCreate, spawnDb, actor, &nameStr);
-
-    FreeXString(nameStr);
+    Ability* createdAbility = SafeInvokeCreateAbility(fnCreate, spawnDb, actor, &nameStr); // fnCreate destructs nameStr
 
     if (createdAbility) {
         std::string charName = (actor) ? actor->name.to_utf8() : "Unknown";
