@@ -219,6 +219,18 @@ void RegisterCombatSubscribers() {
         }
     });
 
+    ParaboxAPI::OnProcessCombatInput.Subscribe([](ParaboxAPI::ProcessCombatInputEvent& ev) {
+        if (NetworkManager::Get().IsCombatActive()) {
+            NetworkManager::Get().CheckAndShowDesyncPopup();
+        }
+    });
+
+    ParaboxAPI::OnRouteCombatInput.Subscribe([](ParaboxAPI::RouteCombatInputEvent& ev) {
+        if (NetworkManager::Get().IsCombatActive()) {
+            NetworkManager::Get().CheckAndShowDesyncPopup();
+        }
+    });
+
     ParaboxAPI::OnTurnStart.Subscribe([](ParaboxAPI::TurnStartEvent& ev) {
         if (ev.tc) {
             g_currentTurnControl = ev.tc;
