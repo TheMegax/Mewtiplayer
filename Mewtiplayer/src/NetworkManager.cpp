@@ -39,6 +39,13 @@ void NetworkManager::Init(MewjectorAPI *mj, const char *modID) {
 void NetworkManager::Update() {
   SteamAPI_RunCallbacks();
   ReceivePackets();
+  ProcessSimulatedPackets();
+
+  if (m_CurrentLobby.IsValid()) {
+    SendHeartbeat();
+    CheckHeartbeatTimeouts();
+    CheckSaveSyncTimeouts();
+  }
 
   if (g_modState.autoJoin && !m_AutoJoinFinished && !m_CurrentLobby.IsValid()) {
     ULONGLONG now = GetTickCount64();
@@ -66,8 +73,8 @@ void NetworkManager::Update() {
   }
 }
 
-bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
-                                const void *data, const uint32_t size) {
+bool NetworkManager::SendPacketDirect(const CSteamID target, const PacketType type,
+                                      const void *data, const uint32_t size, const bool reliable) {
   PacketHeader header;
   header.type = type;
   header.length = size;
@@ -77,8 +84,147 @@ bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
   if (size > 0 && data)
     memcpy(buffer.data() + sizeof(PacketHeader), data, size);
 
+  EP2PSend sendType = reliable ? k_EP2PSendReliable : k_EP2PSendUnreliable;
   return SteamNetworking()->SendP2PPacket(
-      target, buffer.data(), (uint32)buffer.size(), k_EP2PSendUnreliable);
+      target, buffer.data(), (uint32)buffer.size(), sendType);
+}
+
+bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
+                                const void *data, const uint32_t size) {
+  if (g_modState.packetTesting) {
+    if (g_modState.simLossRate > 0.0f) {
+      float roll = static_cast<float>(rand() % 10000) / 100.0f;
+      if (roll < g_modState.simLossRate) {
+        return true;
+      }
+    }
+    ULONGLONG now = GetTickCount64();
+    int32_t jitter = 0;
+    if (g_modState.simJitterMs > 0) {
+      jitter = (rand() % (static_cast<int>(g_modState.simJitterMs) * 2 + 1)) - static_cast<int>(g_modState.simJitterMs);
+    }
+    int32_t delayMs = static_cast<int32_t>(g_modState.simPingMs) + jitter;
+    if (delayMs < 0) delayMs = 0;
+
+    QueuedSimPacket simPkt;
+    simPkt.target = target;
+    simPkt.type = type;
+    simPkt.reliable = false;
+    simPkt.deliverTime = now + delayMs;
+    if (size > 0 && data) {
+      simPkt.payload.resize(size);
+      memcpy(simPkt.payload.data(), data, size);
+    }
+    m_simulatedPacketQueue.push_back(simPkt);
+    return true;
+  }
+  return SendPacketDirect(target, type, data, size, false);
+}
+
+void NetworkManager::ProcessSimulatedPackets() {
+  if (m_simulatedPacketQueue.empty()) return;
+
+  ULONGLONG now = GetTickCount64();
+  auto it = m_simulatedPacketQueue.begin();
+  while (it != m_simulatedPacketQueue.end()) {
+    if (now >= it->deliverTime) {
+      SendPacketDirect(it->target, it->type,
+                       it->payload.empty() ? nullptr : it->payload.data(),
+                       static_cast<uint32_t>(it->payload.size()),
+                       it->reliable);
+      it = m_simulatedPacketQueue.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void NetworkManager::RegisterPeerActivity(const uint64_t steamID) {
+  if (steamID != 0) {
+    m_peerLastSeenMap[steamID] = GetTickCount64();
+  }
+}
+
+void NetworkManager::ClearPeerTracking() {
+  m_peerLastSeenMap.clear();
+  m_simulatedPacketQueue.clear();
+}
+
+void NetworkManager::SendHeartbeat() {
+  if (!m_CurrentLobby.IsValid()) return;
+
+  ULONGLONG now = GetTickCount64();
+  if (now - m_lastHeartbeatSentTime < 3000) return;
+  m_lastHeartbeatSentTime = now;
+
+  const CSteamID myID = SteamUser()->GetSteamID();
+
+  if (IsHost()) {
+    const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+    for (int i = 0; i < numMembers; i++) {
+      CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+      if (member != myID) {
+        SendPacket(member, PacketType::Ping, nullptr, 0);
+      }
+    }
+  } else {
+    CSteamID hostID = GetHostID();
+    if (hostID.IsValid() && hostID != myID) {
+      SendPacket(hostID, PacketType::Ping, nullptr, 0);
+    }
+  }
+}
+
+void NetworkManager::CheckHeartbeatTimeouts() {
+  if (!m_CurrentLobby.IsValid()) return;
+
+  ULONGLONG now = GetTickCount64();
+  const uint64_t myID = SteamUser()->GetSteamID().ConvertToUint64();
+
+  if (IsHost()) {
+    const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+    std::vector<uint64_t> timedOutPeers;
+    for (int i = 0; i < numMembers; i++) {
+      CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+      uint64_t peerID = member.ConvertToUint64();
+      if (peerID == myID) continue;
+
+      auto it = m_peerLastSeenMap.find(peerID);
+      if (it == m_peerLastSeenMap.end()) {
+        m_peerLastSeenMap[peerID] = now;
+      } else if (now - it->second > 15000) {
+        timedOutPeers.push_back(peerID);
+      }
+    }
+
+    for (uint64_t peerID : timedOutPeers) {
+      Overlay::Log("[NETWORK] [TIMEOUT] Heartbeat lost from client %llu (>15s elapsed). Disconnecting peer!", peerID);
+      m_peerLastSeenMap.erase(peerID);
+
+      // Clean up ownership maps for timed-out player
+      for (auto it = m_catOwnership.begin(); it != m_catOwnership.end(); ) {
+        if (it->second == peerID) it = m_catOwnership.erase(it);
+        else ++it;
+      }
+      for (auto it = m_nuidOwnership.begin(); it != m_nuidOwnership.end(); ) {
+        if (it->second == peerID) it = m_nuidOwnership.erase(it);
+        else ++it;
+      }
+    }
+  } else {
+    CSteamID hostID = GetHostID();
+    uint64_t hostSteamID = hostID.ConvertToUint64();
+    if (hostSteamID != 0 && hostSteamID != myID) {
+      auto it = m_peerLastSeenMap.find(hostSteamID);
+      if (it == m_peerLastSeenMap.end()) {
+        m_peerLastSeenMap[hostSteamID] = now;
+      } else if (now - it->second > 15000) {
+        Overlay::Log("[NETWORK] [TIMEOUT] Heartbeat lost from host %llu (>15s elapsed). Leaving lobby!", hostSteamID);
+        m_peerLastSeenMap.erase(hostSteamID);
+        LeaveLobby();
+      }
+    }
+  }
 }
 
 void NetworkManager::ReceivePackets() {
@@ -97,12 +243,13 @@ void NetworkManager::ReceivePackets() {
     if (hdr->magic1 != 'M' || hdr->magic2 != 'G')
       continue;
 
+    RegisterPeerActivity(remoteID.ConvertToUint64());
+
     const void *payload = buffer.data() + sizeof(PacketHeader);
     const uint32_t payloadLen = hdr->length;
 
     switch (hdr->type) {
     case PacketType::Ping:
-      Overlay::Log("[NETWORK] Received Ping from %llu", remoteID.ConvertToUint64());
       break;
     case PacketType::Handshake:
       HandleHandshake(remoteID);
@@ -515,6 +662,7 @@ void NetworkManager::LeaveLobby() {
     m_catOwnership.clear();
     m_discoveredCats.clear();
     m_lobbyMemberCatCounts.clear();
+    ClearPeerTracking();
     ResetLobbyReadyStates();
     RefreshLobbyList();
   }
@@ -806,17 +954,36 @@ void NetworkManager::ResetEntityMapping() {
 }
 
 bool NetworkManager::SendPacketReliable(const CSteamID target, const PacketType type, const void *data, const uint32_t size) {
-  PacketHeader header;
-  header.type = type;
-  header.length = size;
+  if (g_modState.packetTesting) {
+    int32_t retransmitDelay = 0;
+    if (g_modState.simLossRate > 0.0f) {
+      float roll = static_cast<float>(rand() % 10000) / 100.0f;
+      if (roll < g_modState.simLossRate) {
+        // Reliable packet loss simulation: add RTT retransmission delay penalty instead of permanently discarding
+        retransmitDelay = static_cast<int32_t>(g_modState.simPingMs) * 2 + 150;
+      }
+    }
+    ULONGLONG now = GetTickCount64();
+    int32_t jitter = 0;
+    if (g_modState.simJitterMs > 0) {
+      jitter = (rand() % (static_cast<int>(g_modState.simJitterMs) * 2 + 1)) - static_cast<int>(g_modState.simJitterMs);
+    }
+    int32_t delayMs = static_cast<int32_t>(g_modState.simPingMs) + jitter + retransmitDelay;
+    if (delayMs < 0) delayMs = 0;
 
-  std::vector<uint8_t> buffer(sizeof(PacketHeader) + size);
-  memcpy(buffer.data(), &header, sizeof(PacketHeader));
-  if (size > 0 && data)
-    memcpy(buffer.data() + sizeof(PacketHeader), data, size);
-
-  return SteamNetworking()->SendP2PPacket(
-      target, buffer.data(), (uint32)buffer.size(), k_EP2PSendReliable);
+    QueuedSimPacket simPkt;
+    simPkt.target = target;
+    simPkt.type = type;
+    simPkt.reliable = true;
+    simPkt.deliverTime = now + delayMs;
+    if (size > 0 && data) {
+      simPkt.payload.resize(size);
+      memcpy(simPkt.payload.data(), data, size);
+    }
+    m_simulatedPacketQueue.push_back(simPkt);
+    return true;
+  }
+  return SendPacketDirect(target, type, data, size, true);
 }
 
 void NetworkManager::SendChunkedData(CSteamID target, const PacketType type, const uint8_t* data, const uint32_t totalSize, const uint32_t transferId) {
@@ -871,6 +1038,7 @@ void NetworkManager::BeginMultiplayerSave() {
   }
 
   m_saveSyncState = SaveSyncState::WaitingForCatResponses;
+  m_saveSyncStartTime = GetTickCount64();
   m_collectedCatBlobs.clear();
   m_collectedUnlocksBlobs.clear();
   m_collectedInventoryBlobs.clear();
@@ -893,7 +1061,7 @@ void NetworkManager::BeginMultiplayerSave() {
   void* activeDb = director ? director->sqlSaveFile.db : nullptr;
 
   // Get host's ButchBox cat keys
-  const std::vector<int64_t> hostKeys = GetButchBoxCatKeys();
+  const std::vector<int64_t> hostKeys = GetButchBoxCatKeys().to_vector();
   Overlay::Log("[SAVE] Host found %zu cats in their ButchBox.", hostKeys.size());
 
   if (activeDb) {
@@ -956,7 +1124,7 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
   const MewDirector* director = GameUtils::GetMewDirectorSingleton();
   void* activeDb = director ? director->sqlSaveFile.db : nullptr;
 
-  const std::vector<int64_t> clientKeys = GetButchBoxCatKeys();
+  const std::vector<int64_t> clientKeys = GetButchBoxCatKeys().to_vector();
   Overlay::Log("[SAVE] Client found %zu cats in ButchBox.", clientKeys.size());
 
   std::vector<uint8_t> responseBuffer;
@@ -1221,6 +1389,7 @@ void NetworkManager::BuildAndDistributeSave() {
 
   if (!m_pendingAcksFrom.empty()) {
     m_saveSyncState = SaveSyncState::WaitingForAcks;
+    m_saveSyncStartTime = GetTickCount64();
   } else {
     // No clients to wait for, host can load immediately
     Overlay::Log("[SAVE] No clients to wait for. Sending Load Signal directly.");
@@ -1859,4 +2028,36 @@ void NetworkManager::HandleTriggerDesyncReload() {
   m_desyncPopupOpened = false;
   EndCombat();
   GameUtils::LoadSaveFile(CUSTOM_SAVE_NAME.c_str());
+}
+
+void NetworkManager::CheckSaveSyncTimeouts() {
+  if (!IsHost() || m_saveSyncState == SaveSyncState::Idle || m_saveSyncState == SaveSyncState::Ready) {
+    return;
+  }
+
+  ULONGLONG now = GetTickCount64();
+  if (m_saveSyncState == SaveSyncState::WaitingForCatResponses) {
+    if (now - m_saveSyncStartTime > 8000) {
+      m_saveSyncStartTime = now;
+      Overlay::Log("[SAVE] [RETRY] Resending SaveCatRequest to %zu pending client(s)...", m_pendingCatResponseFrom.size());
+      constexpr uint32_t requestVal = 0;
+      for (const uint64_t clientID : m_pendingCatResponseFrom) {
+        SendPacketReliable(CSteamID(clientID), PacketType::SaveCatRequest, &requestVal, sizeof(requestVal));
+      }
+    }
+  } else if (m_saveSyncState == SaveSyncState::WaitingForAcks) {
+    if (now - m_saveSyncStartTime > 12000) {
+      m_saveSyncStartTime = now;
+      Overlay::Log("[SAVE] [RETRY] Waiting for ACKs timed out. Resending save file transfer to %zu client(s)...", m_pendingAcksFrom.size());
+
+      ParaboxAPI::Array<uint8_t> saveBytesArray = MewSQL::ReadSaveFileRaw(CUSTOM_SAVE_NAME.c_str());
+      const std::vector<uint8_t> saveBytes = saveBytesArray.to_vector();
+      if (!saveBytes.empty()) {
+        const uint32_t transferId = m_nextTransferId++;
+        for (const uint64_t clientID : m_pendingAcksFrom) {
+          SendChunkedData(CSteamID(clientID), PacketType::SaveFileTransfer, saveBytes.data(), saveBytes.size(), transferId);
+        }
+      }
+    }
+  }
 }

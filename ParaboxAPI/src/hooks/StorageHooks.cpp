@@ -65,18 +65,25 @@ static void __fastcall Hook_Scene_AddComponent(void *scene, void *comp) {
   const auto *s = static_cast<Scene *>(scene);
   bool isInventoryScreen2 = false;
   bool isInventoryItemBox = false;
+  bool isClassChooser = false;
+  bool isClassTagBox = false;
   if (s->name.is_valid()) {
     MsvcReleaseModeXString compName = {};
     if (GameUtils::SafeGetComponentName(static_cast<Component *>(comp), &compName)) {
       const auto compView = compName.as_native_string_view();
       if (compView == "InventoryScreen2") isInventoryScreen2 = true;
       else if (compView == "InventoryItemBox") isInventoryItemBox = true;
+      else if (compView == "ClassChooser") isClassChooser = true;
+      else if (compView == "ClassTagBox") isClassTagBox = true;
       GameUtils::FreeXString(compName);
     }
   }
 
   if (isInventoryScreen2) {
     g_storageItemBoxes->clear();
+  }
+  if (isClassChooser) {
+    ParaboxAPI::ClearClassTagBoxes();
   }
 
   if (g_origScene_AddComponent) {
@@ -86,6 +93,9 @@ static void __fastcall Hook_Scene_AddComponent(void *scene, void *comp) {
   if (s->name.is_valid()) {
     if (isInventoryItemBox) {
       g_storageItemBoxes->push_back(comp);
+    }
+    if (isClassTagBox) {
+      ParaboxAPI::RegisterClassTagBox(comp);
     }
   }
 

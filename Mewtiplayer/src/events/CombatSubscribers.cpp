@@ -781,18 +781,13 @@ void RegisterCombatSubscribers() {
 
                 NetworkManager::Get().RecordAction(actPkt);
                 NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                                      sizeof(pkt), !g_modState.packetTesting);
+                                                      sizeof(pkt), true);
                 Overlay::Log("[NET] Broadcast EndTurn for NUID %u", nuid);
 
                 g_isMainActionActive = true;
                 g_activeMainActionActorNUID = nuid;
                 g_activeMainActionAbilityPtr = nullptr;
                 g_activeMainActionAbilityName = "EndTurn";
-                if (g_modState.packetTesting) {
-                    ev.actionData->type = 0; // Cancel this action
-                    Overlay::Log("[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
-                                 pkt.abilityName, nuid);
-                }
             }
             g_waitingForPlayerAction = false;
             return;
@@ -854,22 +849,7 @@ void RegisterCombatSubscribers() {
                              ev.actionData->target2X, ev.actionData->target2Y,
                              ev.actionData->type);
 
-                if (g_modState.packetTesting) {
-                    // In testing mode, broadcast immediately (action is
-                    // canceled below so AbilityTrigger won't fire to flush).
-                    NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                                          sizeof(pkt), false);
-                    ActionPacket actPkt{};
-                    actPkt.type = PacketType::TurnAction;
-                    actPkt.data.action = pkt;
-                    NetworkManager::Get().RecordAction(actPkt);
-                    Overlay::Log("[NET] Broadcast and Recorded Action '%s' for NUID: %d",
-                                 pkt.abilityName, nuid);
-
-                    ev.actionData->type = 0; // Cancel this action
-                    Overlay::Log("[ENQUEUE] Testing Mode - Cancelled Action '%s' for NUID: %d",
-                                 pkt.abilityName, nuid);
-                } else if (!ability || strcmp(pkt.abilityName, "NULL") == 0 || strcmp(pkt.abilityName, "EndTurn") == 0 || strcmp(pkt.abilityName, "Escape") == 0 || pkt.actionType == 5 || pkt.actionType == 3) {
+                if (!ability || strcmp(pkt.abilityName, "NULL") == 0 || strcmp(pkt.abilityName, "EndTurn") == 0 || strcmp(pkt.abilityName, "Escape") == 0 || pkt.actionType == 5 || pkt.actionType == 3) {
                     // Non-ability actions (such as Escape, Type 5) do not trigger OnAbilityTrigger.
                     // Broadcast them immediately so remote peers receive the action.
                     ActionPacket actPkt{};
@@ -969,7 +949,7 @@ void RegisterCombatSubscribers() {
                         // ReSharper disable once CppSomeObjectMembersMightNotBeInitialized
                         g_lastSentTurnPackage = actPkt;
                         NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt,
-                                                              sizeof(pkt), !g_modState.packetTesting);
+                                                              sizeof(pkt), true);
 
                         if (g_modState.talkative) {
                             Overlay::Log("[FACE] Broadcast TurnFacing for NUID:%u | Target:(%d,%d)", nuid, nx, ny);

@@ -38,11 +38,62 @@ bool AreAllLobbyMembersReady() {
     return true;
 }
 
+#include <set>
+
+static std::set<int64_t> g_pendingCollarSyncCats;
+static ULONGLONG g_lastHostCollarClickTime = 0;
+
 void ResetLobbyReadyStates() {
     g_lobbyReadyStates.clear();
     g_localReady = false;
     g_activeClassChooserLambdaThis = nullptr;
     g_hasTriggeredProceed = false;
+    g_pendingCollarSyncCats.clear();
+    g_lastHostCollarClickTime = 0;
+}
+
+void HostAuditCollarState() {
+    if (!NetworkManager::Get().IsHost()) return;
+    const auto director = GameUtils::GetMewDirectorSingleton();
+    if (!director || !director->partyCatIDs || director->partyCount <= 0) return;
+
+    std::map<int32_t, int64_t> collarToCatMap;
+    for (int i = 0; i < director->partyCount; i++) {
+        const int64_t catID = director->partyCatIDs[i];
+        PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(catID);
+        if (!cat || !cat->className.is_valid()) continue;
+
+        const char *cName = cat->className.begin();
+        if (strcmp(cName, "Colorless") == 0 || strcmp(cName, "Fighter") == 0) continue;
+
+        int32_t collarIdx = -1;
+        for (int idx = 0; idx < 16; idx++) {
+            const char* name = ParaboxAPI::ResolveCollarNameFromIndex(idx);
+            if (strcmp(name, cName) == 0) {
+                collarIdx = idx;
+                break;
+            }
+        }
+
+        if (collarIdx != -1) {
+            auto it = collarToCatMap.find(collarIdx);
+            if (it != collarToCatMap.end()) {
+                const int64_t existingCatID = it->second;
+                Overlay::Log("[LOBBY] Host Audit: Duplicate collar %s (index %d) on cats %lld and %lld. Unequipping from cat %lld!",
+                             cName, collarIdx, existingCatID, catID, catID);
+
+                ParaboxAPI::ApplyCollarToCharacter(cat, "Colorless");
+                ParaboxAPI::UpdateClassChooserTagBoxes(catID, -1);
+
+                CollarSyncPacket unequipPkt = {};
+                unequipPkt.catID = catID;
+                unequipPkt.collarIndex = -1;
+                NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &unequipPkt, sizeof(unequipPkt), true);
+            } else {
+                collarToCatMap[collarIdx] = catID;
+            }
+        }
+    }
 }
 
 void HandleCollarSyncInternal(const void *data, const uint32_t length) {
@@ -55,13 +106,58 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
         return;
     }
 
-    const char *collarName = ParaboxAPI::ResolveCollarNameFromIndex(packet->collarIndex);
-    ParaboxAPI::ApplyCollarToCharacter(cat, collarName);
-    Overlay::Log("[LOBBY] CollarSync: updated cat %lld to %s (index %d)", packet->catID, collarName, packet->collarIndex);
+    g_pendingCollarSyncCats.erase(packet->catID);
 
-    ParaboxAPI::UpdateClassChooserTagBoxes(packet->catID, packet->collarIndex);
-    ParaboxAPI::RefreshClassChooserInventory();
-    ParaboxAPI::RefreshCatSelectorUI();
+    if (NetworkManager::Get().IsHost()) {
+        if (packet->collarIndex != -1) {
+            const auto director = GameUtils::GetMewDirectorSingleton();
+            if (director && director->partyCatIDs && director->partyCount > 0) {
+                for (int i = 0; i < director->partyCount; i++) {
+                    const int64_t otherCatID = director->partyCatIDs[i];
+                    if (otherCatID == packet->catID) continue;
+
+                    PersistentCharacter *otherCat = ParaboxAPI::GetPersistentCharacterById(otherCatID);
+                    if (!otherCat || !otherCat->className.is_valid()) continue;
+
+                    const char *otherClassName = otherCat->className.begin();
+                    const char *requestedCollarName = ParaboxAPI::ResolveCollarNameFromIndex(packet->collarIndex);
+
+                    if (strcmp(otherClassName, requestedCollarName) == 0) {
+                        Overlay::Log("[LOBBY] Host: Collar conflict detected! Cat %lld already had %s (index %d). Unequipping from cat %lld!",
+                                     otherCatID, requestedCollarName, packet->collarIndex, otherCatID);
+
+                        ParaboxAPI::ApplyCollarToCharacter(otherCat, "Colorless");
+                        ParaboxAPI::UpdateClassChooserTagBoxes(otherCatID, -1);
+
+                        CollarSyncPacket unequipPkt = {};
+                        unequipPkt.catID = otherCatID;
+                        unequipPkt.collarIndex = -1;
+                        NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &unequipPkt, sizeof(unequipPkt), true);
+                    }
+                }
+            }
+        }
+
+        const char *collarName = ParaboxAPI::ResolveCollarNameFromIndex(packet->collarIndex);
+        ParaboxAPI::ApplyCollarToCharacter(cat, collarName);
+        ParaboxAPI::UpdateClassChooserTagBoxes(packet->catID, packet->collarIndex);
+        ParaboxAPI::RefreshClassChooserInventory();
+        ParaboxAPI::RefreshCatSelectorUI();
+
+        CollarSyncPacket validPkt = *packet;
+        NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &validPkt, sizeof(validPkt), true);
+        Overlay::Log("[LOBBY] Host validated & broadcast collar sync: cat %lld -> index %d (%s)", packet->catID, packet->collarIndex, collarName);
+
+        HostAuditCollarState();
+    } else {
+        const char *collarName = ParaboxAPI::ResolveCollarNameFromIndex(packet->collarIndex);
+        ParaboxAPI::ApplyCollarToCharacter(cat, collarName);
+        Overlay::Log("[LOBBY] CollarSync (Client): updated cat %lld to %s (index %d)", packet->catID, collarName, packet->collarIndex);
+
+        ParaboxAPI::UpdateClassChooserTagBoxes(packet->catID, packet->collarIndex);
+        ParaboxAPI::RefreshClassChooserInventory();
+        ParaboxAPI::RefreshCatSelectorUI();
+    }
 }
 
 static void ApplyLockInButtonText() {
@@ -218,8 +314,27 @@ void RegisterClassChooserSubscribers() {
             CollarSyncPacket packet = {};
             packet.catID = ev.catID;
             packet.collarIndex = collarIndex;
-            NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &packet, sizeof(packet), true);
-            Overlay::Log("[LOBBY] Broadcast collar sync for cat %lld: collar index %d", ev.catID, collarIndex);
+
+            if (NetworkManager::Get().IsHost()) {
+                const ULONGLONG now = GetTickCount64();
+                if (now - g_lastHostCollarClickTime < 150) {
+                    ev.Cancel();
+                    return;
+                }
+                g_lastHostCollarClickTime = now;
+                HandleCollarSyncInternal(&packet, sizeof(packet));
+                ev.Cancel();
+            } else {
+                if (g_pendingCollarSyncCats.count(ev.catID) > 0) {
+                    Overlay::Log("[LOBBY] Collar sync already in-flight for cat %lld, ignoring rapid click", ev.catID);
+                    ev.Cancel();
+                    return;
+                }
+                g_pendingCollarSyncCats.insert(ev.catID);
+                NetworkManager::Get().SendPacketReliable(NetworkManager::Get().GetHostID(), PacketType::CollarSync, &packet, sizeof(packet));
+                Overlay::Log("[LOBBY] Client requested collar sync from Host for cat %lld: collar index %d", ev.catID, collarIndex);
+                ev.Cancel();
+            }
         }
     });
 

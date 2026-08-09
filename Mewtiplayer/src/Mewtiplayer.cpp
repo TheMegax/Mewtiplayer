@@ -98,7 +98,18 @@ static void Initialize() {
 
     if (strstr(cmdLine, "-packet_testing")) {
         g_modState.packetTesting = true;
-        Overlay::Log("[INIT] Packet testing Active!");
+        Overlay::Log("[INIT] Network Simulation (Packet Testing) Active! (Ping: %u ms, Loss: %.1f%%)",
+                     g_modState.simPingMs, g_modState.simLossRate);
+    }
+    if (const char *pingArg = strstr(cmdLine, "-sim_ping=")) {
+        g_modState.simPingMs = (uint32_t)atoi(pingArg + 10);
+        g_modState.packetTesting = true;
+        Overlay::Log("[INIT] Custom Sim Ping: %u ms", g_modState.simPingMs);
+    }
+    if (const char *lossArg = strstr(cmdLine, "-sim_loss=")) {
+        g_modState.simLossRate = (float)atof(lossArg + 10);
+        g_modState.packetTesting = true;
+        Overlay::Log("[INIT] Custom Sim Loss: %.1f%%", g_modState.simLossRate);
     }
     if (strstr(cmdLine, "-no_steven")) {
         g_modState.noSteven = true;

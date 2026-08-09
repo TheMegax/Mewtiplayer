@@ -4,6 +4,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include "mewjector.h"
+#include "ParaboxArray.h"
 
 #ifdef PARABOX_EXPORTS
 #define PARABOX_API __declspec(dllexport)
@@ -38,22 +39,28 @@ namespace ParaboxAPI {
 template <typename T>
 class Event {
 public:
-    using Callback = std::function<void(T &)>;
+    using Callback = void(*)(T &);
 
     void Subscribe(Callback cb) {
-        if (m_count < 32) {
-            m_subscribers[m_count++] = std::move(cb);
+        if (m_count < 32 && cb) {
+            m_subscribers[m_count++] = cb;
         }
     }
 
     void Publish(T &eventData) {
         for (int i = 0; i < m_count; i++) {
-            m_subscribers[i](eventData);
+            if (m_subscribers[i]) {
+                m_subscribers[i](eventData);
+            }
         }
     }
 
+    void Clear() {
+        m_count = 0;
+    }
+
 private:
-    Callback m_subscribers[32];
+    Callback m_subscribers[32] = {};
     int m_count = 0;
 };
 
@@ -436,6 +443,9 @@ PARABOX_API void RefreshCatSelectorUI();
 PARABOX_API PersistentCharacter *GetPersistentCharacterById(int64_t catID);
 PARABOX_API void ApplyCollarToCharacter(PersistentCharacter *cat, const char *collarName);
 PARABOX_API void RefreshClassChooserInventory();
+PARABOX_API void ClearClassTagBoxes();
+PARABOX_API void RegisterClassTagBox(void *comp);
+PARABOX_API int32_t FindTagBoxIndex(const void *tagBoxPtr, const void *classChooserPtr);
 PARABOX_API void UpdateClassChooserTagBoxes(int64_t catID, int32_t collarIndex);
 PARABOX_API const char *ResolveCollarNameFromIndex(int32_t collarIndex);
 PARABOX_API void ForceClassChooserLockIn(void *lambdaThis);

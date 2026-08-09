@@ -306,6 +306,14 @@ struct PacketHeader { // NOLINT(*-pro-type-member-init)
 };
 #pragma pack(pop)
 
+struct QueuedSimPacket {
+  CSteamID target;
+  PacketType type;
+  std::vector<uint8_t> payload;
+  ULONGLONG deliverTime;
+  bool reliable;
+};
+
 class NetworkManager {
 public:
   static NetworkManager &Get() {
@@ -390,8 +398,26 @@ public:
   uint32_t GetCurrentTurnNumber() const { return m_currentTurnNumber; }
   void IncrementTurnNumber() { m_currentTurnNumber++; }
 
+  // Heartbeat & Peer Activity
+  void SendHeartbeat();
+  void CheckHeartbeatTimeouts();
+  void RegisterPeerActivity(uint64_t steamID);
+  void ClearPeerTracking();
+  [[nodiscard]] const std::map<uint64_t, ULONGLONG>& GetPeerLastSeenMap() const { return m_peerLastSeenMap; }
+
+  // Direct Packet Send (bypassing simulation)
+  bool SendPacketDirect(CSteamID target, PacketType type, const void *data, uint32_t size, bool reliable);
+
 private:
   NetworkManager() : m_mj(nullptr), m_AutoJoinStartTime(0), m_LastAutoJoinAttempt(0), m_AutoJoinFinished(false) { m_CurrentLobby.Clear(); }
+
+  // Network Simulation Queue
+  std::vector<QueuedSimPacket> m_simulatedPacketQueue;
+  void ProcessSimulatedPackets();
+
+  // Peer activity tracking & Heartbeats
+  std::map<uint64_t, ULONGLONG> m_peerLastSeenMap;
+  ULONGLONG m_lastHeartbeatSentTime = 0;
 
   MewjectorAPI *m_mj;
   std::string m_ModID;
@@ -483,7 +509,9 @@ private:
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;
+  ULONGLONG m_saveSyncStartTime = 0;
   uint32_t m_nextTransferId = 1;
+  void CheckSaveSyncTimeouts();
 
   struct PendingCatBlob {
     uint64_t senderSteamID;

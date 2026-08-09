@@ -284,28 +284,61 @@ static void RenderNetworkTab() {
 
     ImGui::Spacing();
     ImGui::Text("Lobby Members:");
-    if (ImGui::BeginTable("##lobby_members", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+    if (ImGui::BeginTable("##lobby_members", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
       ImGui::TableSetupColumn("Player Name");
       ImGui::TableSetupColumn("Cats in ButchBox");
+      ImGui::TableSetupColumn("Last Heartbeat");
       ImGui::TableHeadersRow();
 
       const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(current);
+      const uint64_t myID = SteamUser()->GetSteamID().ConvertToUint64();
+      const auto &peerLastSeen = NetworkManager::Get().GetPeerLastSeenMap();
+      const ULONGLONG now = GetTickCount64();
+
       for (int i = 0; i < numMembers; i++) {
         CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(current, i);
+        const uint64_t memberID = member.ConvertToUint64();
         const char* name = SteamFriends()->GetFriendPersonaName(member);
-        const int catCount = NetworkManager::Get().GetLobbyMemberCatCount(member.ConvertToUint64());
-        
+        const int catCount = NetworkManager::Get().GetLobbyMemberCatCount(memberID);
+
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("%s", name ? name : "Unknown Player");
-        
+
         ImGui::TableSetColumnIndex(1);
         ImGui::Text("%d cat(s)", catCount);
+
+        ImGui::TableSetColumnIndex(2);
+        if (memberID == myID) {
+          ImGui::Text("Local Player");
+        } else {
+          auto it = peerLastSeen.find(memberID);
+          if (it != peerLastSeen.end()) {
+            float elapsedSec = static_cast<float>(now - it->second) / 1000.0f;
+            if (elapsedSec > 10.0f) {
+              ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%.1fs ago (Timeout near!)", elapsedSec);
+            } else {
+              ImGui::Text("%.1fs ago", elapsedSec);
+            }
+          } else {
+            ImGui::Text("Waiting...");
+          }
+        }
       }
       ImGui::EndTable();
     }
   } else {
     ImGui::Text("Status: Not in a lobby.");
+  }
+
+  ImGui::Spacing();
+  if (ImGui::CollapsingHeader("Network Simulation Controls")) {
+    ImGui::Checkbox("Enable Network Simulation", &g_modState.packetTesting);
+    if (g_modState.packetTesting) {
+      ImGui::SliderInt("Simulated Ping (ms)", (int*)&g_modState.simPingMs, 0, 1000);
+      ImGui::SliderInt("Simulated Jitter (ms)", (int*)&g_modState.simJitterMs, 0, 200);
+      ImGui::SliderFloat("Packet Loss Rate (%)", &g_modState.simLossRate, 0.0f, 50.0f, "%.1f%%");
+    }
   }
 
   // Modal for Lobby Creation

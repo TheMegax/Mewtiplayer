@@ -36,7 +36,19 @@ HOOK_DEFINE(CatSelector_init, void, void *, int64_t)
 HOOK_DEFINE(ClassTagBox_Click, void, void *)
 HOOK_DEFINE(ClassChooser_LockIn, void, void *)
 
+static std::vector<void *>* g_classTagBoxes = new std::vector<void *>();
+
 namespace ParaboxAPI {
+
+PARABOX_API void ClearClassTagBoxes() {
+  g_classTagBoxes->clear();
+}
+
+PARABOX_API void RegisterClassTagBox(void *comp) {
+  if (comp) {
+    g_classTagBoxes->push_back(comp);
+  }
+}
 
 int64_t ResolveCatIDFromTagBox(void *tagBox) {
   const auto *box = static_cast<ClassTagBox *>(tagBox);
@@ -50,6 +62,12 @@ int64_t ResolveCatIDFromTagBox(void *tagBox) {
 }
 
 int32_t FindTagBoxIndex(const void *tagBoxPtr, const void *classChooserPtr) {
+  for (size_t i = 0; i < g_classTagBoxes->size(); i++) {
+    if ((*g_classTagBoxes)[i] == tagBoxPtr) {
+      return static_cast<int32_t>(i);
+    }
+  }
+
   const ClassTagBox *tagBox = static_cast<const ClassTagBox *>(tagBoxPtr);
   const ClassChooser *classChooser = static_cast<const ClassChooser *>(classChooserPtr);
 
@@ -183,6 +201,31 @@ PARABOX_API void RefreshClassChooserInventory() {
 }
 
 PARABOX_API void UpdateClassChooserTagBoxes(const int64_t catID, const int32_t collarIndex) {
+  if (!g_classTagBoxes->empty()) {
+    if (collarIndex != -1) {
+      if (collarIndex >= 0 && static_cast<size_t>(collarIndex) < g_classTagBoxes->size()) {
+        for (size_t j = 0; j < g_classTagBoxes->size(); j++) {
+          auto *box = static_cast<ClassTagBox *>((*g_classTagBoxes)[j]);
+          if (box->catID == catID) {
+            box->catID = -1;
+          }
+        }
+        auto *targetBox = static_cast<ClassTagBox *>((*g_classTagBoxes)[collarIndex]);
+        targetBox->catID = catID;
+        return;
+      }
+    } else {
+      for (size_t i = 0; i < g_classTagBoxes->size(); i++) {
+        auto *box = static_cast<ClassTagBox *>((*g_classTagBoxes)[i]);
+        if (box->catID == catID) {
+          box->catID = -1;
+          break;
+        }
+      }
+      return;
+    }
+  }
+
   for (const Scene *scene : GameUtils::GetCurrentScenes()) {
     if (!scene) continue;
     for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
@@ -227,6 +270,11 @@ PARABOX_API void UpdateClassChooserTagBoxes(const int64_t catID, const int32_t c
 PARABOX_API const char *ResolveCollarNameFromIndex(const int32_t collarIndex) {
   if (collarIndex == -1) {
     return "Colorless";
+  }
+
+  if (collarIndex >= 0 && static_cast<size_t>(collarIndex) < g_classTagBoxes->size()) {
+    const auto *box = static_cast<const ClassTagBox *>((*g_classTagBoxes)[collarIndex]);
+    return box->boxName.is_valid() ? box->boxName.begin() : "Colorless";
   }
 
   for (const Scene *scene : GameUtils::GetCurrentScenes()) {

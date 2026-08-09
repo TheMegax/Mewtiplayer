@@ -329,7 +329,7 @@ void AdventureBoxHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
         g_LookupPersistentCharacter);
 }
 
-PARABOX_API std::vector<int64_t> GetButchBoxCatKeys() {
+PARABOX_API ParaboxAPI::Array<int64_t> GetButchBoxCatKeys() {
   std::vector<int64_t> keys;
   const ButchBox* box = nullptr;
   for (const Scene* scene : GameUtils::GetCurrentScenes()) {
@@ -343,14 +343,14 @@ PARABOX_API std::vector<int64_t> GetButchBoxCatKeys() {
     box = g_activeButchBox;
   }
 
-  if (!box) return keys;
+  if (!box) return ParaboxAPI::MakeArray(keys);
 
   for (int i = 0; i < g_adventureCapacity; ++i) {
     if (box->cats.data_ && box->cats.data_[i]) {
       keys.push_back(box->cats.data_[i]->sql_key);
     }
   }
-  return keys;
+  return ParaboxAPI::MakeArray(keys);
 }
 
 PARABOX_API int GetButchBoxCatAge(const int64_t sqlKey) {

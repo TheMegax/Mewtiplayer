@@ -14,12 +14,17 @@
 // StorageHooks Subscribers and UI state
 // ---------------------------------------------------------------------------
 
+#include <set>
+
 void *g_activeInventoryScreenThis = nullptr;
 static MewUISceneBinding g_storageItemsScene;
 static void* g_storageLockInButton = nullptr;
 static bool g_storageItemsSceneInitialized = false;
 static bool g_storageLastLocalReadyState = false;
 static bool g_storageButtonHooked = false;
+
+static std::set<int64_t> g_pendingStorageCatSyncs;
+static ULONGLONG g_lastHostStorageClickTime = 0;
 
 static void ApplyStorageLockInButtonText() {
     if (!g_storageLockInButton) return;
@@ -117,14 +122,25 @@ void HandleStorageItemSyncInternal(const void *data, const uint32_t length) {
     if (length != sizeof(StorageItemSyncPacket)) return;
 
     const auto *packet = (const StorageItemSyncPacket *)data;
-    Overlay::Log("[STORAGE] Received storage item sync from player %llu: slot %d (cat %lld)",
+    Overlay::Log("[STORAGE] Storage item sync: player %llu, slot %d (cat %lld)",
                  packet->steamID, packet->slotIndex, packet->catID);
 
-    ParaboxAPI::g_isHandlingNetworkStorageItemSync = true;
-    ParaboxAPI::UpdateStorageItemSlot(packet->slotIndex, packet->catID);
-    ParaboxAPI::g_isHandlingNetworkStorageItemSync = false;
+    g_pendingStorageCatSyncs.erase(packet->catID);
 
-    ParaboxAPI::RefreshCatSelectorUI();
+    if (NetworkManager::Get().IsHost()) {
+        ParaboxAPI::g_isHandlingNetworkStorageItemSync = true;
+        ParaboxAPI::UpdateStorageItemSlot(packet->slotIndex, packet->catID);
+        ParaboxAPI::g_isHandlingNetworkStorageItemSync = false;
+        ParaboxAPI::RefreshCatSelectorUI();
+
+        StorageItemSyncPacket validPkt = *packet;
+        NetworkManager::Get().BroadcastPacket(PacketType::StorageItemSync, &validPkt, sizeof(validPkt), true);
+    } else {
+        ParaboxAPI::g_isHandlingNetworkStorageItemSync = true;
+        ParaboxAPI::UpdateStorageItemSlot(packet->slotIndex, packet->catID);
+        ParaboxAPI::g_isHandlingNetworkStorageItemSync = false;
+        ParaboxAPI::RefreshCatSelectorUI();
+    }
 }
 
 void RegisterStorageSubscribers() {
@@ -197,8 +213,26 @@ void RegisterStorageSubscribers() {
         packet.catID = ParaboxAPI::ResolveSelectedCatID();
         packet.slotIndex = slotIndex;
 
-        NetworkManager::Get().BroadcastPacket(PacketType::StorageItemSync, &packet, sizeof(packet), true);
-        Overlay::Log("[STORAGE] Broadcast storage item sync: slot %d (cat %lld)", slotIndex, packet.catID);
+        if (NetworkManager::Get().IsHost()) {
+            const ULONGLONG now = GetTickCount64();
+            if (now - g_lastHostStorageClickTime < 150) {
+                return;
+            }
+            g_lastHostStorageClickTime = now;
+
+            StorageItemSyncPacket validPkt = packet;
+            NetworkManager::Get().BroadcastPacket(PacketType::StorageItemSync, &validPkt, sizeof(validPkt), true);
+            Overlay::Log("[STORAGE] Host equipped storage item: slot %d (cat %lld), broadcast to clients", slotIndex, packet.catID);
+        } else {
+            if (g_pendingStorageCatSyncs.count(packet.catID) > 0) {
+                Overlay::Log("[STORAGE] Storage item sync in-flight for cat %lld, ignoring rapid click", packet.catID);
+                return;
+            }
+            g_pendingStorageCatSyncs.insert(packet.catID);
+
+            NetworkManager::Get().SendPacketReliable(NetworkManager::Get().GetHostID(), PacketType::StorageItemSync, &packet, sizeof(packet));
+            Overlay::Log("[STORAGE] Client requested storage item sync from Host: slot %d (cat %lld)", slotIndex, packet.catID);
+        }
     });
 
     ParaboxAPI::OnInventoryScreen2Close.Subscribe([](ParaboxAPI::InventoryScreen2CloseEvent& ev) {
