@@ -306,6 +306,10 @@ PARABOX_API void ForceClassChooserLockIn(void *lambdaThis) {
   }
 }
 
+PARABOX_API int32_t GetClassTagBoxCount() {
+  return g_classTagBoxes ? static_cast<int32_t>(g_classTagBoxes->size()) : 0;
+}
+
 } // namespace ParaboxAPI
 
 void CatSelectorHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {

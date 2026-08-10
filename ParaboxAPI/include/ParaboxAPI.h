@@ -509,4 +509,7 @@ PARABOX_API bool ShowOkPopup(
     const wchar_t        *prompt,
     std::function<void()> onOk = nullptr);
 
+PARABOX_API int32_t GetClassTagBoxCount();
+PARABOX_API int32_t GetStorageSlotCount();
+
 } // namespace ParaboxAPI

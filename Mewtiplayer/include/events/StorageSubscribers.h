@@ -10,4 +10,5 @@ void StorageHooks_UITick();
 void StorageHooks_Shutdown();
 void StorageHooks_TriggerEmbarkProceed();
 void HandleStorageItemSyncInternal(const void *data, const uint32_t length);
+void HostBroadcastFullStorageState(bool force = false);
 void RegisterStorageSubscribers();

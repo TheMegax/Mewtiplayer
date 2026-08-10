@@ -201,7 +201,9 @@ PARABOX_API void *GetMapScreen() {
   return nullptr;
 }
 
-
+PARABOX_API int32_t GetStorageSlotCount() {
+  return g_storageItemBoxes ? static_cast<int32_t>(g_storageItemBoxes->size()) : 0;
+}
 
 } // namespace ParaboxAPI
 

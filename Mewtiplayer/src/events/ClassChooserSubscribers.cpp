@@ -38,18 +38,20 @@ bool AreAllLobbyMembersReady() {
     return true;
 }
 
-#include <set>
+#include <map>
 
-static std::set<int64_t> g_pendingCollarSyncCats;
-static ULONGLONG g_lastHostCollarClickTime = 0;
+static std::map<int64_t, ULONGLONG> g_lastCollarClickTimePerCat;
+static std::map<int64_t, int32_t> g_hostLastBroadcastCollarState;
+static std::map<int64_t, int32_t> g_clientCurrentCollarState;
 
 void ResetLobbyReadyStates() {
     g_lobbyReadyStates.clear();
     g_localReady = false;
     g_activeClassChooserLambdaThis = nullptr;
     g_hasTriggeredProceed = false;
-    g_pendingCollarSyncCats.clear();
-    g_lastHostCollarClickTime = 0;
+    g_lastCollarClickTimePerCat.clear();
+    g_hostLastBroadcastCollarState.clear();
+    g_clientCurrentCollarState.clear();
 }
 
 void HostAuditCollarState() {
@@ -96,6 +98,43 @@ void HostAuditCollarState() {
     }
 }
 
+void HostBroadcastFullCollarState(bool force) {
+    if (!NetworkManager::Get().IsHost()) return;
+    const auto director = GameUtils::GetMewDirectorSingleton();
+    if (!director || !director->partyCatIDs || director->partyCount <= 0) return;
+
+    for (int i = 0; i < director->partyCount; i++) {
+        const int64_t catID = director->partyCatIDs[i];
+        PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(catID);
+        if (!cat || !cat->className.is_valid()) continue;
+
+        const char *cName = cat->className.begin();
+        int32_t collarIdx = -1;
+        for (int idx = 0; idx < 16; idx++) {
+            const char* name = ParaboxAPI::ResolveCollarNameFromIndex(idx);
+            if (strcmp(name, cName) == 0) {
+                collarIdx = idx;
+                break;
+            }
+        }
+
+        if (!force) {
+            auto it = g_hostLastBroadcastCollarState.find(catID);
+            if (it != g_hostLastBroadcastCollarState.end() && it->second == collarIdx) {
+                continue;
+            }
+        }
+        g_hostLastBroadcastCollarState[catID] = collarIdx;
+
+        CollarSyncPacket pkt = {};
+        pkt.catID = catID;
+        pkt.collarIndex = collarIdx;
+        NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &pkt, sizeof(pkt), true);
+    }
+}
+
+static std::map<int64_t, ULONGLONG> g_hostLastCollarProcessTimePerCat;
+
 void HandleCollarSyncInternal(const void *data, const uint32_t length) {
     if (length != sizeof(CollarSyncPacket)) return;
 
@@ -106,9 +145,13 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
         return;
     }
 
-    g_pendingCollarSyncCats.erase(packet->catID);
-
     if (NetworkManager::Get().IsHost()) {
+        const ULONGLONG now = GetTickCount64();
+        const auto it = g_hostLastCollarProcessTimePerCat.find(packet->catID);
+        if (it != g_hostLastCollarProcessTimePerCat.end() && (now - it->second < 150)) {
+            return;
+        }
+        g_hostLastCollarProcessTimePerCat[packet->catID] = now;
         if (packet->collarIndex != -1) {
             const auto director = GameUtils::GetMewDirectorSingleton();
             if (director && director->partyCatIDs && director->partyCount > 0) {
@@ -144,15 +187,23 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
         ParaboxAPI::RefreshClassChooserInventory();
         ParaboxAPI::RefreshCatSelectorUI();
 
+        g_hostLastBroadcastCollarState[packet->catID] = packet->collarIndex;
+
         CollarSyncPacket validPkt = *packet;
         NetworkManager::Get().BroadcastPacket(PacketType::CollarSync, &validPkt, sizeof(validPkt), true);
         Overlay::Log("[LOBBY] Host validated & broadcast collar sync: cat %lld -> index %d (%s)", packet->catID, packet->collarIndex, collarName);
 
         HostAuditCollarState();
     } else {
+        const auto it = g_clientCurrentCollarState.find(packet->catID);
+        if (it != g_clientCurrentCollarState.end() && it->second == packet->collarIndex) {
+            return;
+        }
+        g_clientCurrentCollarState[packet->catID] = packet->collarIndex;
+
         const char *collarName = ParaboxAPI::ResolveCollarNameFromIndex(packet->collarIndex);
         ParaboxAPI::ApplyCollarToCharacter(cat, collarName);
-        Overlay::Log("[LOBBY] CollarSync (Client): updated cat %lld to %s (index %d)", packet->catID, collarName, packet->collarIndex);
+        Overlay::Log("[LOBBY] CollarSync (Client diff update): updated cat %lld to %s (index %d)", packet->catID, collarName, packet->collarIndex);
 
         ParaboxAPI::UpdateClassChooserTagBoxes(packet->catID, packet->collarIndex);
         ParaboxAPI::RefreshClassChooserInventory();
@@ -305,7 +356,10 @@ void RegisterClassChooserSubscribers() {
             }
 
             PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(ev.catID);
-            if (!cat) return;
+            if (!cat || ev.clickedIndex == -1) {
+                ev.Cancel();
+                return;
+            }
 
             const char *className = cat->className.is_valid() ? cat->className.begin() : "Colorless";
             const char *clickedClassName = ParaboxAPI::ResolveCollarNameFromIndex(ev.clickedIndex);
@@ -315,22 +369,18 @@ void RegisterClassChooserSubscribers() {
             packet.catID = ev.catID;
             packet.collarIndex = collarIndex;
 
+            const ULONGLONG now = GetTickCount64();
+            auto it = g_lastCollarClickTimePerCat.find(ev.catID);
+            if (it != g_lastCollarClickTimePerCat.end() && (now - it->second < 200)) {
+                ev.Cancel();
+                return;
+            }
+            g_lastCollarClickTimePerCat[ev.catID] = now;
+
             if (NetworkManager::Get().IsHost()) {
-                const ULONGLONG now = GetTickCount64();
-                if (now - g_lastHostCollarClickTime < 150) {
-                    ev.Cancel();
-                    return;
-                }
-                g_lastHostCollarClickTime = now;
                 HandleCollarSyncInternal(&packet, sizeof(packet));
                 ev.Cancel();
             } else {
-                if (g_pendingCollarSyncCats.count(ev.catID) > 0) {
-                    Overlay::Log("[LOBBY] Collar sync already in-flight for cat %lld, ignoring rapid click", ev.catID);
-                    ev.Cancel();
-                    return;
-                }
-                g_pendingCollarSyncCats.insert(ev.catID);
                 NetworkManager::Get().SendPacketReliable(NetworkManager::Get().GetHostID(), PacketType::CollarSync, &packet, sizeof(packet));
                 Overlay::Log("[LOBBY] Client requested collar sync from Host for cat %lld: collar index %d", ev.catID, collarIndex);
                 ev.Cancel();
@@ -356,7 +406,9 @@ void RegisterClassChooserSubscribers() {
         ev.Cancel();
 
         if (NetworkManager::Get().IsHost() && AreAllLobbyMembersReady()) {
+            HostBroadcastFullCollarState();
             NetworkManager::Get().BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
+            CatSelectorHooks_TriggerLockInProceed();
         }
     });
 }

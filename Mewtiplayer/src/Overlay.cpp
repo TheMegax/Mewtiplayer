@@ -332,12 +332,18 @@ static void RenderNetworkTab() {
   }
 
   ImGui::Spacing();
-  if (ImGui::CollapsingHeader("Network Simulation Controls")) {
+  if (ImGui::CollapsingHeader("Network Simulation & Stress Controls")) {
     ImGui::Checkbox("Enable Network Simulation", &g_modState.packetTesting);
     if (g_modState.packetTesting) {
       ImGui::SliderInt("Simulated Ping (ms)", (int*)&g_modState.simPingMs, 0, 1000);
       ImGui::SliderInt("Simulated Jitter (ms)", (int*)&g_modState.simJitterMs, 0, 200);
       ImGui::SliderFloat("Packet Loss Rate (%)", &g_modState.simLossRate, 0.0f, 50.0f, "%.1f%%");
+    }
+    if (g_modState.evilMode) {
+      ImGui::Separator();
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
+      ImGui::Checkbox("Evil Mode (Rapid Item/Collar Shuffler)", &g_modState.evilShuffler);
+      ImGui::PopStyleColor();
     }
   }
 

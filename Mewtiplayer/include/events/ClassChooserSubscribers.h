@@ -14,4 +14,5 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length);
 void ClassChooserHooks_UITick();
 void ClassChooserHooks_Shutdown();
 void CatSelectorHooks_TriggerLockInProceed();
+void HostBroadcastFullCollarState(bool force = false);
 void RegisterClassChooserSubscribers();
