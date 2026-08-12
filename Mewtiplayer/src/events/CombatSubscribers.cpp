@@ -380,7 +380,7 @@ void RegisterCombatSubscribers() {
                     actPkt.type = PacketType::TurnAction;
                     actPkt.data.action = passivePkt;
                     NetworkManager::Get().RecordAction(actPkt);
-                    NetworkManager::Get().BroadcastPacket(
+                    NetworkManager::Get().BroadcastPacketReliable(
                         PacketType::TurnAction, &passivePkt, sizeof(passivePkt), true);
 
                     isSyncAction = true;
@@ -398,7 +398,7 @@ void RegisterCombatSubscribers() {
                     actPkt.type = PacketType::TurnAction;
                     actPkt.data.action = g_deferredActionPkt;
                     NetworkManager::Get().RecordAction(actPkt);
-                    NetworkManager::Get().BroadcastPacket(
+                    NetworkManager::Get().BroadcastPacketReliable(
                         PacketType::TurnAction, &g_deferredActionPkt,
                         sizeof(g_deferredActionPkt), true);
 
@@ -447,7 +447,7 @@ void RegisterCombatSubscribers() {
                     autoPkt.flag_35  = ev.turnAction->flag_35;
                     autoPkt.flag_36  = ev.turnAction->flag_36;
 
-                    NetworkManager::Get().BroadcastPacket(
+                    NetworkManager::Get().BroadcastPacketReliable(
                         PacketType::TurnAction, &autoPkt, sizeof(autoPkt), true);
 
                     isSyncAction = true;
@@ -780,8 +780,8 @@ void RegisterCombatSubscribers() {
                 }
 
                 NetworkManager::Get().RecordAction(actPkt);
-                NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                                      sizeof(pkt), true);
+                NetworkManager::Get().BroadcastPacketReliable(PacketType::TurnAction, &pkt,
+                                                              sizeof(pkt), true);
                 Overlay::Log("[NET] Broadcast EndTurn for NUID %u", nuid);
 
                 g_isMainActionActive = true;
@@ -856,8 +856,8 @@ void RegisterCombatSubscribers() {
                     actPkt.type = PacketType::TurnAction;
                     actPkt.data.action = pkt;
                     NetworkManager::Get().RecordAction(actPkt);
-                    NetworkManager::Get().BroadcastPacket(PacketType::TurnAction, &pkt,
-                                                          sizeof(pkt), true);
+                    NetworkManager::Get().BroadcastPacketReliable(PacketType::TurnAction, &pkt,
+                                                                  sizeof(pkt), true);
 
                     g_isMainActionActive = true;
                     g_activeMainActionActorNUID = nuid;
@@ -948,8 +948,8 @@ void RegisterCombatSubscribers() {
                         actPkt.data.facing = pkt;
                         // ReSharper disable once CppSomeObjectMembersMightNotBeInitialized
                         g_lastSentTurnPackage = actPkt;
-                        NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt,
-                                                              sizeof(pkt), true);
+                        NetworkManager::Get().BroadcastPacketReliable(PacketType::TurnFacing, &pkt,
+                                                                       sizeof(pkt), true);
 
                         if (g_modState.talkative) {
                             Overlay::Log("[FACE] Broadcast TurnFacing for NUID:%u | Target:(%d,%d)", nuid, nx, ny);

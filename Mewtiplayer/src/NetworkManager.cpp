@@ -717,6 +717,21 @@ void NetworkManager::BroadcastPacket(const PacketType type, const void *data,
   }
 }
 
+void NetworkManager::BroadcastPacketReliable(const PacketType type, const void *data,
+                                             const uint32_t size, const bool excludeSelf) {
+  if (!m_CurrentLobby.IsValid())
+    return;
+  const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  const CSteamID myID = SteamUser()->GetSteamID();
+  for (int i = 0; i < numMembers; i++) {
+    CSteamID member =
+        SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+    if (excludeSelf && member == myID)
+      continue;
+    SendPacketReliable(member, type, data, size);
+  }
+}
+
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback, const bool bIOFailure) {
   if (bIOFailure || pCallback->m_eResult != k_EResultOK) {
@@ -1680,7 +1695,11 @@ void NetworkManager::HandleActSelectSync(const void *data, const uint32_t length
   }
   const auto *pkt = (const ActSelectPacket *)data;
   Overlay::Log("[ACT] Received ActSelectSync: actIndex %u", pkt->actIndex);
-  if (GameUtils::IsComponentValid(ParaboxAPI::GetActSelectionScreen())) {
+  if (IsHost()) {
+    TriggerActSelect(pkt->actIndex);
+    ActSelectPacket validPkt = *pkt;
+    BroadcastPacket(PacketType::ActSelectSync, &validPkt, sizeof(validPkt), true);
+  } else {
     TriggerActSelect(pkt->actIndex);
   }
 }
@@ -1919,7 +1938,7 @@ void NetworkManager::SendDesyncCheck(const uint32_t turnNum) {
   reqPkt.turnNumber = turnNum;
   reqPkt.hostRngCrc = hostCrc;
 
-  BroadcastPacket(PacketType::RNGCheckRequest, &reqPkt, sizeof(reqPkt), true);
+  BroadcastPacketReliable(PacketType::RNGCheckRequest, &reqPkt, sizeof(reqPkt), true);
   if (g_modState.talkative) {
     Overlay::Log("[SYNC] Host sent state check for Turn %u (Host CRC: 0x%08X)", turnNum, hostCrc);
   }
