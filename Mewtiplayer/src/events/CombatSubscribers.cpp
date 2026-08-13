@@ -795,8 +795,16 @@ void RegisterCombatSubscribers() {
         const uint64_t myID_enqueue = SteamUser()->GetSteamID().ConvertToUint64();
         const uint32_t activeNUID_enqueue = NetworkManager::Get().GetActiveNUID();
         const uint64_t ownerID_enqueue = NetworkManager::Get().GetNUIDOwner(activeNUID_enqueue);
+        const bool isPlayerCat_enqueue = (actor && actor->isPlayerCat) ||
+                                         (nuid != 0xFFFFFFFF && NetworkManager::Get().GetCharacter(nuid) && NetworkManager::Get().GetCharacter(nuid)->isPlayerCat);
+        const bool isAI_enqueue = ownerID_enqueue == 0 && !isPlayerCat_enqueue;
         const bool isMyAuthoritativeTurn = ownerID_enqueue != 0 && ownerID_enqueue == myID_enqueue;
         const bool isTurnAction = (ev.actionData->type > 1 && ev.actionData->type != 7);
+
+        if (isAI_enqueue && isTurnAction) {
+            // AI turns execute locally on both Host and Client. Do not broadcast AI actions.
+            return;
+        }
 
         if (g_waitingForPlayerAction || (isMyAuthoritativeTurn && isTurnAction)) {
             g_waitingForPlayerAction = false;
