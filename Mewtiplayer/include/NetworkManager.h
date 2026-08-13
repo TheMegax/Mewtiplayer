@@ -324,11 +324,13 @@ public:
   void Init(MewjectorAPI *mj, const char *modID);
   void Update();
 
-  void HostLobby(const char *lobbyName);
+  void HostLobby(const char *lobbyName, bool friendsOnly = true);
   void LeaveLobby();
   void JoinLobby(CSteamID lobbyID);
   void JoinAnyLobby();
   void RefreshLobbyList();
+  void SetFriendsOnly(bool friendsOnly);
+  [[nodiscard]] bool IsFriendsOnly() const { return m_friendsOnly; }
 
   std::vector<LobbyInfo> &GetLobbyList() { return m_LobbyList; }
 
@@ -410,6 +412,9 @@ public:
   // Direct Packet Send (bypassing simulation)
   bool SendPacketDirect(CSteamID target, PacketType type, const void *data, uint32_t size, bool reliable);
 
+  void UpdateLobbyMemberNamesCache();
+  std::string GetCachedPlayerName(uint64_t steamID);
+
 private:
   NetworkManager() : m_mj(nullptr), m_AutoJoinStartTime(0), m_LastAutoJoinAttempt(0), m_AutoJoinFinished(false) { m_CurrentLobby.Clear(); }
 
@@ -419,6 +424,7 @@ private:
 
   // Peer activity tracking & Heartbeats
   std::map<uint64_t, ULONGLONG> m_peerLastSeenMap;
+  std::map<uint64_t, std::string> m_lobbyMemberNames;
   ULONGLONG m_lastHeartbeatSentTime = 0;
 
   MewjectorAPI *m_mj;
@@ -430,6 +436,8 @@ private:
   ULONGLONG m_AutoJoinStartTime = 0;
   ULONGLONG m_LastAutoJoinAttempt = 0;
   bool m_AutoJoinFinished = false;
+  bool m_friendsOnly = true;
+  ULONGLONG m_lastAutoLobbyRefreshTime = 0;
 
   // Combat/Ownership state
   bool m_combatActive = false;
@@ -550,4 +558,5 @@ private:
   STEAM_CALLBACK(NetworkManager, OnGameLobbyJoinRequested, // NOLINT(*-use-auto)
                  GameLobbyJoinRequested_t);
   STEAM_CALLBACK(NetworkManager, OnP2PSessionRequest, P2PSessionRequest_t); // NOLINT(*-use-auto)
+  STEAM_CALLBACK(NetworkManager, OnLobbyChatUpdate, LobbyChatUpdate_t); // NOLINT(*-use-auto)
 };

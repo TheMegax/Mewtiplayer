@@ -150,11 +150,8 @@ void RegisterSubscribers() {
     });
 
     ParaboxAPI::OnStevenSpawn.Subscribe([](ParaboxAPI::StevenSpawnEvent& ev) {
-        if (g_modState.noSteven) {
+        if (g_modState.noSteven || NetworkManager::Get().GetCurrentLobby().IsValid()) {
             Overlay::Log("[STEVEN] Go away!");
-            ev.Cancel();
-        } else if (!NetworkManager::Get().IsHost()) {
-            Overlay::Log("[COMBAT] Suppressing Steven spawn as client");
             ev.Cancel();
         }
     });

@@ -210,15 +210,6 @@ void RegisterCombatSubscribers() {
         }
     });
 
-    ParaboxAPI::OnCombatMenuShow.Subscribe([](ParaboxAPI::CombatMenuShowEvent& ev) {
-        if (NetworkManager::Get().IsCombatActive() &&
-            NetworkManager::Get().IsInputBlocked(
-                SteamUser()->GetSteamID().ConvertToUint64())) {
-            ev.Cancel();
-            ParaboxAPI::ForceCombatMenuHide(ev.menu);
-        }
-    });
-
     ParaboxAPI::OnProcessCombatInput.Subscribe([](ParaboxAPI::ProcessCombatInputEvent& ev) {
         if (NetworkManager::Get().IsCombatActive()) {
             NetworkManager::Get().CheckAndShowDesyncPopup();

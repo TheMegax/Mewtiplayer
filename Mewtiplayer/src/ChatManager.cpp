@@ -5,7 +5,6 @@
 #include "GameUtils.h"
 #include "imgui.h"
 #include <windows.h>
-#include <cstdio>
 #include <algorithm>
 
 static std::string GetCurrentTimestampStr() {
@@ -17,7 +16,7 @@ static std::string GetCurrentTimestampStr() {
 }
 
 void ChatManager::AddMessage(uint64_t senderSteamID, const std::string &senderName, const std::string &text) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard lock(m_mutex);
     ChatMessageEntry entry;
     entry.senderSteamID = senderSteamID;
     entry.senderName = senderName;
@@ -60,6 +59,11 @@ void ChatManager::AddSystemMessage(const std::string &text) {
 }
 
 void ChatManager::Render() {
+    if (!NetworkManager::Get().GetCurrentLobby().IsValid()) {
+        m_isTyping = false;
+        return;
+    }
+
     const ImGuiIO &io = ImGui::GetIO();
     const HWND hWnd = ImGuiHook::GetHWND();
 

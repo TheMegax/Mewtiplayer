@@ -84,6 +84,10 @@ public:
         return SteamAPI_ISteamMatchmaking_SetLobbyData(SteamAPI_SteamMatchmaking(), steamIDLobby.ConvertToUint64(), pchKey, pchValue);
     }
 
+    static bool SetLobbyType(const CSteamID steamIDLobby, const ELobbyType eLobbyType) {
+        return SteamAPI_ISteamMatchmaking_SetLobbyType(SteamAPI_SteamMatchmaking(), steamIDLobby.ConvertToUint64(), eLobbyType);
+    }
+
     static const char *GetLobbyData(const CSteamID steamIDLobby, const char *pchKey) {
         return SteamAPI_ISteamMatchmaking_GetLobbyData(SteamAPI_SteamMatchmaking(), steamIDLobby.ConvertToUint64(), pchKey);
     }

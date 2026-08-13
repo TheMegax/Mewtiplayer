@@ -132,6 +132,16 @@ void Overlay::UpdateRemoteCursor(const uint64_t steamID, const float x, const fl
   g_RemoteCursors[steamID] = {x, y, type, std::chrono::steady_clock::now()};
 }
 
+void Overlay::RemoveRemoteCursor(const uint64_t steamID) {
+  std::lock_guard<std::mutex> lock(g_cursorMutex);
+  g_RemoteCursors.erase(steamID);
+}
+
+void Overlay::ClearAllRemoteCursors() {
+  std::lock_guard<std::mutex> lock(g_cursorMutex);
+  g_RemoteCursors.clear();
+}
+
 void Overlay::Log(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
@@ -183,7 +193,7 @@ static void RenderRemoteCursors() {
   for (auto it = g_RemoteCursors.begin(); it != g_RemoteCursors.end();) {
     const float elapsed =
         std::chrono::duration<float>(now - it->second.lastUpdate).count();
-    if (elapsed > 3600.0f) { // 1 hour timeout
+    if (elapsed > 5.0f) { // 5 second timeout
       it = g_RemoteCursors.erase(it);
       continue;
     }
@@ -264,6 +274,15 @@ static void RenderLogTab() {
 static void RenderNetworkTab() {
   const CSteamID current = NetworkManager::Get().GetCurrentLobby();
 
+  if (!current.IsValid()) {
+    static ULONGLONG s_lastNetworkTabAutoRefresh = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (now - s_lastNetworkTabAutoRefresh >= 5000) {
+      s_lastNetworkTabAutoRefresh = now;
+      NetworkManager::Get().RefreshLobbyList();
+    }
+  }
+
   if (current.IsValid()) {
     if (ImGui::Button("Leave Lobby")) {
       NetworkManager::Get().LeaveLobby();
@@ -281,6 +300,12 @@ static void RenderNetworkTab() {
 
   if (current.IsValid()) {
     ImGui::Text("Current Lobby: %llu", current.ConvertToUint64());
+    if (NetworkManager::Get().IsHost()) {
+      bool friendsOnly = NetworkManager::Get().IsFriendsOnly();
+      if (ImGui::Checkbox("Friends Only Lobby", &friendsOnly)) {
+        NetworkManager::Get().SetFriendsOnly(friendsOnly);
+      }
+    }
 
     ImGui::Spacing();
     ImGui::Text("Lobby Members:");
@@ -348,18 +373,18 @@ static void RenderNetworkTab() {
   }
 
   // Modal for Lobby Creation
+  static bool s_friendsOnly = true;
   if (ImGui::BeginPopupModal("Host Lobby Modal", nullptr,
                              ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text("Enter a name for your lobby:");
     ImGui::InputText("##name", g_lobbyNameBuffer, sizeof(g_lobbyNameBuffer));
+    ImGui::Checkbox("Friends Only", &s_friendsOnly);
     ImGui::Separator();
 
     if (ImGui::Button("Create", ImVec2(120, 0))) {
-      NetworkManager::Get().HostLobby(g_lobbyNameBuffer);
+      NetworkManager::Get().HostLobby(g_lobbyNameBuffer, s_friendsOnly);
       ImGui::CloseCurrentPopup();
     }
-    ImGui::SetItemDefaultFocus();
-    ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(120, 0))) {
       ImGui::CloseCurrentPopup();
     }

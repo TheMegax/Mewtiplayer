@@ -11,11 +11,7 @@
 #include "EventSubscribers.h"
 #include "events/CombatSubscribers.h"
 #include "hooks/AdventureBoxHooks.h"
-#include "hooks/ClassChooserHooks.h"
-#include "hooks/StorageHooks.h"
 #include "ChatManager.h"
-#include "hooks/SaveHooks.h"
-#include <cstring>
 #include <algorithm>
 
 using FaceDirection_t = void(__fastcall *)(void *character,
@@ -42,6 +38,7 @@ void NetworkManager::Update() {
   ProcessSimulatedPackets();
 
   if (m_CurrentLobby.IsValid()) {
+    UpdateLobbyMemberNamesCache();
     SendHeartbeat();
     CheckHeartbeatTimeouts();
     CheckSaveSyncTimeouts();
@@ -84,7 +81,7 @@ bool NetworkManager::SendPacketDirect(const CSteamID target, const PacketType ty
   if (size > 0 && data)
     memcpy(buffer.data() + sizeof(PacketHeader), data, size);
 
-  EP2PSend sendType = reliable ? k_EP2PSendReliable : k_EP2PSendUnreliable;
+  const EP2PSend sendType = reliable ? k_EP2PSendReliable : k_EP2PSendUnreliable;
   return SteamNetworking()->SendP2PPacket(
       target, buffer.data(), (uint32)buffer.size(), sendType);
 }
@@ -147,7 +144,9 @@ void NetworkManager::RegisterPeerActivity(const uint64_t steamID) {
 
 void NetworkManager::ClearPeerTracking() {
   m_peerLastSeenMap.clear();
+  m_lobbyMemberNames.clear();
   m_simulatedPacketQueue.clear();
+  Overlay::ClearAllRemoteCursors();
 }
 
 void NetworkManager::SendHeartbeat() {
@@ -200,6 +199,7 @@ void NetworkManager::CheckHeartbeatTimeouts() {
     for (uint64_t peerID : timedOutPeers) {
       Overlay::Log("[NETWORK] [TIMEOUT] Heartbeat lost from client %llu (>15s elapsed). Disconnecting peer!", peerID);
       m_peerLastSeenMap.erase(peerID);
+      Overlay::RemoveRemoteCursor(peerID);
 
       // Clean up ownership maps for timed-out player
       for (auto it = m_catOwnership.begin(); it != m_catOwnership.end(); ) {
@@ -644,11 +644,22 @@ uint64_t NetworkManager::GetNUIDOwner(const uint32_t nuid) const {
   return 0;
 }
 
-void NetworkManager::HostLobby(const char *lobbyName) {
+void NetworkManager::HostLobby(const char *lobbyName, const bool friendsOnly) {
   m_PendingLobbyName = lobbyName;
-  Overlay::Log("[NETWORK] Creating Steam Lobby '%s'...", lobbyName);
-  const SteamAPICall_t call = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 4);
+  m_friendsOnly = friendsOnly;
+  const ELobbyType lobbyType = friendsOnly ? k_ELobbyTypeFriendsOnly : k_ELobbyTypePublic;
+  Overlay::Log("[NETWORK] Creating %s Steam Lobby '%s'...", friendsOnly ? "Friends Only" : "Public", lobbyName);
+  const SteamAPICall_t call = SteamMatchmaking()->CreateLobby(lobbyType, 4);
   m_LobbyCreatedCallResult.Set(call, this, &NetworkManager::OnLobbyCreated);
+}
+
+void NetworkManager::SetFriendsOnly(const bool friendsOnly) {
+  m_friendsOnly = friendsOnly;
+  if (m_CurrentLobby.IsValid() && IsHost()) {
+    const ELobbyType lobbyType = friendsOnly ? k_ELobbyTypeFriendsOnly : k_ELobbyTypePublic;
+    SteamMatchmaking()->SetLobbyType(m_CurrentLobby, lobbyType);
+    Overlay::Log("[NETWORK] Changed lobby type to %s", friendsOnly ? "Friends Only" : "Public");
+  }
 }
 
 void NetworkManager::LeaveLobby() {
@@ -810,6 +821,62 @@ void NetworkManager::OnP2PSessionRequest(P2PSessionRequest_t *pParam) {
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void NetworkManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t *pParam) {
   JoinLobby(pParam->m_steamIDLobby);
+}
+
+void NetworkManager::UpdateLobbyMemberNamesCache() {
+  if (!m_CurrentLobby.IsValid()) return;
+  const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
+  for (int i = 0; i < numMembers; i++) {
+    CSteamID member = SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
+    uint64_t steamID = member.ConvertToUint64();
+    if (m_lobbyMemberNames.find(steamID) == m_lobbyMemberNames.end() || m_lobbyMemberNames[steamID].empty()) {
+      const char *name = SteamFriends()->GetFriendPersonaName(member);
+      if (name && name[0]) {
+        m_lobbyMemberNames[steamID] = name;
+      } else {
+        m_lobbyMemberNames[steamID] = "Player " + std::to_string(steamID % 1000);
+      }
+    }
+  }
+}
+
+std::string NetworkManager::GetCachedPlayerName(uint64_t steamID) {
+  const auto it = m_lobbyMemberNames.find(steamID);
+  if (it != m_lobbyMemberNames.end() && !it->second.empty()) {
+    return it->second;
+  }
+  const char *steamName = SteamFriends()->GetFriendPersonaName(CSteamID(steamID));
+  if (steamName && steamName[0]) {
+    m_lobbyMemberNames[steamID] = steamName;
+    return steamName;
+  }
+  return "Player " + std::to_string(steamID % 1000);
+}
+
+void NetworkManager::OnLobbyChatUpdate(LobbyChatUpdate_t *pParam) {
+  if (!pParam) return;
+  const uint64_t changedUser = pParam->m_ulSteamIDUserChanged;
+  const uint64_t myID = SteamUser()->GetSteamID().ConvertToUint64();
+
+  std::string name = GetCachedPlayerName(changedUser);
+
+  if (BChatMemberStateChangeRemoved(pParam->m_rgfChatMemberStateChange)) {
+    Overlay::RemoveRemoteCursor(changedUser);
+    m_peerLastSeenMap.erase(changedUser);
+    m_lobbyMemberNames.erase(changedUser);
+  }
+
+  if (changedUser != myID) {
+    if (pParam->m_rgfChatMemberStateChange & (k_EChatMemberStateChangeLeft | k_EChatMemberStateChangeDisconnected)) {
+      ChatManager::Get().AddSystemMessage(name + " left the lobby.");
+    } else if (pParam->m_rgfChatMemberStateChange & k_EChatMemberStateChangeKicked) {
+      ChatManager::Get().AddSystemMessage(name + " was kicked from the lobby.");
+    } else if (pParam->m_rgfChatMemberStateChange & k_EChatMemberStateChangeEntered) {
+      UpdateLobbyMemberNamesCache();
+      name = GetCachedPlayerName(changedUser);
+      ChatManager::Get().AddSystemMessage(name + " joined the lobby.");
+    }
+  }
 }
 
 void NetworkManager::HandleTurnAction(const void *data,
@@ -974,7 +1041,7 @@ bool NetworkManager::SendPacketReliable(const CSteamID target, const PacketType 
     if (g_modState.simLossRate > 0.0f) {
       float roll = static_cast<float>(rand() % 10000) / 100.0f;
       if (roll < g_modState.simLossRate) {
-        // Reliable packet loss simulation: add RTT retransmission delay penalty instead of permanently discarding
+        // Add RTT retransmission delay penalty instead of permanently discarding
         retransmitDelay = static_cast<int32_t>(g_modState.simPingMs) * 2 + 150;
       }
     }
@@ -1660,8 +1727,16 @@ void NetworkManager::HandleLobbyReady(const void *data, const uint32_t length) {
 
   const auto *packet = (const LobbyReadyPacket *)data;
   g_lobbyReadyStates[packet->steamID] = packet->isReady;
-  Overlay::Log("[LOBBY] Player %llu ready state: %s", packet->steamID,
+  const std::string name = GetCachedPlayerName(packet->steamID);
+
+  Overlay::Log("[LOBBY] Player %s (%llu) ready state: %s", name.c_str(), packet->steamID,
                packet->isReady ? "locked in" : "not ready");
+
+  if (packet->isReady) {
+    ChatManager::Get().AddSystemMessage(name + " locked in.");
+  } else {
+    ChatManager::Get().AddSystemMessage(name + " locked out.");
+  }
 
   if (IsHost() && AreAllLobbyMembersReady()) {
     BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
@@ -1823,7 +1898,7 @@ void NetworkManager::SendChatMessage(const std::string &message) {
   ChatMessagePacket pkt{};
   strncpy_s(pkt.message, message.c_str(), _TRUNCATE);
 
-  BroadcastPacket(PacketType::ChatMessage, &pkt, sizeof(pkt), true);
+  BroadcastPacketReliable(PacketType::ChatMessage, &pkt, sizeof(pkt), true);
 
   const uint64_t myID = SteamUser() ? SteamUser()->GetSteamID().ConvertToUint64() : 0;
   const char *myName = SteamFriends() ? SteamFriends()->GetPersonaName() : "Me";
