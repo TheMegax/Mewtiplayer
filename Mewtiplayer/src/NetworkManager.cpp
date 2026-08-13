@@ -717,6 +717,7 @@ void NetworkManager::BroadcastPacket(const PacketType type, const void *data,
                                      const uint32_t size, const bool excludeSelf) {
   if (!m_CurrentLobby.IsValid())
     return;
+  const bool reliable = (type != PacketType::MouseMove && type != PacketType::Ping);
   const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
   const CSteamID myID = SteamUser()->GetSteamID();
   for (int i = 0; i < numMembers; i++) {
@@ -724,24 +725,14 @@ void NetworkManager::BroadcastPacket(const PacketType type, const void *data,
         SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
     if (excludeSelf && member == myID)
       continue;
-    SendPacket(member, type, data, size);
+    if (reliable) {
+      SendPacketReliable(member, type, data, size);
+    } else {
+      SendPacket(member, type, data, size);
+    }
   }
 }
 
-void NetworkManager::BroadcastPacketReliable(const PacketType type, const void *data,
-                                             const uint32_t size, const bool excludeSelf) {
-  if (!m_CurrentLobby.IsValid())
-    return;
-  const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
-  const CSteamID myID = SteamUser()->GetSteamID();
-  for (int i = 0; i < numMembers; i++) {
-    CSteamID member =
-        SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
-    if (excludeSelf && member == myID)
-      continue;
-    SendPacketReliable(member, type, data, size);
-  }
-}
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback, const bool bIOFailure) {
@@ -788,7 +779,7 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   }
 
   // Send handshake to host
-  SendPacket(GetHostID(), PacketType::Handshake, nullptr, 0);
+  SendPacketReliable(GetHostID(), PacketType::Handshake, nullptr, 0);
 }
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
@@ -1898,7 +1889,7 @@ void NetworkManager::SendChatMessage(const std::string &message) {
   ChatMessagePacket pkt{};
   strncpy_s(pkt.message, message.c_str(), _TRUNCATE);
 
-  BroadcastPacketReliable(PacketType::ChatMessage, &pkt, sizeof(pkt), true);
+  BroadcastPacket(PacketType::ChatMessage, &pkt, sizeof(pkt), true);
 
   const uint64_t myID = SteamUser() ? SteamUser()->GetSteamID().ConvertToUint64() : 0;
   const char *myName = SteamFriends() ? SteamFriends()->GetPersonaName() : "Me";
@@ -2013,7 +2004,7 @@ void NetworkManager::SendDesyncCheck(const uint32_t turnNum) {
   reqPkt.turnNumber = turnNum;
   reqPkt.hostRngCrc = hostCrc;
 
-  BroadcastPacketReliable(PacketType::RNGCheckRequest, &reqPkt, sizeof(reqPkt), true);
+  BroadcastPacket(PacketType::RNGCheckRequest, &reqPkt, sizeof(reqPkt), true);
   if (g_modState.talkative) {
     Overlay::Log("[SYNC] Host sent state check for Turn %u (Host CRC: 0x%08X)", turnNum, hostCrc);
   }

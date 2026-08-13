@@ -343,8 +343,6 @@ public:
   [[nodiscard]] CSteamID GetHostID() const;
   void BroadcastPacket(PacketType type, const void *data, uint32_t size,
                        bool excludeSelf = true);
-  void BroadcastPacketReliable(PacketType type, const void *data, uint32_t size,
-                               bool excludeSelf = true);
 
   bool IsInputBlocked(uint64_t steamID);
   void SyncOwnership(int64_t uid, uint64_t steamID);
