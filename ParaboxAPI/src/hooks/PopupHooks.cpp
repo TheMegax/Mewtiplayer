@@ -1,26 +1,25 @@
 #include "hooks/PopupHooks.h"
 #include "hooks/HookMacros.h"
 #include "MewgenicsTypes.h"
-#include "GameUtils.h"
 #include "Scanner.h"
 #include <string>
 #include <windows.h>
 
 using ShowYesNoPromptHigh_t = void(__fastcall *)(
-    MsvcReleaseModeWString *prompt,
+    MsvcReleaseModeXString *prompt,
     MsvcReleaseModeStdFunction *yesCb,
     MsvcReleaseModeStdFunction *noCb,
     void **sceneManagerOverride);
 
 using ShowOkPromptHigh_t = void(__fastcall *)(
-    MsvcReleaseModeWString *prompt,
+    MsvcReleaseModeXString *prompt,
     MsvcReleaseModeStdFunction *okCb);
 
 static ShowYesNoPromptHigh_t g_fnShowYesNoPromptHigh = nullptr;
 static ShowOkPromptHigh_t    g_fnShowOkPromptHigh    = nullptr;
 static thread_local bool     g_popupWasCreated       = false;
 
-HOOK_DEFINE(YesNoPromptInit, void, void*, void*, MsvcReleaseModeWString*, MsvcReleaseModeStdFunction*, MsvcReleaseModeStdFunction*, bool)
+HOOK_DEFINE(YesNoPromptInit, void, void*, void*, MsvcReleaseModeXString*, MsvcReleaseModeStdFunction*, MsvcReleaseModeStdFunction*, bool)
 
 static OurClosureInline *__fastcall OurClosure_Clone(OurClosureInline *self, OurClosureInline *out);
 static OurClosureInline *__fastcall OurClosure_Move(OurClosureInline *self, OurClosureInline *out);
@@ -83,21 +82,33 @@ static bool MakeGameFunction(MsvcReleaseModeStdFunction &out, std::function<void
     return true;
 }
 
+static void StringInit(MsvcReleaseModeXString &str, const char *src) {
+    const size_t len = src ? strlen(src) : 0;
+    str.Mysize = len;
+    if (len < 16) {
+        str.Myres = 15;
+        if (src) strncpy_s(str.Bx.Buf, 16, src, len);
+        else     str.Bx.Buf[0] = '\0';
+    } else {
+        str.Myres = len;
+        str.Bx.Ptr = static_cast<char *>(malloc(len + 1));
+        if (str.Bx.Ptr) strncpy_s(str.Bx.Ptr, len + 1, src, len);
+    }
+}
+
 static void __fastcall Hook_YesNoPromptInit(
     void *self,
     void *scene,
-    MsvcReleaseModeWString *prompt,
+    MsvcReleaseModeXString *prompt,
     MsvcReleaseModeStdFunction *yesCb,
     MsvcReleaseModeStdFunction *noCb,
     bool okOnly)
 {
     g_popupWasCreated = true;
 
-    std::string promptUtf8 = prompt ? prompt->to_utf8() : "";
-
     ParaboxAPI::PopupShowEvent ev = {};
     ev.self = self;
-    ev.prompt = promptUtf8.c_str();
+    ev.prompt = prompt ? prompt->begin() : nullptr;
     ev.okOnly = okOnly;
     ParaboxAPI::OnPopupShow.Publish(ev);
 
@@ -136,15 +147,6 @@ PARABOX_API bool ShowYesNoPopup(
         return false;
     }
 
-    std::wstring wprompt;
-    if (prompt) {
-        const int req = MultiByteToWideChar(CP_UTF8, 0, prompt, -1, nullptr, 0);
-        if (req > 0) {
-            wprompt.resize(req - 1);
-            MultiByteToWideChar(CP_UTF8, 0, prompt, -1, &wprompt[0], req);
-        }
-    }
-
     auto wrapYes = [cb = std::move(onYes)]() mutable {
         PopupChoiceEvent cev = {};
         cev.choice = true;
@@ -158,8 +160,8 @@ PARABOX_API bool ShowYesNoPopup(
         if (cb) cb();
     };
 
-    MsvcReleaseModeWString wstr = {};
-    GameUtils::InitWString(wstr, wprompt.c_str());
+    MsvcReleaseModeXString str = {};
+    StringInit(str, prompt);
 
     MsvcReleaseModeStdFunction yesFn = {}, noFn = {};
     MakeGameFunction(yesFn, std::move(wrapYes));
@@ -168,7 +170,7 @@ PARABOX_API bool ShowYesNoPopup(
     g_popupWasCreated = false;
     bool callSuccess = false;
     __try {
-        g_fnShowYesNoPromptHigh(&wstr, &yesFn, &noFn, nullptr);
+        g_fnShowYesNoPromptHigh(&str, &yesFn, &noFn, nullptr);
         callSuccess = true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         Log("[Popup] ShowYesNoPromptHigh caught SEH exception.");
@@ -206,15 +208,6 @@ PARABOX_API bool ShowOkPopup(
         return false;
     }
 
-    std::wstring wprompt;
-    if (prompt) {
-        const int req = MultiByteToWideChar(CP_UTF8, 0, prompt, -1, nullptr, 0);
-        if (req > 0) {
-            wprompt.resize(req - 1);
-            MultiByteToWideChar(CP_UTF8, 0, prompt, -1, &wprompt[0], req);
-        }
-    }
-
     auto wrapOk = [cb = std::move(onOk)]() mutable {
         PopupChoiceEvent cev = {};
         cev.choice = true;
@@ -222,8 +215,8 @@ PARABOX_API bool ShowOkPopup(
         if (cb) cb();
     };
 
-    MsvcReleaseModeWString wstr = {};
-    GameUtils::InitWString(wstr, wprompt.c_str());
+    MsvcReleaseModeXString str = {};
+    StringInit(str, prompt);
 
     MsvcReleaseModeStdFunction okFn = {};
     MakeGameFunction(okFn, std::move(wrapOk));
@@ -231,7 +224,7 @@ PARABOX_API bool ShowOkPopup(
     g_popupWasCreated = false;
     bool okCallSuccess = false;
     __try {
-        g_fnShowOkPromptHigh(&wstr, &okFn);
+        g_fnShowOkPromptHigh(&str, &okFn);
         okCallSuccess = true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         Log("[Popup] ShowOkPromptHigh caught SEH exception.");
