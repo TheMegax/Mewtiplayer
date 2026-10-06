@@ -23,12 +23,20 @@ namespace GameSymbols {
     constexpr uintptr_t Character_Face                  = 0x0010CE50;
     constexpr uintptr_t Ability_ComputeX                = 0x00044450;
     constexpr uintptr_t PlayerBrain_OnRequestAction     = 0x007789C0;
+    constexpr uintptr_t PlayerBrain_update              = 0x00778DA0;
     constexpr uintptr_t MountBrain_OnRequestAction      = 0x0077C950;
     constexpr uintptr_t Character_CompleteAbilityNow    = 0x00108310;
     constexpr uintptr_t CombatMenu_show                 = 0x002AEB60;
     constexpr uintptr_t CombatMenu_hide                 = 0x002B32C0;
+    constexpr uintptr_t Button_can_activate             = 0x0097EAF0;
+    constexpr uintptr_t Button_activate                 = 0x0097E8E0;
+    constexpr uintptr_t Brain_DrawAbilityRange          = 0x00139430;
+    constexpr uintptr_t Brain_DrawAbilityAOE            = 0x0013AA50;
+    constexpr uintptr_t Component_FindCombatMenu        = 0x00151D90;
+    constexpr uintptr_t Component_FindImmediateModeGameUI = 0x0013CF90;
     constexpr uintptr_t Passive_DisplayText             = 0x00768F30;
     constexpr uintptr_t Passive_TickSound               = 0x0076AA80;
+
 
     // --- Adventure Box ---
     constexpr uintptr_t ButchBox_init                   = 0x000AD740;

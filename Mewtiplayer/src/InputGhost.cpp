@@ -422,7 +422,7 @@ void Update() {
       data.y = normY;
       data.cursorType = g_CurrentCursorType;
       if (nm.IsHost())
-        nm.BroadcastPacket(PacketType::MouseMove, &data, sizeof(data), true);
+        nm.BroadcastPacket(PacketType::MouseMove, &data, sizeof(data), false);
       else
         nm.SendPacket(nm.GetHostID(), PacketType::MouseMove, &data,
                       sizeof(data));

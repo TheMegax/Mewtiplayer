@@ -41,6 +41,10 @@ PARABOX_API Event<PostProcessCombatInputEvent> OnPostProcessCombatInput;
 PARABOX_API Event<RouteCombatInputEvent>       OnRouteCombatInput;
 PARABOX_API Event<CombatMenuShowEvent>         OnCombatMenuShow;
 PARABOX_API Event<CombatMenuHideEvent>         OnCombatMenuHide;
+PARABOX_API Event<ButtonCanActivateEvent>      OnButtonCanActivate;
+PARABOX_API Event<ButtonActivateEvent>         OnButtonActivate;
+PARABOX_API Event<PlayerBrainUpdateEvent>      OnPlayerBrainUpdate;
+
 
 // Save events
 PARABOX_API Event<CreateStrayCatEvent>         OnCreateStrayCat;

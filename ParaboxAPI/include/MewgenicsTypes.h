@@ -159,10 +159,13 @@ struct MsvcReleaseModeStdFunction {
 
 // Math And Geometry Types
 
+#ifndef IVEC2D_DEFINED
+#define IVEC2D_DEFINED
 struct iVec2D {
   int32_t x;
   int32_t y;
 };
+#endif
 
 struct Vec2D {
   double x;
@@ -346,6 +349,7 @@ struct GlobalProgressionData;
 struct CatSelector;
 struct Transform;
 struct CatPlacementArea;
+struct CombatMenu;
 
 struct SQLSaveFile;
 struct LevelUpOption;
@@ -2257,6 +2261,28 @@ struct Button : Component {
   MsvcReleaseModeXString stateframes[6];                 // 0x300
 };
 static_assert(sizeof(Button) == 960, "Button size mismatch");
+
+struct CombatMenu : Component {
+  uint8_t nulldat[88];                                   // 0x038 (offset 56)
+  void *tooltip;                                         // 0x090 (offset 144)
+  void *renderer;                                        // 0x098 (offset 152)
+  void *background;                                      // 0x0A0 (offset 160)
+  Ability *current_ability;                              // 0x0A8 (offset 168)
+  Ability *currently_casting;                            // 0x0B0 (offset 176)
+  MsvcReleaseModeXString prev_gamepad_focus;             // 0x0B8 (offset 184)
+  uint8_t tweens[24];                                    // 0x0D8 (offset 216)
+  MsvcReleaseModeVector<Button *> buttons;               // 0x0F0 (offset 240)
+  uint8_t btnmap[16];                                    // 0x108 (offset 264)
+  Ref<Character> current_character;                      // 0x118 (offset 280)
+  uint8_t cached_udata[24];                              // 0x128 (offset 296)
+  bool showing;                                          // 0x140 (offset 320)
+  bool no_options_left;                                  // 0x141 (offset 321)
+  bool examining;                                        // 0x142 (offset 322)
+  bool end_turn_disabled;                                // 0x143 (offset 323)
+  bool hint_last_action_endturn;                         // 0x144 (offset 324)
+  uint8_t _pad145[3];                                    // 0x145
+};
+static_assert(sizeof(CombatMenu) == 328, "CombatMenu size mismatch");
 
 struct PauseMenuScene : Component {
   uint8_t _pad0[0x68];                                   // 0x38

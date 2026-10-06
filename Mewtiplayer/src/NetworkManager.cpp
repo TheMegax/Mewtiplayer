@@ -279,6 +279,10 @@ void NetworkManager::ReceivePackets() {
     case PacketType::TurnFacing:
       HandleTurnFacing(payload, payloadLen);
       break;
+    case PacketType::TurnAbilitySelect:
+      HandleTurnAbilitySelect(payload, payloadLen);
+      break;
+
     case PacketType::SaveCatRequest:
       HandleSaveCatRequest(remoteID);
       break;
@@ -392,7 +396,7 @@ void NetworkManager::HandleMouseMove(const void *data, const uint32_t length) {
   if (length == sizeof(MouseMoveData)) {
     const MouseMoveData *move = (MouseMoveData *)data;
     if (IsHost()) {
-      BroadcastPacket(PacketType::MouseMove, move, sizeof(MouseMoveData), true);
+      BroadcastPacket(PacketType::MouseMove, move, sizeof(MouseMoveData), false);
     }
 
     const uint64_t actualSender = move->steamID;
@@ -531,8 +535,7 @@ void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
   m_catOwnership[uid] = steamID;
   UpdateNUIDOwnership();
 
-  BroadcastPacket(PacketType::CatOwnershipSync, &data, sizeof(data),
-                  false); // Include self to update map
+  BroadcastPacket(PacketType::CatOwnershipSync, &data, sizeof(data), true);
 
   if (SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str())) {
     MewSQL::CreateCatOwnershipTable(db);
@@ -566,7 +569,7 @@ void NetworkManager::SyncNUIDOwnership(const uint32_t nuid, const uint64_t steam
 
   m_nuidOwnership[nuid] = steamID;
 
-  BroadcastPacket(PacketType::NUIDOwnershipSync, &data, sizeof(data), false);
+  BroadcastPacket(PacketType::NUIDOwnershipSync, &data, sizeof(data), true);
 }
 
 void NetworkManager::SetActiveNUID(const uint32_t nuid) {
@@ -797,16 +800,15 @@ CSteamID NetworkManager::GetHostID() const {
 }
 
 void NetworkManager::BroadcastPacket(const PacketType type, const void *data,
-                                     const uint32_t size, const bool excludeSelf) {
+                                     const uint32_t size, const bool reliable) {
   if (!m_CurrentLobby.IsValid())
     return;
-  const bool reliable = (type != PacketType::MouseMove && type != PacketType::Ping);
   const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(m_CurrentLobby);
   const CSteamID myID = SteamUser()->GetSteamID();
   for (int i = 0; i < numMembers; i++) {
     CSteamID member =
         SteamMatchmaking()->GetLobbyMemberByIndex(m_CurrentLobby, i);
-    if (excludeSelf && member == myID)
+    if (member == myID)
       continue;
     if (reliable) {
       SendPacketReliable(member, type, data, size);
@@ -1028,6 +1030,17 @@ void NetworkManager::HandleTurnFacing(const void *data,
       ParaboxAPI::ForceFaceDirection(c, packed, pkt->anim, pkt->force);
     }
   }
+}
+
+void NetworkManager::HandleTurnAbilitySelect(const void *data,
+                                             const uint32_t length) {
+  if (length != sizeof(TurnAbilitySelectPacket))
+    return;
+
+  const auto pkt = (const TurnAbilitySelectPacket *)data;
+  m_remoteAbilitySelect = *pkt;
+
+
 }
 
 void NetworkManager::RecordAction(const ActionPacket &pkt) {

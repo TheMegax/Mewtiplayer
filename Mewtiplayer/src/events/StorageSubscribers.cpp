@@ -300,7 +300,7 @@ void RegisterStorageSubscribers() {
         LobbyReadyPacket packet = {};
         packet.steamID = localSteamID;
         packet.isReady = g_localReady;
-        NetworkManager::Get().BroadcastPacket(PacketType::LobbyReady, &packet, sizeof(packet), false);
+        NetworkManager::Get().BroadcastPacket(PacketType::LobbyReady, &packet, sizeof(packet), true);
         Overlay::Log("[LOBBY] LockIn: Local ready state: %s", g_localReady ? "locked in" : "not ready");
 
         if (NetworkManager::Get().IsHost() && AreAllLobbyMembersReady()) {

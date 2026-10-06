@@ -12,6 +12,14 @@
 #define PARABOX_API __declspec(dllimport)
 #endif
 
+#ifndef IVEC2D_DEFINED
+#define IVEC2D_DEFINED
+struct iVec2D {
+    int32_t x;
+    int32_t y;
+};
+#endif
+
 struct Character;
 struct TurnControl;
 struct Level;
@@ -145,6 +153,10 @@ struct RouteCombatInputEvent : EventBase {
     void *returnValue = nullptr;
 };
 
+struct PlayerBrainUpdateEvent : EventBase {
+    PlayerBrain *brain;
+};
+
 struct CombatMenuShowEvent : EventBase {
     void *menu;
     void *actions;
@@ -154,6 +166,19 @@ struct CombatMenuShowEvent : EventBase {
 struct CombatMenuHideEvent : EventBase {
     void *menu;
 };
+
+struct ButtonCanActivateEvent : EventBase {
+    void *button;
+    int32_t button_index;
+    uint8_t strict_mouse;
+    uint8_t returnValue;
+};
+
+struct ButtonActivateEvent : EventBase {
+    void *button;
+    uint8_t from_mouse;
+};
+
 
 struct CreateStrayCatEvent : EventBase {
     void *catsManager;
@@ -377,6 +402,9 @@ extern PARABOX_API Event<PostProcessCombatInputEvent> OnPostProcessCombatInput;
 extern PARABOX_API Event<RouteCombatInputEvent>       OnRouteCombatInput;
 extern PARABOX_API Event<CombatMenuShowEvent>         OnCombatMenuShow;
 extern PARABOX_API Event<CombatMenuHideEvent>         OnCombatMenuHide;
+extern PARABOX_API Event<ButtonCanActivateEvent>      OnButtonCanActivate;
+extern PARABOX_API Event<ButtonActivateEvent>         OnButtonActivate;
+extern PARABOX_API Event<PlayerBrainUpdateEvent>      OnPlayerBrainUpdate;
 
 PARABOX_API void ForceEnqueueAction(void *queue, TurnAction *actionData);
 PARABOX_API void ForceAbilityTrigger(Ability *ability, TurnAction *turnAction);
@@ -384,6 +412,9 @@ PARABOX_API void ForceFaceDirection(void* character, uint64_t packed, bool anim,
 PARABOX_API void ForceSlotUpdateDynamicValue(void* rcx, void* rdx);
 PARABOX_API void ForceCombatMenuHide(void *menu);
 PARABOX_API void ForceCombatMenuShow(void *menu, void *actions, void *param3 = nullptr);
+PARABOX_API void DrawAbilityRange(void *brain, Ability *ability, int param2 = -1);
+PARABOX_API void DrawAbilityAOE(void *brain, Ability *ability, iVec2D targetTile, iVec2D orientation, int param5 = 0);
+
 // Save events
 extern PARABOX_API Event<CreateStrayCatEvent>         OnCreateStrayCat;
 extern PARABOX_API Event<GetCollarVectorEvent>        OnGetCollarVector;

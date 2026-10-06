@@ -24,6 +24,7 @@
 #include "SteamABICompat.h"
 #include "mew_ui_api.h"
 #include "GameUtils.h"
+#include "GameSymbols.h"
 #include <set>
 
 TurnControl *g_currentTurnControl = nullptr;
@@ -44,6 +45,136 @@ void *g_lastActionQueue = nullptr;
 std::map<LevelUpScreen*, CatData*> g_levelUpScreenToCat;
 std::map<AbilityChooser*, CatData*> g_abilityChooserToCat;
 
+CombatMenu *g_activeCombatMenu = nullptr;
+TurnAbilitySelectPacket g_lastSentSelectPacket = {};
+
+bool IsRemoteTurn(Character *character = nullptr) {
+    if (!NetworkManager::Get().IsCombatActive()) return false;
+
+    const uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
+    if (activeNUID == 0xFFFFFFFF) return false;
+
+    if (character) {
+        uint32_t charNUID = NetworkManager::Get().GetNUID(character);
+        if (charNUID != 0xFFFFFFFF && charNUID != activeNUID) {
+            return false;
+        }
+    }
+
+    const uint64_t mySteamID = SteamUser()->GetSteamID().ConvertToUint64();
+    if (NetworkManager::Get().IsInputBlocked(mySteamID)) {
+        return true;
+    }
+
+    const uint64_t ownerID = NetworkManager::Get().GetNUIDOwner(activeNUID);
+    if (ownerID != 0) {
+        return (ownerID != mySteamID);
+    }
+    return !NetworkManager::Get().IsHost();
+}
+
+CombatMenu *GetActiveCombatMenu(PlayerBrain *brain = nullptr) {
+    if (g_activeCombatMenu) return g_activeCombatMenu;
+    if (!brain && NetworkManager::Get().IsCombatActive()) {
+        const uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
+        Character *activeChar = (activeNUID != 0xFFFFFFFF) ? NetworkManager::Get().GetCharacter(activeNUID) : nullptr;
+        if (activeChar && activeChar->brain) {
+            brain = reinterpret_cast<PlayerBrain*>(activeChar->brain);
+        }
+    }
+    if (brain) {
+        static auto findCombatMenu = reinterpret_cast<CombatMenu*(*)(void*)>(
+            GameSymbols::Component_FindCombatMenu + reinterpret_cast<uintptr_t>(GetModuleHandle(nullptr)));
+        if (findCombatMenu) {
+            CombatMenu *menu = findCombatMenu(brain);
+            if (menu && !g_activeCombatMenu) {
+                g_activeCombatMenu = menu;
+            }
+            return menu;
+        }
+    }
+    return nullptr;
+}
+
+bool IsCombatMenuButton(void *button) {
+    if (!button) return false;
+    CombatMenu *menu = GetActiveCombatMenu();
+    if (!menu) return false;
+    if (!menu->buttons.Myfirst || !menu->buttons.Mylast || menu->buttons.Myfirst > menu->buttons.Mylast) {
+        return false;
+    }
+    for (Button *b : menu->buttons) {
+        if (reinterpret_cast<void*>(b) == button) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void RenderRemoteAbilityOverlay(PlayerBrain *brain) {
+    if (!NetworkManager::Get().IsCombatActive()) return;
+    if (!brain || !brain->character) return;
+    if (!IsRemoteTurn(brain->character)) return;
+
+    CombatMenu *menu = GetActiveCombatMenu(brain);
+    const TurnAbilitySelectPacket &remoteSelect = NetworkManager::Get().GetRemoteAbilitySelect();
+    const uint32_t charNUID = NetworkManager::Get().GetNUID(brain->character);
+
+    if (remoteSelect.isSelected && (remoteSelect.actorNUID == charNUID || charNUID == 0xFFFFFFFF)) {
+        Ability *selAbility = nullptr;
+        if (remoteSelect.abilityName[0] != '\0') {
+            selAbility = GameUtils::FindCharacterAbility(brain->character, remoteSelect.abilityName);
+            if (!selAbility) {
+                if (Component *passive = GameUtils::FindCharacterPassive(brain->character, remoteSelect.abilityName)) {
+                    selAbility = reinterpret_cast<Ability*>(passive);
+                }
+            }
+        }
+
+        if (menu) {
+            menu->currently_casting = selAbility;
+        }
+
+        if (selAbility) {
+            // Check & bypass ImmediateModeGameUI->dont_draw (+0x3C)
+            static auto findGameUI = reinterpret_cast<void*(*)(void*)>(
+                GameSymbols::Component_FindImmediateModeGameUI + reinterpret_cast<uintptr_t>(GetModuleHandle(nullptr)));
+            void* gameUI = findGameUI ? findGameUI(brain) : nullptr;
+            bool *dontDrawPtr = gameUI ? reinterpret_cast<bool*>(reinterpret_cast<uintptr_t>(gameUI) + 0x3C) : nullptr;
+            const bool origDontDraw = dontDrawPtr ? *dontDrawPtr : false;
+            if (dontDrawPtr && origDontDraw) {
+                *dontDrawPtr = false;
+            }
+
+            GameUtils::DrawAbilityRange(brain, selAbility, -1);
+            if (remoteSelect.hasTargetTile) {
+                iVec2D targetTile{remoteSelect.targetTileX, remoteSelect.targetTileY};
+                iVec2D orientation{remoteSelect.orientX, remoteSelect.orientY};
+                if (orientation.x == 0 && orientation.y == 0 && brain->character) {
+                    orientation = brain->character->orientation;
+                }
+                GameUtils::DrawAbilityAOE(brain, selAbility, targetTile, orientation, 0x13);
+            }
+
+            if (remoteSelect.orientX != 0 || remoteSelect.orientY != 0) {
+                if (brain->character->orientation.x != remoteSelect.orientX || brain->character->orientation.y != remoteSelect.orientY) {
+                    uint64_t packed = static_cast<uint64_t>(static_cast<uint32_t>(remoteSelect.orientX)) |
+                                     (static_cast<uint64_t>(static_cast<uint32_t>(remoteSelect.orientY)) << 32);
+                    ParaboxAPI::ForceFaceDirection(brain->character, packed, false, false);
+                }
+            }
+
+            if (dontDrawPtr && origDontDraw) {
+                *dontDrawPtr = origDontDraw;
+            }
+        }
+    } else {
+        if (menu && menu->currently_casting) {
+            menu->currently_casting = nullptr;
+        }
+    }
+}
+
 void ResetCombatSubscribersState() {
     g_currentTurnControl = nullptr;
     g_isCombatUIProcessing = false;
@@ -61,6 +192,13 @@ void ResetCombatSubscribersState() {
 
     g_levelUpScreenToCat.clear();
     g_abilityChooserToCat.clear();
+
+    if (g_activeCombatMenu) {
+        g_activeCombatMenu->currently_casting = nullptr;
+    }
+    g_activeCombatMenu = nullptr;
+    g_lastSentSelectPacket = {};
+    NetworkManager::Get().ClearRemoteAbilitySelect();
 }
 
 // Hook subscriptions
@@ -88,6 +226,84 @@ void RegisterCombatSubscribers() {
                              currentRNG[0], currentRNG[1], currentRNG[2], currentRNG[3]);
             }
         }
+
+        const uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
+        Character *activeChar = (activeNUID != 0xFFFFFFFF) ? NetworkManager::Get().GetCharacter(activeNUID) : nullptr;
+        if (activeChar && activeChar->brain && activeChar->is_player_cat) {
+            if (!IsRemoteTurn(activeChar)) {
+                auto *pBrain = reinterpret_cast<PlayerBrain*>(activeChar->brain);
+                TurnAbilitySelectPacket currentPkt{};
+                currentPkt.actorNUID = activeNUID;
+
+                if (pBrain->pending_ability) {
+                    currentPkt.isSelected = true;
+                    std::string abilityName = GameUtils::GetAbilityName(pBrain->pending_ability).to_string();
+                    strncpy_s(currentPkt.abilityName, abilityName.c_str(), _TRUNCATE);
+
+                    int32_t tileX = pBrain->prev_hovered_square.x;
+                    int32_t tileY = pBrain->prev_hovered_square.y;
+                    if (tileX <= -1000 || tileY <= -1000) {
+                        tileX = pBrain->pending_choice.tile.x;
+                        tileY = pBrain->pending_choice.tile.y;
+                    }
+
+                    if (tileX > -1000 && tileY > -1000) {
+                        currentPkt.hasTargetTile = true;
+                        currentPkt.targetTileX = tileX;
+                        currentPkt.targetTileY = tileY;
+                    } else {
+                        currentPkt.hasTargetTile = false;
+                        currentPkt.targetTileX = -5000;
+                        currentPkt.targetTileY = -5000;
+                    }
+
+                    currentPkt.orientX = pBrain->pending_choice.orientation.x;
+                    currentPkt.orientY = pBrain->pending_choice.orientation.y;
+                    if (currentPkt.orientX == 0 && currentPkt.orientY == 0) {
+                        currentPkt.orientX = activeChar->orientation.x;
+                        currentPkt.orientY = activeChar->orientation.y;
+                    }
+
+                    bool isDiff = false;
+                    if (!g_lastSentSelectPacket.isSelected) isDiff = true;
+                    else if (g_lastSentSelectPacket.actorNUID != currentPkt.actorNUID) isDiff = true;
+                    else if (strcmp(g_lastSentSelectPacket.abilityName, currentPkt.abilityName) != 0) isDiff = true;
+                    else if (g_lastSentSelectPacket.hasTargetTile != currentPkt.hasTargetTile) isDiff = true;
+                    else if (currentPkt.hasTargetTile && (g_lastSentSelectPacket.targetTileX != currentPkt.targetTileX || g_lastSentSelectPacket.targetTileY != currentPkt.targetTileY)) isDiff = true;
+                    else if (g_lastSentSelectPacket.orientX != currentPkt.orientX || g_lastSentSelectPacket.orientY != currentPkt.orientY) isDiff = true;
+
+                    if (isDiff) {
+                        g_lastSentSelectPacket = currentPkt;
+                        NetworkManager::Get().BroadcastPacket(PacketType::TurnAbilitySelect, &currentPkt, sizeof(currentPkt), false);
+                    }
+                } else if (g_lastSentSelectPacket.isSelected) {
+                    currentPkt.isSelected = false;
+                    currentPkt.hasTargetTile = false;
+                    currentPkt.targetTileX = -5000;
+                    currentPkt.targetTileY = -5000;
+                    g_lastSentSelectPacket = currentPkt;
+                    NetworkManager::Get().BroadcastPacket(PacketType::TurnAbilitySelect, &currentPkt, sizeof(currentPkt), true);
+                }
+            } else if (g_lastSentSelectPacket.isSelected) {
+                TurnAbilitySelectPacket clearPkt{};
+                clearPkt.actorNUID = g_lastSentSelectPacket.actorNUID;
+                clearPkt.isSelected = false;
+                clearPkt.hasTargetTile = false;
+                clearPkt.targetTileX = -5000;
+                clearPkt.targetTileY = -5000;
+                g_lastSentSelectPacket = clearPkt;
+                NetworkManager::Get().BroadcastPacket(PacketType::TurnAbilitySelect, &clearPkt, sizeof(clearPkt), true);
+            }
+        } else if (g_lastSentSelectPacket.isSelected) {
+            TurnAbilitySelectPacket clearPkt{};
+            clearPkt.actorNUID = g_lastSentSelectPacket.actorNUID;
+            clearPkt.isSelected = false;
+            clearPkt.hasTargetTile = false;
+            clearPkt.targetTileX = -5000;
+            clearPkt.targetTileY = -5000;
+            g_lastSentSelectPacket = clearPkt;
+            NetworkManager::Get().BroadcastPacket(PacketType::TurnAbilitySelect, &clearPkt, sizeof(clearPkt), true);
+        }
     });
 
     ParaboxAPI::OnTurnStart.Subscribe([](ParaboxAPI::TurnStartEvent& ev) {
@@ -104,6 +320,12 @@ void RegisterCombatSubscribers() {
     ParaboxAPI::OnBeginTurn.Subscribe([](ParaboxAPI::BeginTurnEvent& ev) {
         g_startedCombat = true;
         g_isCombatUIProcessing = false;
+
+        g_lastSentSelectPacket = {};
+        NetworkManager::Get().ClearRemoteAbilitySelect();
+        if (g_activeCombatMenu) {
+            g_activeCombatMenu->currently_casting = nullptr;
+        }
 
         if (NetworkManager::Get().IsCombatActive()) {
             NetworkManager::Get().IncrementTurnNumber();
@@ -158,6 +380,10 @@ void RegisterCombatSubscribers() {
 
             const uint32_t nuid = NetworkManager::Get().GetNUID(ev.character);
             NetworkManager::Get().SetActiveNUID(nuid);
+            NetworkManager::Get().ClearRemoteAbilitySelect();
+            if (g_activeCombatMenu) {
+                g_activeCombatMenu->currently_casting = nullptr;
+            }
         }
     });
 
@@ -211,6 +437,12 @@ void RegisterCombatSubscribers() {
                 Overlay::Log("[COMBAT] Fight End Detected: %s",
                              ev.level->won ? "Victory" : "Defeat");
 
+                g_lastSentSelectPacket = {};
+                NetworkManager::Get().ClearRemoteAbilitySelect();
+                if (g_activeCombatMenu) {
+                    g_activeCombatMenu->currently_casting = nullptr;
+                }
+
                 // Host tells peers the fight ended, then both clean up state.
                 NetworkManager::Get().EndCombat();
             }
@@ -218,6 +450,7 @@ void RegisterCombatSubscribers() {
     });
 
     ParaboxAPI::OnFaceDirection.Subscribe([](ParaboxAPI::FaceDirectionEvent& ev) {
+        if (!NetworkManager::Get().IsCombatActive()) return;
         if (ev.character) {
             const auto x = static_cast<uint32_t>(ev.target_packed & 0xFFFFFFFF);
             const auto y = static_cast<uint32_t>(ev.target_packed >> 32);
@@ -229,40 +462,24 @@ void RegisterCombatSubscribers() {
             auto *c = static_cast<Character *>(ev.character);
             const uint32_t nuid = NetworkManager::Get().GetNUID(c);
             const bool isLocalActiveNUID =
-                nuid != 0xFFFFFFFF && nuid == NetworkManager::Get().GetActiveNUID();
+                (nuid != 0xFFFFFFFF && nuid == NetworkManager::Get().GetActiveNUID());
 
             if (nx != 0 || ny != 0) {
-                if (auto &lastFacing = NetworkManager::Get().GetLastFacingMap();
-                    lastFacing.count(nuid) && lastFacing[nuid].first == nx && lastFacing[nuid].second == ny && !ev.force) {
-                } else {
-                    lastFacing[nuid] = {nx, ny};
+                auto &lastFacing = NetworkManager::Get().GetLastFacingMap();
+                if (lastFacing.count(nuid) && lastFacing[nuid].first == nx && lastFacing[nuid].second == ny && !ev.force) {
+                    return;
+                }
+                lastFacing[nuid] = {nx, ny};
 
-                    if (isLocalActiveNUID && g_isCombatUIProcessing && g_isQueueEmpty && g_pendingInjections.empty()) {
-                        TurnFacingPacket pkt{};
-                        pkt.actorNUID = nuid;
-                        pkt.nx = nx;
-                        pkt.ny = ny;
-                        pkt.anim = ev.play_animation;
-                        pkt.force = ev.force;
-
-                        ActionPacket actPkt{};
-                        actPkt.type = PacketType::TurnFacing;
-                        actPkt.data.facing = pkt;
-                        // ReSharper disable once CppSomeObjectMembersMightNotBeInitialized
-                        g_lastSentTurnPackage = actPkt;
-                        NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt,
-                                                              sizeof(pkt), true);
-
-                        if (g_modState.talkative) {
-                            Overlay::Log("[FACE] Broadcast TurnFacing for NUID:%u | Target:(%d,%d)", nuid, nx, ny);
-                        }
-                    } else if (g_modState.talkative) {
-                        if (isLocalActiveNUID) {
-                            Overlay::Log("[FACE] Active NUID (%d), Queue not empty | Target:(%d,%d)", nuid, nx, ny);
-                        } else if (nuid != 0xFFFFFFFF) {
-                            Overlay::Log("[FACE] Queue empty, NUID not active (%d) | Target:(%d,%d)", nuid, nx, ny);
-                        }
-                    }
+                // Interim facing updates sent unreliably during local player's turn
+                if (isLocalActiveNUID && !IsRemoteTurn(c)) {
+                    TurnFacingPacket pkt{};
+                    pkt.actorNUID = nuid;
+                    pkt.nx = nx;
+                    pkt.ny = ny;
+                    pkt.anim = ev.play_animation;
+                    pkt.force = ev.force;
+                    NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &pkt, sizeof(pkt), false);
                 }
             }
         }
@@ -290,36 +507,11 @@ void RegisterCombatSubscribers() {
             charNUID = NetworkManager::Get().GetActiveNUID();
         }
 
-        const uint64_t mySteamID = SteamUser()->GetSteamID().ConvertToUint64();
-        const uint64_t ownerID = NetworkManager::Get().GetNUIDOwner(charNUID);
-
-        bool isRemoteTurn = false;
-        if (ownerID != 0) {
-            isRemoteTurn = (ownerID != mySteamID);
-        } else {
-            // Host runs unassigned cats.
-            isRemoteTurn = !NetworkManager::Get().IsHost();
-        }
-
-        if (NetworkManager::Get().IsInputBlocked(mySteamID)) {
-            isRemoteTurn = true;
-        }
+        const bool isRemoteTurn = IsRemoteTurn(character);
 
         if (isRemoteTurn) {
             g_isCombatUIProcessing = false;
             g_castableAbilities.clear();
-
-            // Flush any facing updates sent while aiming.
-            while (!g_pendingInjections.empty() && g_pendingInjections.front().type == PacketType::TurnFacing) {
-                const TurnFacingPacket &facing = g_pendingInjections.front().data.facing;
-                if (Character *c = NetworkManager::Get().GetCharacter(facing.actorNUID)) {
-                    const auto ux = static_cast<uint32_t>(facing.nx);
-                    const auto uy = static_cast<uint32_t>(facing.ny);
-                    uint64_t packed = static_cast<uint64_t>(ux) | (static_cast<uint64_t>(uy) << 32);
-                    ParaboxAPI::ForceFaceDirection(c, packed, facing.anim, facing.force);
-                }
-                g_pendingInjections.pop_front();
-            }
 
             if (!g_pendingInjections.empty() && g_pendingInjections.front().type == PacketType::TurnAction) {
                 const TurnActionPacket &pkt = g_pendingInjections.front().data.action;
@@ -371,6 +563,12 @@ void RegisterCombatSubscribers() {
 
                         ev.returnValue = ev.outResult;
                     }
+
+                    CombatMenu *menu = GetActiveCombatMenu(ev.ctx);
+                    if (menu) {
+                        menu->currently_casting = nullptr;
+                    }
+                    NetworkManager::Get().ClearRemoteAbilitySelect();
 
                     Overlay::Log("[INPUT] Injected remote action: '%s' (Type %d) for %s (NUID %u)",
                                  pktCopy.abilityName, pktCopy.actionType,
@@ -429,6 +627,32 @@ void RegisterCombatSubscribers() {
 
         g_isCombatUIProcessing = false;
         g_castableAbilities.clear();
+
+        if (g_lastSentSelectPacket.isSelected) {
+            TurnAbilitySelectPacket clearPkt{};
+            clearPkt.actorNUID = charNUID;
+            clearPkt.isSelected = false;
+            clearPkt.hasTargetTile = false;
+            clearPkt.targetTileX = -5000;
+            clearPkt.targetTileY = -5000;
+            g_lastSentSelectPacket = clearPkt;
+            NetworkManager::Get().BroadcastPacket(PacketType::TurnAbilitySelect, &clearPkt, sizeof(clearPkt), true);
+        }
+
+        // Ensure the last orientation before ending the turn (or submitting action) is sent reliably
+        if (character) {
+            TurnFacingPacket finalFacing{};
+            finalFacing.actorNUID = charNUID;
+            finalFacing.nx = character->orientation.x;
+            finalFacing.ny = character->orientation.y;
+            if (finalFacing.nx == 0 && finalFacing.ny == 0 && ev.actionData) {
+                finalFacing.nx = ev.actionData->orientation.x;
+                finalFacing.ny = ev.actionData->orientation.y;
+            }
+            finalFacing.anim = false;
+            finalFacing.force = true;
+            NetworkManager::Get().BroadcastPacket(PacketType::TurnFacing, &finalFacing, sizeof(finalFacing), true);
+        }
 
         TurnActionPacket pkt{};
         pkt.actorNUID = charNUID;
@@ -499,6 +723,46 @@ void RegisterCombatSubscribers() {
             }
             ev.Cancel();
         }
+    });
+
+    ParaboxAPI::OnCombatMenuShow.Subscribe([](ParaboxAPI::CombatMenuShowEvent& ev) {
+        if (ev.menu) {
+            g_activeCombatMenu = static_cast<CombatMenu*>(ev.menu);
+        }
+    });
+
+    ParaboxAPI::OnCombatMenuHide.Subscribe([](ParaboxAPI::CombatMenuHideEvent& ev) {
+        if (g_activeCombatMenu == ev.menu) {
+            g_activeCombatMenu = nullptr;
+        }
+    });
+
+    ParaboxAPI::OnButtonCanActivate.Subscribe([](ParaboxAPI::ButtonCanActivateEvent& ev) {
+        if (IsRemoteTurn() && IsCombatMenuButton(ev.button)) {
+            ev.returnValue = 0;
+            ev.Cancel();
+        }
+    });
+
+    ParaboxAPI::OnButtonActivate.Subscribe([](ParaboxAPI::ButtonActivateEvent& ev) {
+        if (IsRemoteTurn() && IsCombatMenuButton(ev.button)) {
+            ev.Cancel();
+        }
+    });
+
+    ParaboxAPI::OnPlayerBrainUpdate.Subscribe([](ParaboxAPI::PlayerBrainUpdateEvent &ev) {
+        if (!NetworkManager::Get().IsCombatActive()) return;
+        if (!ev.brain || !ev.brain->character) return;
+
+        if (!IsRemoteTurn(ev.brain->character)) return;
+
+        // Remote cat's turn!
+        // Cancel native PlayerBrain::update to:
+        // 1. Prevent wiping CombatMenu->currently_casting
+        // 2. Prevent handling local mouse/hotkey input on remote brain
+        ev.Cancel();
+
+        RenderRemoteAbilityOverlay(ev.brain);
     });
 
 }

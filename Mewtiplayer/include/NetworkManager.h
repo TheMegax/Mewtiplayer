@@ -27,6 +27,7 @@ enum class PacketType : uint8_t {
   CombatEnd,
   TurnAction,
   TurnFacing,
+  TurnAbilitySelect,
   // --- Save Protocol ---
   SaveCatRequest,
   SaveCatResponse,
@@ -127,14 +128,29 @@ struct TurnFacingPacket {
   bool force;
 };
 
+#pragma pack(push, 1)
+struct TurnAbilitySelectPacket {
+  uint32_t actorNUID;
+  char abilityName[64];
+  bool isSelected;
+  bool hasTargetTile;
+  int32_t targetTileX;
+  int32_t targetTileY;
+  int32_t orientX;
+  int32_t orientY;
+};
+#pragma pack(pop)
+
 // Generic structure for recording/replaying any action-like packet
 struct ActionPacket {
   PacketType type;
   union {
     TurnActionPacket action;
     TurnFacingPacket facing;
+    TurnAbilitySelectPacket select;
   } data;
 };
+
 
 struct LobbyInfo {
   CSteamID id;
@@ -350,7 +366,7 @@ public:
   [[nodiscard]] bool IsHost() const;
   [[nodiscard]] CSteamID GetHostID() const;
   void BroadcastPacket(PacketType type, const void *data, uint32_t size,
-                       bool excludeSelf = true);
+                       bool reliable = true);
 
   bool IsInputBlocked(uint64_t steamID);
   void SyncOwnership(int64_t uid, uint64_t steamID);
@@ -420,6 +436,11 @@ public:
 
   void UpdateLobbyMemberNamesCache();
   std::string GetCachedPlayerName(uint64_t steamID);
+
+  [[nodiscard]] const TurnAbilitySelectPacket &GetRemoteAbilitySelect() const { return m_remoteAbilitySelect; }
+  void SetRemoteAbilitySelect(const TurnAbilitySelectPacket &pkt) { m_remoteAbilitySelect = pkt; }
+  void ClearRemoteAbilitySelect() { m_remoteAbilitySelect = {}; }
+
 
 private:
   NetworkManager() : m_mj(nullptr), m_AutoJoinStartTime(0), m_LastAutoJoinAttempt(0), m_AutoJoinFinished(false) { m_CurrentLobby.Clear(); }
@@ -496,6 +517,9 @@ private:
   void HandleNUIDOwnershipSync(const void *data, uint32_t length);
   static void HandleTurnAction(const void *data, uint32_t length);
   void HandleTurnFacing(const void *data, uint32_t length);
+  void HandleTurnAbilitySelect(const void *data, uint32_t length);
+  TurnAbilitySelectPacket m_remoteAbilitySelect = {};
+
   void HandleSaveCatRequest(CSteamID remoteID);
   void HandleSaveCatResponse(CSteamID remoteID, const void *data, uint32_t length);
   void HandleSaveFileTransfer(CSteamID remoteID, const void *data, uint32_t length);

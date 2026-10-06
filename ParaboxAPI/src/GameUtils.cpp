@@ -1039,6 +1039,14 @@ Component *FindCharacterPassive(const Character *actor, const char *targetName_c
   return nullptr;
 }
 
+void DrawAbilityRange(void *brain, Ability *ability, int param2) {
+  ParaboxAPI::DrawAbilityRange(brain, ability, param2);
+}
+
+void DrawAbilityAOE(void *brain, Ability *ability, iVec2D targetTile, iVec2D orientation, int param5) {
+  ParaboxAPI::DrawAbilityAOE(brain, ability, targetTile, orientation, param5);
+}
+
 ParaboxAPI::Array<Component *> GetSceneComponents(const Scene *scene) {
   std::vector<Component *> result;
   if (!scene || scene->doing_scene_destruction || !scene->ComponentLists) return ParaboxAPI::MakeArray(result);

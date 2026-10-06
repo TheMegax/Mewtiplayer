@@ -15,6 +15,10 @@ HOOK_DEFINE(RouteCombatInput, void*, PlayerBrain*, void*, void*, void*)
 HOOK_DEFINE(PossessionUpdate, void, void*, unsigned char)
 HOOK_DEFINE(CombatMenuShow, void, void*, void*, void*)
 HOOK_DEFINE(CombatMenuHide, void, void*)
+HOOK_DEFINE(ButtonCanActivate, uint8_t, void*, int32_t, uint8_t)
+HOOK_DEFINE(ButtonActivate, void, void*, uint8_t)
+HOOK_DEFINE(PlayerBrainUpdate, void, PlayerBrain*)
+
 
 using ShowCombatPopup_t = void(__fastcall *)(void *self, MsvcReleaseModeXString *text, void *entityOverride);
 using PostPopupAnim_t   = void(__fastcall *)(void *self, MsvcReleaseModeXString *animName);
@@ -169,6 +173,51 @@ static void __fastcall Hook_CombatMenuHide(void *menu) {
         g_origCombatMenuHide(menu);
 }
 
+static uint8_t __fastcall Hook_ButtonCanActivate(void *button, int32_t button_index, uint8_t strict_mouse) {
+    uint8_t origResult = g_origButtonCanActivate ? g_origButtonCanActivate(button, button_index, strict_mouse) : 0;
+    ParaboxAPI::ButtonCanActivateEvent ev = {};
+    ev.button = button;
+    ev.button_index = button_index;
+    ev.strict_mouse = strict_mouse;
+    ev.returnValue = origResult;
+    ParaboxAPI::OnButtonCanActivate.Publish(ev);
+    if (ev.cancelled) {
+        return ev.returnValue;
+    }
+    return origResult;
+}
+
+static void __fastcall Hook_ButtonActivate(void *button, uint8_t from_mouse) {
+    ParaboxAPI::ButtonActivateEvent ev = {};
+    ev.button = button;
+    ev.from_mouse = from_mouse;
+    ParaboxAPI::OnButtonActivate.Publish(ev);
+    if (ev.cancelled) {
+        return;
+    }
+    if (g_origButtonActivate) {
+        g_origButtonActivate(button, from_mouse);
+    }
+}
+
+static void __fastcall Hook_PlayerBrainUpdate(PlayerBrain *brain) {
+    ParaboxAPI::PlayerBrainUpdateEvent ev = {};
+    ev.brain = brain;
+    ParaboxAPI::OnPlayerBrainUpdate.Publish(ev);
+    if (ev.cancelled) {
+        return;
+    }
+    if (g_origPlayerBrainUpdate) {
+        g_origPlayerBrainUpdate(brain);
+    }
+}
+
+using DrawAbilityRange_fn = void(__fastcall*)(void *brain, Ability *ability, int param2);
+using DrawAbilityAOE_fn   = void(__fastcall*)(void *brain, Ability *ability, iVec2D targetTile, iVec2D orientation, int param5);
+
+static DrawAbilityRange_fn g_fnDrawAbilityRange = nullptr;
+static DrawAbilityAOE_fn   g_fnDrawAbilityAOE   = nullptr;
+
 void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
     HOOK_INSTALL(mj, gameBase, BeginTurn, GameSymbols::Character_BeginTurn, 16);
     HOOK_INSTALL(mj, gameBase, FightEnd, GameSymbols::Level_update, 15);
@@ -182,10 +231,16 @@ void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
     HOOK_INSTALL(mj, gameBase, PossessionUpdate, GameSymbols::Character_CompleteAbilityNow, 16);
     HOOK_INSTALL(mj, gameBase, CombatMenuShow, GameSymbols::CombatMenu_show, 15);
     HOOK_INSTALL(mj, gameBase, CombatMenuHide, GameSymbols::CombatMenu_hide, 15);
+    HOOK_INSTALL(mj, gameBase, ButtonCanActivate, GameSymbols::Button_can_activate, 15);
+    HOOK_INSTALL(mj, gameBase, ButtonActivate, GameSymbols::Button_activate, 15);
+    HOOK_INSTALL(mj, gameBase, PlayerBrainUpdate, GameSymbols::PlayerBrain_update, 15);
 
+    RESOLVE_FUNC(gameBase, GameSymbols::Brain_DrawAbilityRange, g_fnDrawAbilityRange);
+    RESOLVE_FUNC(gameBase, GameSymbols::Brain_DrawAbilityAOE, g_fnDrawAbilityAOE);
     RESOLVE_FUNC(gameBase, GameSymbols::Passive_DisplayText, g_fnShowCombatPopup);
     RESOLVE_FUNC(gameBase, GameSymbols::Passive_TickSound, g_fnPostPopupAnim);
 }
+
 
 namespace ParaboxAPI {
 PARABOX_API void ForceFaceDirection(void* character, uint64_t packed, bool anim, bool force) {
@@ -211,6 +266,19 @@ PARABOX_API void ForceCombatMenuShow(void *menu, void *actions, void *param3) {
         g_origCombatMenuShow(menu, actions, param3);
     }
 }
+
+PARABOX_API void DrawAbilityRange(void *brain, Ability *ability, int param2) {
+    if (g_fnDrawAbilityRange && brain && ability) {
+        g_fnDrawAbilityRange(brain, ability, param2);
+    }
+}
+
+PARABOX_API void DrawAbilityAOE(void *brain, Ability *ability, iVec2D targetTile, iVec2D orientation, int param5) {
+    if (g_fnDrawAbilityAOE && brain && ability) {
+        g_fnDrawAbilityAOE(brain, ability, targetTile, orientation, param5);
+    }
+}
+
 
 static void MakeInlineXString(MsvcReleaseModeXString &xs, const char *str, size_t len) {
     xs.Mysize = len;

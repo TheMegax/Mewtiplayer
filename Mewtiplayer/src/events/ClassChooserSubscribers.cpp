@@ -400,7 +400,7 @@ void RegisterClassChooserSubscribers() {
         LobbyReadyPacket packet = {};
         packet.steamID = localSteamID;
         packet.isReady = g_localReady;
-        NetworkManager::Get().BroadcastPacket(PacketType::LobbyReady, &packet, sizeof(packet), false);
+        NetworkManager::Get().BroadcastPacket(PacketType::LobbyReady, &packet, sizeof(packet), true);
         Overlay::Log("[LOBBY] Local ready state: %s", g_localReady ? "locked in" : "not ready");
 
         ev.Cancel();

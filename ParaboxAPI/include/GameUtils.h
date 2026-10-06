@@ -80,6 +80,9 @@ PARABOX_API ParaboxAPI::Array<Character *> GetFighters();
 PARABOX_API ParaboxAPI::String GetAbilityName(Ability *ability);
 PARABOX_API Ability *FindCharacterAbility(const Character *actor, const char *targetName);
 PARABOX_API Component *FindCharacterPassive(const Character *actor, const char *targetName);
+PARABOX_API void DrawAbilityRange(void *brain, Ability *ability, int param2 = -1);
+PARABOX_API void DrawAbilityAOE(void *brain, Ability *ability, iVec2D targetTile, iVec2D orientation, int param5 = 0);
+
 
 // Components
 PARABOX_API ParaboxAPI::Array<Component *> GetSceneComponents(const Scene *scene);
