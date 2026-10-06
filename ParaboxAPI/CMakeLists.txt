@@ -5,6 +5,7 @@ set(PARABOX_SOURCES
     # Core API
     src/ParaboxAPI.cpp
     include/ParaboxAPI.h
+    include/GameSymbols.h
 
     # Game utilities (shared, game-facing helpers)
     include/GameUtils.h

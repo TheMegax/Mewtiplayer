@@ -273,6 +273,11 @@ static void RenderLogTab() {
 
 static void RenderNetworkTab() {
   const CSteamID current = NetworkManager::Get().GetCurrentLobby();
+  const CSteamID myID = SteamUser()->GetSteamID();
+  const char *myName = SteamFriends()->GetPersonaName();
+
+  ImGui::Text("Local Player: %s (%llu)", (myName && myName[0]) ? myName : "Unknown", myID.ConvertToUint64());
+  ImGui::Separator();
 
   if (!current.IsValid()) {
     static ULONGLONG s_lastNetworkTabAutoRefresh = 0;
@@ -298,8 +303,30 @@ static void RenderNetworkTab() {
     NetworkManager::Get().RefreshLobbyList();
   }
 
+  if (!current.IsValid()) {
+    ImGui::Spacing();
+    static char s_directUidBuffer[64] = "";
+    ImGui::Text("Direct Join by Lobby UID:");
+    ImGui::SetNextItemWidth(220.0f);
+    ImGui::InputText("##direct_uid", s_directUidBuffer, sizeof(s_directUidBuffer));
+    ImGui::SameLine();
+    if (ImGui::Button("Join##by_uid")) {
+      if (s_directUidBuffer[0] != '\0') {
+        NetworkManager::Get().JoinLobbyByUID(s_directUidBuffer);
+      }
+    }
+  }
+
   if (current.IsValid()) {
+    const std::string lobbyUID = NetworkManager::LobbyIDToUID(current);
     ImGui::Text("Current Lobby: %llu", current.ConvertToUint64());
+    ImGui::Text("Lobby UID: %s", lobbyUID.c_str());
+    ImGui::SameLine();
+    if (ImGui::Button("Copy UID")) {
+      ImGui::SetClipboardText(lobbyUID.c_str());
+      ChatManager::Get().AddSystemMessage("Copied Lobby UID: " + lobbyUID);
+    }
+
     if (NetworkManager::Get().IsHost()) {
       bool friendsOnly = NetworkManager::Get().IsFriendsOnly();
       if (ImGui::Checkbox("Friends Only Lobby", &friendsOnly)) {
@@ -316,7 +343,7 @@ static void RenderNetworkTab() {
       ImGui::TableHeadersRow();
 
       const int numMembers = SteamMatchmaking()->GetNumLobbyMembers(current);
-      const uint64_t myID = SteamUser()->GetSteamID().ConvertToUint64();
+      const uint64_t mySteamID = myID.ConvertToUint64();
       const auto &peerLastSeen = NetworkManager::Get().GetPeerLastSeenMap();
       const ULONGLONG now = GetTickCount64();
 
@@ -334,7 +361,7 @@ static void RenderNetworkTab() {
         ImGui::Text("%d cat(s)", catCount);
 
         ImGui::TableSetColumnIndex(2);
-        if (memberID == myID) {
+        if (memberID == mySteamID) {
           ImGui::Text("Local Player");
         } else {
           auto it = peerLastSeen.find(memberID);
@@ -373,7 +400,7 @@ static void RenderNetworkTab() {
   }
 
   // Modal for Lobby Creation
-  static bool s_friendsOnly = true;
+  static bool s_friendsOnly = false;
   if (ImGui::BeginPopupModal("Host Lobby Modal", nullptr,
                              ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text("Enter a name for your lobby:");
@@ -394,9 +421,11 @@ static void RenderNetworkTab() {
   ImGui::Separator();
   ImGui::Text("Available Lobbies:");
 
-  if (ImGui::BeginTable("##lobbies", 3,
+  if (ImGui::BeginTable("##lobbies", 5,
                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
     ImGui::TableSetupColumn("Name");
+    ImGui::TableSetupColumn("UID");
+    ImGui::TableSetupColumn("Type");
     ImGui::TableSetupColumn("Players");
     ImGui::TableSetupColumn("Action");
     ImGui::TableHeadersRow();
@@ -408,9 +437,15 @@ static void RenderNetworkTab() {
       ImGui::Text("%s", lobby.name.c_str());
 
       ImGui::TableSetColumnIndex(1);
-      ImGui::Text("%d/%d", lobby.memberCount, lobby.maxMembers);
+      ImGui::Text("%s", lobby.uid.c_str());
 
       ImGui::TableSetColumnIndex(2);
+      ImGui::Text("%s", lobby.isFriendsOnly ? "Friends Only" : "Public");
+
+      ImGui::TableSetColumnIndex(3);
+      ImGui::Text("%d/%d", lobby.memberCount, lobby.maxMembers);
+
+      ImGui::TableSetColumnIndex(4);
       if (lobby.id == current) {
         ImGui::TextDisabled("Joined");
       } else {
@@ -487,9 +522,9 @@ static void RenderRNGTab() {
     if (ImGui::Button("FORCE DESYNC (Damage First Fighter HP -5)")) {
       const auto fighters = GameUtils::GetFighters();
       if (!fighters.empty() && fighters[0]) {
-        fighters[0]->currentHP -= 5;
+        fighters[0]->health -= 5;
         Overlay::Log("[EVIL MODE] Reduced HP of unit %s to %d!",
-                     fighters[0]->name.to_utf8().c_str(), fighters[0]->currentHP);
+                     fighters[0]->display_name.to_utf8().c_str(), fighters[0]->health);
       } else {
         Overlay::Log("[EVIL MODE] No active fighters found on board!");
       }
@@ -506,7 +541,7 @@ static void RenderCombatTab() {
   ImGui::Text("Combat Mode: %s", active ? "ACTIVE" : "INACTIVE");
   if (active) {
     if (const Character *activeChar = nm.GetCharacter(activeNUID)) {
-      ImGui::Text("Active Turn: %s (NUID: %u)", activeChar->name.to_utf8().c_str(), activeNUID);
+      ImGui::Text("Active Turn: %s (NUID: %u)", activeChar->display_name.to_utf8().c_str(), activeNUID);
     } else {
       ImGui::Text("Active Turn: NUID %u", activeNUID);
     }
@@ -545,7 +580,7 @@ static void RenderCombatTab() {
         ImGui::Text("%u", nuid);
 
         ImGui::TableSetColumnIndex(1);
-        ImGui::Text("%s", c->name.to_utf8().c_str());
+        ImGui::Text("%s", c->display_name.to_utf8().c_str());
 
         ImGui::TableSetColumnIndex(2);
         const uint64_t ownerID = nm.GetNUIDOwner(nuid);
@@ -647,7 +682,7 @@ static void RenderActionManagerTab() {
 
       char typeStr[32] = {};
       uint32_t actorNUID = 0;
-      int32_t actionType = 0;
+      uint32_t actionType = 0;
       char abilityName[64] = {};
       int32_t targetX = 0, targetY = 0, target2X = 0, target2Y = 0;
       int32_t nx = 0, ny = 0;
@@ -666,7 +701,7 @@ static void RenderActionManagerTab() {
         if (strcmp(typeStr, "ACTION") == 0) {
           pkt.type = PacketType::TurnAction;
           pkt.data.action.actorNUID = actorNUID;
-          pkt.data.action.actionType = actionType;
+          pkt.data.action.actionType = static_cast<ActionKind>(actionType);
           strncpy_s(pkt.data.action.abilityName, abilityName, _TRUNCATE);
           pkt.data.action.targetX = targetX;
           pkt.data.action.targetY = targetY;
@@ -711,7 +746,7 @@ static bool IsSaveOnAdventure() {
     return cachedResult;
   }
 
-  glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str());
+  SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str());
   if (!db || !db->db) {
     if (db) MewSQL::CloseSaveDatabase(db);
     cachedResult = false;

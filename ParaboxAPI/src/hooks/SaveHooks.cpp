@@ -51,109 +51,71 @@ int64_t* __fastcall Hook_GetCollarVector(int64_t* outVector, int64_t collarId, i
 
 void SaveHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
   GameUtils::InitializeSave_t initializeSave = nullptr;
-  SCAN_SET(mj, gameBase, InitializeSave,
-      "48 8B C4 48 89 58 08 48 89 50 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 48 81 EC 20 01 00 00",
-      initializeSave);
+  RESOLVE_FUNC(gameBase, GameSymbols::MewSaveFile_open_or_create, initializeSave);
   if (initializeSave) {
     GameUtils::SetInitializeSavePtr(initializeSave);
   }
 
-  const uintptr_t initTestSaveRva = ScanSignature(mj, gameBase, "InitTestSave",
-      "80 b9 b0 04 00 00 00 74 07 33 c0 e9 bd 01 00 00 48 8d 0d ?? ?? ?? ?? e8");
-  if (initTestSaveRva) {
-    const uintptr_t callAddr = gameBase + initTestSaveRva + 0x3c;
-    if (*(uint8_t*)callAddr == 0xe8) {
-      const int32_t relOffset = *(int32_t*)(callAddr + 1);
-      const auto ctorPtr = (GameUtils::MewDirector_ctor_t)(callAddr + 5 + relOffset);
-      GameUtils::SetMewDirectorCtorPtr(ctorPtr);
-    }
-  }
+  auto ctorPtr = reinterpret_cast<GameUtils::MewDirector_ctor_t>(gameBase + GameSymbols::MewDirector_MewDirector);
+  GameUtils::SetMewDirectorCtorPtr(ctorPtr);
 
   MewSQL::ExecSQL_t execSql = nullptr;
-  SCAN_SET(mj, gameBase, ExecSQL,
-      "48 89 5C 24 08 4C 89 44 24 18 48 89 54 24 10 55 56 57 48 8D 6C 24 F0 48 81 EC 10 01 00 00 49 8B D8",
-      execSql);
+  RESOLVE_FUNC(gameBase, GameSymbols::SQLSaveFile_SQL, execSql);
   if (execSql) {
     MewSQL::SetExecSQLPtr(execSql);
     GameUtils::SetExecSQLPtr((GameUtils::ExecSQL_t)execSql);
   }
 
   MewSQL::SQLSaveFile_open_t sqlOpen = nullptr;
-  SCAN_SET(mj, gameBase, SQLSaveFile_open,
-      "48 89 5C 24 08 48 89 74 24 18 48 89 54 24 10 57 48 83 EC 20 48 8B DA 48 8B F1 48 8D 79 08 48 3B FA 74 16 48 83 7A 18 0F",
-      sqlOpen);
+  RESOLVE_FUNC(gameBase, GameSymbols::SQLSaveFile_open, sqlOpen);
   if (sqlOpen) MewSQL::SetOpenPtr(sqlOpen);
 
   MewSQL::Retrieve_t sqlRetrieve = nullptr;
-  SCAN_SET(mj, gameBase, SQLSaveFile_Retrieve,
-      "4C 89 44 24 18 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E9 48 81 EC C8 00 00 00 49 8B F8 4C 8B FA 33 C9 89 0A 48 8D 45 CF 48 89 45 67 48 8D 05 ?? ?? ?? ?? 48 89 45 CF",
-      sqlRetrieve);
+  RESOLVE_FUNC(gameBase, GameSymbols::SQLSaveFile_Retrieve, sqlRetrieve);
   if (sqlRetrieve) MewSQL::SetRetrievePtr(sqlRetrieve);
 
   MewSQL::CloseConnection_t sqlClose = nullptr;
-  SCAN_SET(mj, gameBase, CloseConnection,
-      "48 89 7C 24 20 41 56 48 83 EC 30 44 8B F2 48 8B F9 48 85 C9",
-      sqlClose);
+  RESOLVE_FUNC(gameBase, GameSymbols::sqlite3Close, sqlClose);
   if (sqlClose) MewSQL::SetCloseConnectionPtr(sqlClose);
 
   GameUtils::DestructString_t destructStr = nullptr;
-  SCAN_SET(mj, gameBase, DestructString,
-      "40 53 48 83 EC 20 48 8B 51 18 48 8B D9 48 83 FA 0F 76 2C 48 8B 09 48 FF C2 48 81 FA 00 10 00 00",
-      destructStr);
+  RESOLVE_FUNC(gameBase, GameSymbols::string_Tidy_deallocate, destructStr);
   if (destructStr) {
     MewSQL::SetDestructStringPtr(destructStr);
     GameUtils::SetDestructStringPtr(destructStr);
   }
 
   MewSQL::sqlite3Prepare_t sqlite3Prep = nullptr;
-  SCAN_SET(mj, gameBase, sqlite3Prepare,
-      "44 89 4C 24 20 44 89 44 24 18 53 55 56 41 56 41 57 48 83 EC 50 4C 8B BC 24 A8 00 00 00 33 F6 41",
-      sqlite3Prep);
+  RESOLVE_FUNC(gameBase, GameSymbols::sqlite3LockAndPrepare, sqlite3Prep);
   if (sqlite3Prep) MewSQL::SetSqlite3PreparePtr(sqlite3Prep);
 
   MewSQL::sqlite3_step_t sqlite3Step = nullptr;
-  SCAN_SET(mj, gameBase, sqlite3_step,
-      "40 53 41 56 41 57 48 81 EC 90 01 00 00 45 33 F6 48 8B D9 45 8B FE 48 85 C9 75 13 48 8D 15 ?? ?? ?? ??",
-      sqlite3Step);
+  RESOLVE_FUNC(gameBase, GameSymbols::sqlite3_step, sqlite3Step);
   if (sqlite3Step) MewSQL::SetSqlite3StepPtr(sqlite3Step);
 
   MewSQL::sqlite3_column_text_t sqlite3ColText = nullptr;
-  SCAN_SET(mj, gameBase, sqlite3_column_text,
-      "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 63 FA 48 8B D9 48 85 C9 75 2C 48 8D 0D ?? ?? ?? ?? 0F B7 51 08 41 B8 02 02 00 00 0F B7 C2 33 F6 66 41 23 C0 66 41 3B C0 75 68 80 79 0A 01 75 62",
-      sqlite3ColText);
+  RESOLVE_FUNC(gameBase, GameSymbols::sqlite3_column_text, sqlite3ColText);
   if (sqlite3ColText) MewSQL::SetSqlite3ColumnTextPtr(sqlite3ColText);
 
   MewSQL::sqlite3_column_bytes_t sqlite3ColBytes = nullptr;
-  SCAN_SET(mj, gameBase, sqlite3_column_bytes,
-      "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 63 FA 48 8B D9 48 85 C9 74 4A 48 8B 01 48 8B 48 18 48 85 C9 74 06 FF 15 ?? ?? ?? ?? 48 8B 93 A8 00 00 00 48 85 D2 74 18 0F B7 83 C8 00 00 00 3B",
-      sqlite3ColBytes);
+  RESOLVE_FUNC(gameBase, GameSymbols::sqlite3_column_bytes, sqlite3ColBytes);
   if (sqlite3ColBytes) MewSQL::SetSqlite3ColumnBytesPtr(sqlite3ColBytes);
 
   MewSQL::sqlite3_finalize_t sqlite3Finalize = nullptr;
-  SCAN_SET(mj, gameBase, sqlite3_finalize,
-      "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 30 48 8B D9 48 85 C9 75 14 33 FF 8B C7 48 8B 5C 24 48",
-      sqlite3Finalize);
+  RESOLVE_FUNC(gameBase, GameSymbols::sqlite3_finalize, sqlite3Finalize);
   if (sqlite3Finalize) MewSQL::SetSqlite3FinalizePtr(sqlite3Finalize);
 
   MsvcReleaseModeXString *baseSavePath = nullptr;
-  SCAN_RESOLVE(mj, gameBase, BaseSavePathLookup,
-      "48 83 3D ?? ?? ?? ?? 0F 4C 0F 47 25 ?? ?? ?? ??",
-      baseSavePath, 8, 4, 8);
+  RESOLVE_DATA(gameBase, GameSymbols::base_save_path, baseSavePath);
   if (baseSavePath) MewSQL::SetBaseSavePathPtr(baseSavePath);
 
   GameUtils::MewSaveFile_Load_t mewSaveFileLoad = nullptr;
-  SCAN_SET(mj, gameBase, MewSaveFile_Load,
-      "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 56 41 57 48 8D AC 24 30 FF FF FF",
-      mewSaveFileLoad);
+  RESOLVE_FUNC(gameBase, GameSymbols::MewSaveFile_Load, mewSaveFileLoad);
   if (mewSaveFileLoad) GameUtils::SetMewSaveFileLoadPtr(mewSaveFileLoad);
 
-  HOOK_INSTALL(mj, gameBase, CreateStrayCat,
-      "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 30 41 8B F8 48 8B E9", 15);
+  HOOK_INSTALL(mj, gameBase, CreateStrayCat, GameSymbols::CatDatabase_generate_and_add_cat, 15);
 
-  SCAN_SET(mj, gameBase, GameAllocate,
-      "48 83 EC 28 48 85 C9 75 07 33 C0 48 83 C4 28 C3 48 81 F9 00 10 00 00",
-      g_GameAllocate);
+  RESOLVE_FUNC(gameBase, GameSymbols::std_Allocate_16, g_GameAllocate);
 
-  HOOK_INSTALL(mj, gameBase, GetCollarVector,
-      "48 8B C4 48 89 58 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 F8 FD FF FF", 16);
+  HOOK_INSTALL(mj, gameBase, GetCollarVector, GameSymbols::GetCollars, 16);
 }

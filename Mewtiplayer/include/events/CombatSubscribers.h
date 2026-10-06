@@ -30,8 +30,8 @@ extern std::deque<ActionPacket> g_pendingInjections;
 extern ActionPacket g_lastSentTurnPackage;
 extern void *g_lastActionQueue;
 
-extern std::map<glaiel::LevelUpScreen*, PersistentCharacter*> g_levelUpScreenToCat;
-extern std::map<glaiel::AbilityChooser*, PersistentCharacter*> g_abilityChooserToCat;
+extern std::map<LevelUpScreen*, CatData*> g_levelUpScreenToCat;
+extern std::map<AbilityChooser*, CatData*> g_abilityChooserToCat;
 
 extern ActionPacket g_lastInjectedActionPacket;
 extern bool g_injectedInCurrentCall;

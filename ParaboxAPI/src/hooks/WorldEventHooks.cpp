@@ -9,25 +9,25 @@
 #include <functional>
 
 // Cache for the active event component
-static glaiel::WorldEvent* g_activeWorldEvent = nullptr;
+static WorldEvent* g_activeWorldEvent = nullptr;
 
 // Cache for active custom end button callback
 static std::function<void()> g_activeCustomEndButtonCallback = nullptr;
 
 // Synchronization override
-static PersistentCharacter* g_overrideSelectedCat = nullptr;
+static CatData* g_overrideSelectedCat = nullptr;
 
 // Hook definitions
-HOOK_DEFINE(WorldEvent_init, void, glaiel::WorldEvent* self, void* param2, void* param3)
-HOOK_DEFINE(WorldEvent_ClickOption, void, glaiel::WorldEventClickEvent* param_1)
-HOOK_DEFINE(WorldEvent_ClickCat, void, glaiel::WorldEventClickEvent* param_1)
-HOOK_DEFINE(GetSelectedCat, PersistentCharacter*, void* param_1, uint64_t param_2)
-HOOK_DEFINE(WorldEvent_ClickEnd1, void, glaiel::WorldEventClickEvent* param_1)
-HOOK_DEFINE(WorldEvent_ClickEnd2, void, glaiel::WorldEventClickEvent* param_1)
-HOOK_DEFINE(WorldEvent_add_end_button, void, glaiel::WorldEvent* self, MsvcReleaseModeXString* tokenString, void* callbackPtr)
+HOOK_DEFINE(WorldEvent_init, void, WorldEvent* self, void* param2, void* param3)
+HOOK_DEFINE(WorldEvent_ClickOption, void, WorldEventClickEvent* param_1)
+HOOK_DEFINE(WorldEvent_ClickCat, void, WorldEventClickEvent* param_1)
+HOOK_DEFINE(GetSelectedCat, CatData*, void* param_1, uint64_t param_2)
+HOOK_DEFINE(WorldEvent_ClickEnd1, void, WorldEventClickEvent* param_1)
+HOOK_DEFINE(WorldEvent_ClickEnd2, void, WorldEventClickEvent* param_1)
+HOOK_DEFINE(WorldEvent_add_end_button, void, WorldEvent* self, MsvcReleaseModeXString* tokenString, void* callbackPtr)
 
 
-static void __fastcall Hook_WorldEvent_init(glaiel::WorldEvent* self, void* param2, void* param3) {
+static void __fastcall Hook_WorldEvent_init(WorldEvent* self, void* param2, void* param3) {
   g_activeWorldEvent = self;
   g_activeCustomEndButtonCallback = nullptr;
   
@@ -40,16 +40,16 @@ static void __fastcall Hook_WorldEvent_init(glaiel::WorldEvent* self, void* para
   ParaboxAPI::OnWorldEventInit.Publish(ev);
 }
 
-static void __fastcall Hook_WorldEvent_ClickOption(glaiel::WorldEventClickEvent* param_1) {
-  glaiel::WorldEvent* worldEvent = param_1->worldEvent;
+static void __fastcall Hook_WorldEvent_ClickOption(WorldEventClickEvent* param_1) {
+  WorldEvent* worldEvent = param_1->worldEvent;
 
-  auto* clickedOption = static_cast<glaiel::WorldEventOption*>(param_1->sender);
-  glaiel::WorldEventOption* vectorStart = worldEvent->options.Myfirst;
-  glaiel::WorldEventOption* vectorEnd = worldEvent->options.Mylast;
+  auto* clickedOption = static_cast<WorldEventOption*>(param_1->sender);
+  WorldEventOption* vectorStart = worldEvent->action_pane.options.Myfirst;
+  WorldEventOption* vectorEnd = worldEvent->action_pane.options.Mylast;
   int optionIndex = -1;
   if (vectorStart && vectorEnd && clickedOption) {
     intptr_t diff = clickedOption - vectorStart;
-    int count = static_cast<int>(worldEvent->options.size());
+    int count = static_cast<int>(worldEvent->action_pane.options.size());
     if (diff >= 0 && diff < count) {
       optionIndex = static_cast<int>(diff);
     }
@@ -70,18 +70,18 @@ static void __fastcall Hook_WorldEvent_ClickOption(glaiel::WorldEventClickEvent*
   }
 }
 
-static void __fastcall Hook_WorldEvent_ClickCat(glaiel::WorldEventClickEvent* param_1) {
-  glaiel::WorldEvent* worldEvent = param_1->worldEvent;
+static void __fastcall Hook_WorldEvent_ClickCat(WorldEventClickEvent* param_1) {
+  WorldEvent* worldEvent = param_1->worldEvent;
 
-  auto* clickedButton = static_cast<glaiel::WorldEventCatButton*>(param_1->sender);
+  auto* clickedButton = static_cast<WorldEventCatButton*>(param_1->sender);
   void* catManager = clickedButton->catManager;
-  glaiel::WorldEventOptionState* statePtr = worldEvent->optionState;
+  CatSelector* selector = worldEvent->selector;
   uint64_t catUID = 0;
-  if (statePtr) {
-    catUID = statePtr->catUID;
+  if (selector) {
+    catUID = selector->current_cat;
   }
 
-  PersistentCharacter* clickedCat = nullptr;
+  CatData* clickedCat = nullptr;
   if (g_origGetSelectedCat && catManager && catUID != 0) {
     clickedCat = g_origGetSelectedCat(catManager, catUID);
   }
@@ -101,7 +101,7 @@ static void __fastcall Hook_WorldEvent_ClickCat(glaiel::WorldEventClickEvent* pa
   }
 }
 
-static PersistentCharacter* __fastcall Hook_GetSelectedCat(void* param_1, uint64_t param_2) {
+static CatData* __fastcall Hook_GetSelectedCat(void* param_1, uint64_t param_2) {
   if (g_overrideSelectedCat) {
     return g_overrideSelectedCat;
   }
@@ -111,7 +111,7 @@ static PersistentCharacter* __fastcall Hook_GetSelectedCat(void* param_1, uint64
   return nullptr;
 }
 
-static void __fastcall Hook_WorldEvent_ClickEnd1(glaiel::WorldEventClickEvent* param_1) {
+static void __fastcall Hook_WorldEvent_ClickEnd1(WorldEventClickEvent* param_1) {
   ParaboxAPI::WorldEventClickEnd1Event ev = {};
   ev.self = param_1->worldEvent;
   ParaboxAPI::OnWorldEventClickEnd1.Publish(ev);
@@ -125,7 +125,7 @@ static void __fastcall Hook_WorldEvent_ClickEnd1(glaiel::WorldEventClickEvent* p
   }
 }
 
-static void __fastcall Hook_WorldEvent_ClickEnd2(glaiel::WorldEventClickEvent* param_1) {
+static void __fastcall Hook_WorldEvent_ClickEnd2(WorldEventClickEvent* param_1) {
   ParaboxAPI::WorldEventClickEnd2Event ev = {};
   ev.self = param_1->worldEvent;
   ParaboxAPI::OnWorldEventClickEnd2.Publish(ev);
@@ -139,7 +139,7 @@ static void __fastcall Hook_WorldEvent_ClickEnd2(glaiel::WorldEventClickEvent* p
   }
 }
 
-static void __fastcall Hook_WorldEvent_add_end_button(glaiel::WorldEvent* self, MsvcReleaseModeXString* tokenString, void* callbackPtr) {
+static void __fastcall Hook_WorldEvent_add_end_button(WorldEvent* self, MsvcReleaseModeXString* tokenString, void* callbackPtr) {
   const auto* origFuncPtr = static_cast<std::function<void()>*>(callbackPtr);
   std::function<void()> origFunc = (origFuncPtr && *origFuncPtr) ? *origFuncPtr : nullptr;
   std::string tokenStr = tokenString ? tokenString->copy_to_native_string() : "";
@@ -168,7 +168,7 @@ static void __fastcall Hook_WorldEvent_add_end_button(glaiel::WorldEvent* self, 
 
 namespace ParaboxAPI {
 
-PARABOX_API glaiel::WorldEvent *GetActiveWorldEvent() {
+PARABOX_API WorldEvent *GetActiveWorldEvent() {
   return g_activeWorldEvent;
 }
 
@@ -177,25 +177,25 @@ PARABOX_API void ForceWorldEventSelectOption(int64_t catUID, uint32_t optionInde
     return;
   }
 
-  PersistentCharacter* activeCat = g_activeWorldEvent->activeCat;
-  if (!activeCat || activeCat->sql_key != catUID) {
+  CatData* activeCat = g_activeWorldEvent->cat_choice;
+  if (!activeCat || activeCat->cat_uid != catUID) {
     return;
   }
 
-  glaiel::WorldEventOption* vectorStart = g_activeWorldEvent->options.Myfirst;
-  glaiel::WorldEventOption* vectorEnd = g_activeWorldEvent->options.Mylast;
+  WorldEventOption* vectorStart = g_activeWorldEvent->action_pane.options.Myfirst;
+  WorldEventOption* vectorEnd = g_activeWorldEvent->action_pane.options.Mylast;
   if (!vectorStart || !vectorEnd) {
     return;
   }
 
-  int count = static_cast<int>(g_activeWorldEvent->options.size());
+  int count = static_cast<int>(g_activeWorldEvent->action_pane.options.size());
   if (static_cast<int>(optionIndex) >= count) {
     return;
   }
 
-  glaiel::WorldEventOption* optionPtr = vectorStart + optionIndex;
+  WorldEventOption* optionPtr = vectorStart + optionIndex;
 
-  glaiel::WorldEventClickEvent dummy = {};
+  WorldEventClickEvent dummy = {};
   dummy.vtable = nullptr;
   dummy.worldEvent = g_activeWorldEvent;
   dummy.sender = optionPtr;
@@ -206,7 +206,7 @@ PARABOX_API void ForceWorldEventSelectOption(int64_t catUID, uint32_t optionInde
 }
 
 // Helpers for finding buttons
-static Component* FindButtonForCat(const PersistentCharacter* targetCat) {
+static Component* FindButtonForCat(const CatData* targetCat) {
   if (!targetCat || !g_activeWorldEvent) return nullptr;
   Scene* scene = g_activeWorldEvent->scene;
   if (!scene) return nullptr;
@@ -215,13 +215,13 @@ static Component* FindButtonForCat(const PersistentCharacter* targetCat) {
   for (Component* comp : components) {
     if (!GameUtils::IsComponentValid(comp)) continue;
 
-    auto* btn = reinterpret_cast<glaiel::WorldEventCatButton*>(comp);
+    auto* btn = reinterpret_cast<WorldEventCatButton*>(comp);
     void* catManager = btn->catManager;
     void* otherPtr = btn->otherPtr;
     if (catManager && otherPtr) {
       if (g_origGetSelectedCat) {
-        PersistentCharacter* cat = g_origGetSelectedCat(catManager, targetCat->sql_key);
-        if (cat && cat->sql_key == targetCat->sql_key) {
+        CatData* cat = g_origGetSelectedCat(catManager, targetCat->cat_uid);
+        if (cat && cat->cat_uid == targetCat->cat_uid) {
           return comp;
         }
       }
@@ -239,7 +239,7 @@ static Component* FindAnyCatButton() {
   for (Component* comp : components) {
     if (!GameUtils::IsComponentValid(comp)) continue;
 
-    auto* btn = reinterpret_cast<glaiel::WorldEventCatButton*>(comp);
+    auto* btn = reinterpret_cast<WorldEventCatButton*>(comp);
     void* catManager = btn->catManager;
     void* otherPtr = btn->otherPtr;
     if (catManager && otherPtr) {
@@ -249,13 +249,13 @@ static Component* FindAnyCatButton() {
   return nullptr;
 }
 
-static PersistentCharacter* FindCatInParty(int64_t catUID) {
+static CatData* FindCatInParty(int64_t catUID) {
   MewDirector* director = GameUtils::GetMewDirectorSingleton();
-  if (director && director->partyCatIDs) {
-    for (int i = 0; i < director->partyCount; ++i) {
-      int64_t id = director->partyCatIDs[i];
+  if (director && director->current_battle_cats.data_) {
+    for (uint32_t i = 0; i < director->current_battle_cats.size(); ++i) {
+      int64_t id = director->current_battle_cats.data_[i];
       if (id == catUID) {
-        return ParaboxAPI::GetPersistentCharacterById(catUID);
+        return ParaboxAPI::GetCatDataById(catUID);
       }
     }
   }
@@ -268,7 +268,7 @@ PARABOX_API void ForceWorldEventSelectCat(int64_t selectedCatUID) {
     return;
   }
 
-  PersistentCharacter* targetCat = FindCatInParty(selectedCatUID);
+  CatData* targetCat = FindCatInParty(selectedCatUID);
   if (!targetCat) {
     return;
   }
@@ -285,14 +285,14 @@ PARABOX_API void ForceWorldEventSelectCat(int64_t selectedCatUID) {
   // Set the override state so that GetSelectedCat returns the target cat
   g_overrideSelectedCat = targetCat;
 
-  glaiel::WorldEventOptionState dummyState = {};
-  memset(&dummyState, 0, sizeof(dummyState));
-  dummyState.catUID = selectedCatUID;
+  CatSelector dummySelector = {};
+  memset(&dummySelector, 0, sizeof(dummySelector));
+  dummySelector.current_cat = selectedCatUID;
 
-  glaiel::WorldEventOptionState* oldState = g_activeWorldEvent->optionState;
-  g_activeWorldEvent->optionState = &dummyState;
+  CatSelector* oldSelector = g_activeWorldEvent->selector;
+  g_activeWorldEvent->selector = &dummySelector;
 
-  glaiel::WorldEventClickEvent dummyClick = {};
+  WorldEventClickEvent dummyClick = {};
   dummyClick.vtable = nullptr;
   dummyClick.worldEvent = g_activeWorldEvent;
   dummyClick.sender = buttonComp;
@@ -301,7 +301,7 @@ PARABOX_API void ForceWorldEventSelectCat(int64_t selectedCatUID) {
     g_origWorldEvent_ClickCat(&dummyClick);
   }
 
-  g_activeWorldEvent->optionState = oldState;
+  g_activeWorldEvent->selector = oldSelector;
   g_overrideSelectedCat = nullptr;
 }
 
@@ -310,7 +310,7 @@ PARABOX_API void ForceWorldEventClickEnd(uint8_t buttonType) {
     return;
   }
 
-  glaiel::WorldEventClickEvent dummy = {};
+  WorldEventClickEvent dummy = {};
   dummy.vtable = nullptr;
   dummy.worldEvent = g_activeWorldEvent;
   dummy.sender = nullptr;
@@ -333,31 +333,11 @@ PARABOX_API void ForceWorldEventClickEnd(uint8_t buttonType) {
 } // namespace ParaboxAPI
 
 void WorldEventHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
-  HOOK_INSTALL(mj, gameBase, WorldEvent_init,
-    "48 8b c4 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8d a8 f8 fd ff ff 48 81 ec c8 02 00 00",
-    23);
-
-  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickOption,
-    "48 8B 05 ?? ?? ?? ?? C6 80 14 07 00 00 01 48 8B 51 08 48 8B 41 10 48 89",
-    14);
-
-  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickCat,
-    "48 89 5C 24 10 57 48 83 EC 40 48 8B 41 10 48 8B D9 48 8B 88 98 05 00 00",
-    14);
-
-  HOOK_INSTALL(mj, gameBase, GetSelectedCat,
-    "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 40 4C 8B C2 48",
-    15);
-
-  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickEnd1,
-    "40 53 48 83 EC 40 48 8B 51 08 48 8B D9 80 BA F0 19 00 00 00 75 49 48 8B 05 ?? ?? ?? ?? 80 78 38 00 0F 85 C7 00 00 00 48 8B 40 18 48 89 54 24 50 48 8B 58 08 80 BB B0 04 00 00 00 0F 85 AD 00 00 00 48 8B CB E8 B7 A5 02 00",
-    20);
-
-  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickEnd2,
-    "40 53 48 83 EC 40 48 8B 51 08 48 8B D9 80 BA F0 19 00 00 00 75 49 48 8B 05 ?? ?? ?? ?? 80 78 38 00 0F 85 C7 00 00 00 48 8B 40 18 48 89 54 24 50 48 8B 58 08 80 BB B0 04 00 00 00 0F 85 AD 00 00 00 48 8B CB E8 E7 A6 02 00",
-    20);
-
-  HOOK_INSTALL(mj, gameBase, WorldEvent_add_end_button,
-    "4C 89 44 24 18 48 89 54 24 10 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 D9 48 81 EC F0 00 00 00",
-    25);
+  HOOK_INSTALL(mj, gameBase, WorldEvent_init, GameSymbols::WorldEvent_init, 23);
+  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickOption, GameSymbols::WorldEvent_setupActionChoice_action, 14);
+  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickCat, GameSymbols::WorldEvent_setupCatChoice_action, 14);
+  HOOK_INSTALL(mj, gameBase, GetSelectedCat, GameSymbols::CatDatabase_get_cat, 15);
+  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickEnd1, GameSymbols::WorldEvent_setupEndButton_action1, 20);
+  HOOK_INSTALL(mj, gameBase, WorldEvent_ClickEnd2, GameSymbols::WorldEvent_setupEndButton_action2, 20);
+  HOOK_INSTALL(mj, gameBase, WorldEvent_add_end_button, GameSymbols::WorldEvent_push_end_option, 25);
 }

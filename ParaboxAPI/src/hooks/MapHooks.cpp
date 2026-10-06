@@ -20,13 +20,13 @@ static void __fastcall Hook_MapNode_Click(void *self) {
     const void* targetMapNode = nullptr;
     
     if ((uintptr_t)self > 0x10000) {
-        const auto* closure = static_cast<const glaiel::MapNodeClosure*>(self);
+        const auto* closure = static_cast<const MapNodeClosure*>(self);
         targetMapNode = closure->node;
     }
 
-    const auto *mapScreen = static_cast<const glaiel::MapScreen*>(mapScreenPtr);
+    const auto *mapScreen = static_cast<const MapScreen*>(mapScreenPtr);
     const uint32_t vectorSize = mapScreen->nodes.size_;
-    if (void **nodes = mapScreen->nodes.data_) {
+    if (MapNode **nodes = mapScreen->nodes.data_) {
       for (uint32_t i = 0; i < vectorSize; i++) {
         if (nodes[i] == targetMapNode) {
           nodeIndex = i;
@@ -45,17 +45,15 @@ static void __fastcall Hook_MapNode_Click(void *self) {
     return;
   }
 
-  if (self && (uintptr_t)self > 0x10000) {
-    auto* closure = static_cast<glaiel::MapNodeClosure*>(self);
-    glaiel::MapNode* node = closure ? closure->node : nullptr;
-    if (node && (ParaboxAPI::g_isHandlingNetworkMapNodeSync || node->nodeType == 4)) {
-      if (node->mapScreen && node->mapScreen->mapState) {
-        node->mapScreen->mapState->selectedNode = node;
-        node->mapScreen->pendingFlag = 0;
+    MapNodeClosure* closure = static_cast<MapNodeClosure*>(self);
+    MapNode* node = closure ? closure->node : nullptr;
+    if (node && (ParaboxAPI::g_isHandlingNetworkMapNodeSync || node->type == MapNodeType::HOME)) {
+      if (node->parent && node->parent->cat_marker) {
+        node->parent->cat_marker->pathfind_to = node;
+        node->parent->early_exited = false;
         return;
       }
     }
-  }
 
   if (g_origMapNode_Click) {
     g_origMapNode_Click(self);
@@ -83,11 +81,11 @@ namespace ParaboxAPI {
   PARABOX_API void ForceMapNodeClick(void* matchedNode) {
     if (!matchedNode) return;
 
-    auto* node = static_cast<glaiel::MapNode*>(matchedNode);
-    if (g_isHandlingNetworkMapNodeSync || node->nodeType == 4) {
-      if (node->mapScreen && node->mapScreen->mapState) {
-        node->mapScreen->mapState->selectedNode = node;
-        node->mapScreen->pendingFlag = 0;
+    auto* node = static_cast<MapNode*>(matchedNode);
+    if (g_isHandlingNetworkMapNodeSync || node->type == MapNodeType::HOME) {
+      if (node->parent && node->parent->cat_marker) {
+        node->parent->cat_marker->pathfind_to = node;
+        node->parent->early_exited = false;
         return;
       }
     }
@@ -121,19 +119,9 @@ namespace ParaboxAPI {
 }
 
 void MapHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
-  SCAN_SET(mj, gameBase, MapScreen_OpenInventory,
-    "40 57 48 83 EC 40 48 8B F9 33 D2 48 8B 49 08 E8 ?? ?? ?? ?? 84 C0 0F 85 ?? ?? ?? ?? 48 8B 4F 08",
-    g_MapScreen_OpenInventory);
+  RESOLVE_FUNC(gameBase, GameSymbols::MapScreen_open_inventory, g_MapScreen_OpenInventory);
+  RESOLVE_DATA(gameBase, GameSymbols::Scene_current, g_RenderingScene);
 
-  SCAN_RESOLVE(mj, gameBase, GetMainCamera,
-    "48 89 5C 24 10 57 48 83 EC 20 33 FF 48 8B D9 48 85 C9 75 10 48 8B 1D",
-    g_RenderingScene, 0x14, 3, 7);
-
-  HOOK_INSTALL(mj, gameBase, MapScreen_EnterNode,
-    "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57 48 8d a8 e8 fe ff ff 48 81 ec e0 01 00 00 0f 29 70 b8 0f 29 78 a8 48 8b fa 48 8b f1 33 c0",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, MapNode_Click,
-    "48 89 5c 24 20 55 56 57 41 56 41 57 48 81 ec c0 00 00 00 48 8b 71 08 83 be 38 01 00 00 04 0f 85",
-    0);
+  HOOK_INSTALL(mj, gameBase, MapScreen_EnterNode, GameSymbols::MapScreen_EnterNode, 0);
+  HOOK_INSTALL(mj, gameBase, MapNode_Click, GameSymbols::MapNode_click_action, 0);
 }

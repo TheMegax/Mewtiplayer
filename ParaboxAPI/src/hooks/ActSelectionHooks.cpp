@@ -50,11 +50,6 @@ PARABOX_API void ForceActSelectionScreenSelectAct(void *screen, int actIndex) {
 } // namespace ParaboxAPI
 
 void ActSelectionHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
-  HOOK_INSTALL(mj, gameBase, ActSelectionScreen_init,
-    "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 48 fd ff ff 48 81 ec b8 03 00 00",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, ActSelectionScreen_SelectAct,
-    "4c 8b dc 48 81 ec 88 00 00 00 49 8d 43 b8 49 89 43 08 89 54 24 20 49 89 4b a0",
-    0);
+  HOOK_INSTALL(mj, gameBase, ActSelectionScreen_init, GameSymbols::ActSelectionScreen_init, 0);
+  HOOK_INSTALL(mj, gameBase, ActSelectionScreen_SelectAct, GameSymbols::ActSelectionScreen_SelectAct, 0);
 }

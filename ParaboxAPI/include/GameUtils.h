@@ -50,9 +50,9 @@ struct UnlocksData {
 };
 PARABOX_API bool ParseUnlocksBlob(const ParaboxAPI::Array<uint8_t>& blob, UnlocksData& outData);
 PARABOX_API ParaboxAPI::Array<uint8_t> SerializeUnlocksBlob(const UnlocksData& data);
-PARABOX_API void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs);
-PARABOX_API void MergeMapFlags(glaiel::SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<ParaboxAPI::String>>& clientFlagsList);
-PARABOX_API void MergeInventoryBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs);
+PARABOX_API void MergeUnlocksBlobs(const SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs);
+PARABOX_API void MergeMapFlags(SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<ParaboxAPI::String>>& clientFlagsList);
+PARABOX_API void MergeInventoryBlobs(const SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs);
 
 typedef void (__fastcall *MewSaveFile_Load_t)(void* thisPtr, int64_t sql_id, void* catPtr);
 PARABOX_API void SetMewSaveFileLoadPtr(MewSaveFile_Load_t ptr);
@@ -112,6 +112,6 @@ PARABOX_API void GetRNGState(void *outSeed32);
 // Simple CRC32 implementation for data verification and signatures.
 PARABOX_API uint32_t CalculateCRC32(const void *data, size_t size);
 
-PARABOX_API ParaboxAPI::Array<UIAbilitySlot *> GetUIAbilitySlots(const CombatUISlotManager *em);
+PARABOX_API ParaboxAPI::Array<Ability *> GetCharacterAbilities(const Character *character);
 
 } // namespace GameUtils

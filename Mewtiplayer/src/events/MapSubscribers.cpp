@@ -106,16 +106,16 @@ void TriggerMapNodeSync(const uint32_t nodeIndex) {
         return;
     }
 
-    const auto *mapScreen = static_cast<const glaiel::MapScreen*>(ParaboxAPI::GetMapScreen());
+    const auto *mapScreen = static_cast<const MapScreen*>(ParaboxAPI::GetMapScreen());
     const uint32_t vectorSize = mapScreen->nodes.size_;
-    void **nodes = mapScreen->nodes.data_;
+    MapNode **nodes = mapScreen->nodes.data_;
 
     if (!nodes || nodeIndex >= vectorSize) {
         Overlay::Log("[MAP] [ERR] Invalid node index %u (vector size %u)", nodeIndex, vectorSize);
         return;
     }
 
-    void *matchedNode = nodes[nodeIndex];
+    MapNode *matchedNode = nodes[nodeIndex];
     if (!matchedNode) {
         Overlay::Log("[MAP] [ERR] Node at index %u is null!", nodeIndex);
         return;

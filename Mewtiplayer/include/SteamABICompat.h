@@ -21,6 +21,10 @@ public:
     static const char *GetFriendPersonaName(const CSteamID steamIDFriend) {
         return SteamAPI_ISteamFriends_GetFriendPersonaName(SteamAPI_SteamFriends(), steamIDFriend.ConvertToUint64());
     }
+
+    static EFriendRelationship GetFriendRelationship(const CSteamID steamIDFriend) {
+        return SteamAPI_ISteamFriends_GetFriendRelationship(SteamAPI_SteamFriends(), steamIDFriend.ConvertToUint64());
+    }
 };
 
 class ISteamNetworkingCompat {

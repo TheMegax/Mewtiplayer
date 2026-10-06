@@ -119,8 +119,8 @@ std::deque<ActionPacket> g_pendingInjections;
 ActionPacket g_lastSentTurnPackage = {};
 void *g_lastActionQueue = nullptr;
 
-std::map<glaiel::LevelUpScreen*, PersistentCharacter*> g_levelUpScreenToCat;
-std::map<glaiel::AbilityChooser*, PersistentCharacter*> g_abilityChooserToCat;
+std::map<LevelUpScreen*, CatData*> g_levelUpScreenToCat;
+std::map<AbilityChooser*, CatData*> g_abilityChooserToCat;
 
 ActionPacket g_lastInjectedActionPacket = {};
 bool g_injectedInCurrentCall = false;
@@ -288,12 +288,12 @@ void RegisterCombatSubscribers() {
 
             int64_t uniqueId = -1;
             auto className = "Classless";
-            if (ev.character->persistentChar) {
-                uniqueId = ev.character->persistentChar->sql_key;
-                className = ev.character->persistentChar->className.begin();
+            if (ev.character->pcat_data) {
+                uniqueId = ev.character->pcat_data->cat_uid;
+                className = ev.character->pcat_data->cat_class.begin();
             }
 
-            const uint8_t isPlayerCat = ev.character->isPlayerCat;
+            const uint8_t isPlayerCat = ev.character->is_player_cat;
             Overlay::Log("[TURN] Begin Turn: [%ls] UID:%lld Class:%s IsPlayerCat:%d",
                          name.c_str(), uniqueId, className, isPlayerCat);
 
@@ -332,7 +332,7 @@ void RegisterCombatSubscribers() {
 
         if (ev.ability && ev.turnAction) {
             const std::string abilityName = GameUtils::GetAbilityName(ev.ability).to_string();
-            Character *abilityOwner = ev.ability->owner;
+            Character *abilityOwner = ev.ability->character;
             uint32_t triggerNUID = abilityOwner
                 ? NetworkManager::Get().GetNUID(abilityOwner)
                 : 0xFFFFFFFF;
@@ -348,24 +348,24 @@ void RegisterCombatSubscribers() {
                     // fired before the main action
                     TurnActionPacket passivePkt{};
                     passivePkt.actorNUID = triggerNUID;
-                    passivePkt.actionType = ev.turnAction->type;
+                    passivePkt.actionType = ev.turnAction->kind;
                     passivePkt.isPassive = true;
                     GameUtils::GetRNGState(passivePkt.rngState);
                     memset(passivePkt.abilityName, 0, sizeof(passivePkt.abilityName));
                     strncpy_s(passivePkt.abilityName, abilityName.c_str(), _TRUNCATE);
-                    passivePkt.targetX  = ev.turnAction->targetX;
-                    passivePkt.targetY  = ev.turnAction->targetY;
-                    passivePkt.target2X = ev.turnAction->target2X;
-                    passivePkt.target2Y = ev.turnAction->target2Y;
-                    passivePkt.unk_28   = ev.turnAction->unk_28;
-                    passivePkt.unk_2C   = ev.turnAction->unk_2C;
-                    passivePkt.flag_30  = ev.turnAction->flag_30;
-                    passivePkt.flag_31  = ev.turnAction->flag_31;
-                    passivePkt.flag_32  = ev.turnAction->flag_32;
-                    passivePkt.flag_33  = ev.turnAction->flag_33;
-                    passivePkt.flag_34  = ev.turnAction->flag_34;
-                    passivePkt.flag_35  = ev.turnAction->flag_35;
-                    passivePkt.flag_36  = ev.turnAction->flag_36;
+                    passivePkt.targetX  = ev.turnAction->tile.x;
+                    passivePkt.targetY  = ev.turnAction->tile.y;
+                    passivePkt.target2X = ev.turnAction->orientation.x;
+                    passivePkt.target2Y = ev.turnAction->orientation.y;
+                    passivePkt.actorId                = ev.turnAction->source.generation;
+                    passivePkt.noCost                 = ev.turnAction->no_cost;
+                    passivePkt.primeTrigger           = ev.turnAction->prime_trigger;
+                    passivePkt.isChain                = ev.turnAction->is_chain;
+                    passivePkt.evenIfDead             = ev.turnAction->even_if_dead;
+                    passivePkt.forceDisplayName       = ev.turnAction->force_display_name;
+                    passivePkt.autoRecomputeTarget    = ev.turnAction->auto_recompute_target;
+                    passivePkt.respectPrimeWhenNoCost = ev.turnAction->respect_prime_when_nocost;
+                    passivePkt.intentional            = ev.turnAction->intentional;
 
                     ActionPacket actPkt{};
                     actPkt.type = PacketType::TurnAction;
@@ -419,24 +419,24 @@ void RegisterCombatSubscribers() {
                 if (ownerID != 0 && ownerID == myID) {
                     TurnActionPacket autoPkt{};
                     autoPkt.actorNUID = triggerNUID;
-                    autoPkt.actionType = ev.turnAction->type;
+                    autoPkt.actionType = ev.turnAction->kind;
                     autoPkt.isPassive = true; // Trigger immediately on receipt via ForceAbilityTrigger
                     GameUtils::GetRNGState(autoPkt.rngState);
                     memset(autoPkt.abilityName, 0, sizeof(autoPkt.abilityName));
                     strncpy_s(autoPkt.abilityName, abilityName.c_str(), _TRUNCATE);
-                    autoPkt.targetX  = ev.turnAction->targetX;
-                    autoPkt.targetY  = ev.turnAction->targetY;
-                    autoPkt.target2X = ev.turnAction->target2X;
-                    autoPkt.target2Y = ev.turnAction->target2Y;
-                    autoPkt.unk_28   = ev.turnAction->unk_28;
-                    autoPkt.unk_2C   = ev.turnAction->unk_2C;
-                    autoPkt.flag_30  = ev.turnAction->flag_30;
-                    autoPkt.flag_31  = ev.turnAction->flag_31;
-                    autoPkt.flag_32  = ev.turnAction->flag_32;
-                    autoPkt.flag_33  = ev.turnAction->flag_33;
-                    autoPkt.flag_34  = ev.turnAction->flag_34;
-                    autoPkt.flag_35  = ev.turnAction->flag_35;
-                    autoPkt.flag_36  = ev.turnAction->flag_36;
+                    autoPkt.targetX  = ev.turnAction->tile.x;
+                    autoPkt.targetY  = ev.turnAction->tile.y;
+                    autoPkt.target2X = ev.turnAction->orientation.x;
+                    autoPkt.target2Y = ev.turnAction->orientation.y;
+                    autoPkt.actorId                = ev.turnAction->source.generation;
+                    autoPkt.noCost                 = ev.turnAction->no_cost;
+                    autoPkt.primeTrigger           = ev.turnAction->prime_trigger;
+                    autoPkt.isChain                = ev.turnAction->is_chain;
+                    autoPkt.evenIfDead             = ev.turnAction->even_if_dead;
+                    autoPkt.forceDisplayName       = ev.turnAction->force_display_name;
+                    autoPkt.autoRecomputeTarget    = ev.turnAction->auto_recompute_target;
+                    autoPkt.respectPrimeWhenNoCost = ev.turnAction->respect_prime_when_nocost;
+                    autoPkt.intentional            = ev.turnAction->intentional;
 
                     NetworkManager::Get().BroadcastPacket(
                         PacketType::TurnAction, &autoPkt, sizeof(autoPkt), true);
@@ -462,7 +462,7 @@ void RegisterCombatSubscribers() {
                 }
             }
 
-            std::string actorName = (abilityOwner) ? abilityOwner->name.to_utf8() : "Unknown";
+            std::string actorName = (abilityOwner) ? abilityOwner->display_name.to_utf8() : "Unknown";
             if (actorName.empty() || actorName == "UNKNOWN" || actorName == "NULL") {
                 actorName = NetworkManager::Get().GetCharacterNameByNUID(triggerNUID);
             }
@@ -470,8 +470,8 @@ void RegisterCombatSubscribers() {
             snprintf(buf, sizeof(buf),
                      "[ACTION] Actor:%s | %s | T1:(%d,%d) | T2:(%d,%d)",
                      actorName.c_str(), abilityName.c_str(),
-                     ev.turnAction->targetX, ev.turnAction->targetY, ev.turnAction->target2X,
-                     ev.turnAction->target2Y);
+                     ev.turnAction->tile.x, ev.turnAction->tile.y, ev.turnAction->orientation.x,
+                     ev.turnAction->orientation.y);
             Overlay::Log(buf);
         }
     });
@@ -482,8 +482,8 @@ void RegisterCombatSubscribers() {
         // (type set to 0) fall through into the injection path below.
         // The controller broadcasts all actions. Remote clients only inject.
         // Internal engine actions (like Type 7) are allowed to resolve locally.
-        if (ev.actionData && ev.actionData->type > 1 && ev.actionData->type != 7) {
-            Character *actor = ev.actionData->actor;
+        if (ev.actionData && ev.actionData->kind > ActionKind::WAITING && ev.actionData->kind != ActionKind::CUSTOM) {
+            Character *actor = ev.actionData->source.obj;
             uint32_t actionActorNUID = actor ? NetworkManager::Get().GetNUID(actor) : 0xFFFFFFFF;
 
             const uint32_t activeNUID_sup = NetworkManager::Get().GetActiveNUID();
@@ -493,17 +493,17 @@ void RegisterCombatSubscribers() {
                 if (ownerID_sup != 0 && ownerID_sup != myID_sup) {
                     if (g_modState.talkative) {
                         Overlay::Log("[ENQUEUE] Suppressed local action Type=%d for %s (remote turn for %s)",
-                                     ev.actionData->type,
+                                     ev.actionData->kind,
                                      NetworkManager::Get().GetCharacterNameByNUID(actionActorNUID).c_str(),
                                      NetworkManager::Get().GetCharacterNameByNUID(activeNUID_sup).c_str());
                     }
-                    ev.actionData->type = 0; // Demote to idle
+                    ev.actionData->kind = ActionKind::NONE; // Demote to idle
                 }
             }
         }
 
         g_lastActionQueue = ev.queue;
-        g_isQueueEmpty = ev.actionData && ev.actionData->type <= 1;
+        g_isQueueEmpty = ev.actionData && ev.actionData->kind <= ActionKind::WAITING;
 
         if (g_isQueueEmpty && g_pendingInjections.empty() && !g_deferredBroadcastPending) {
             g_isMainActionActive = false;
@@ -512,7 +512,7 @@ void RegisterCombatSubscribers() {
             g_activeMainActionAbilityName.clear();
         }
 
-        if (ev.actionData && ev.actionData->type <= 1 && !g_pendingInjections.empty()) {
+        if (ev.actionData && ev.actionData->kind <= ActionKind::WAITING && !g_pendingInjections.empty()) {
             // Peek for TurnAction specifically, or handle TurnFacing immediately
             while (!g_pendingInjections.empty() &&
                    g_pendingInjections.front().type == PacketType::TurnFacing) {
@@ -554,7 +554,7 @@ void RegisterCombatSubscribers() {
                 }
 
                 uint32_t activeNUID = NetworkManager::Get().GetActiveNUID();
-                uint32_t currentNUID = NetworkManager::Get().GetNUID(ev.actionData->actor);
+                uint32_t currentNUID = NetworkManager::Get().GetNUID(ev.actionData->source.obj);
                 Character *pendingActor =
                     NetworkManager::Get().GetCharacter(pending.actorNUID);
 
@@ -566,7 +566,7 @@ void RegisterCombatSubscribers() {
                 }
                 
                 if (const uint64_t ownerID = NetworkManager::Get().GetNUIDOwner(pending.actorNUID);
-                    ownerID == 0 && !pendingActor->isPlayerCat && pending.actionType == 3) {
+                    ownerID == 0 && !pendingActor->is_player_cat && pending.actionType == ActionKind::END_TURN) {
                     // For unowned AI / NPC characters (ownerID == 0 and !isPlayerCat), local AI executes on both sides.
                     // Ignore AI EndTurn packets on receipt.
                     Overlay::Log("[ENQUEUE] Ignored AI EndTurn for %s (NUID %u)",
@@ -583,7 +583,7 @@ void RegisterCombatSubscribers() {
 
                 std::string abilityName(pending.abilityName);
                 Ability *ability = nullptr;
-                if (abilityName != "NULL" && abilityName != "EndTurn" && abilityName != "Escape" && pending.actionType != 3 && pending.actionType != 5) {
+                if (abilityName != "NULL" && abilityName != "EndTurn" && abilityName != "Escape" && pending.actionType != ActionKind::END_TURN && pending.actionType != ActionKind::RUN_AWAY) {
                     ability = GameUtils::FindCharacterAbility(pendingActor, abilityName.c_str());
                     if (!ability) {
                         if (Component* passive = GameUtils::FindCharacterPassive(pendingActor, abilityName.c_str())) {
@@ -624,23 +624,22 @@ void RegisterCombatSubscribers() {
                     GameUtils::SetRNGState(pktCopy.rngState);
 
                     TurnAction actionToRun{};
-                    actionToRun.type = pktCopy.actionType;
+                    actionToRun.kind = pktCopy.actionType;
                     actionToRun.ability = ability;
-                    actionToRun.actor = pendingActor;
-                    actionToRun.targetX = pktCopy.targetX;
-                    actionToRun.targetY = pktCopy.targetY;
-                    actionToRun.target2X = pktCopy.target2X;
-                    actionToRun.target2Y = pktCopy.target2Y;
-                    actionToRun.unk_28 = pktCopy.unk_28;
-                    actionToRun.unk_2C = pktCopy.unk_2C;
-                    actionToRun.flag_30 = pktCopy.flag_30;
-                    actionToRun.flag_31 = pktCopy.flag_31;
-                    actionToRun.flag_32 = pktCopy.flag_32;
-                    actionToRun.flag_33 = pktCopy.flag_33;
-                    actionToRun.flag_34 = pktCopy.flag_34;
-                    actionToRun.flag_35 = pktCopy.flag_35;
-                    actionToRun.flag_36 = pktCopy.flag_36;
-                    actionToRun.magic84 = 0x544c5541; // "AULT"
+                    actionToRun.source.obj = pendingActor;
+                    actionToRun.source.generation = pktCopy.actorId;
+                    actionToRun.tile.x = pktCopy.targetX;
+                    actionToRun.tile.y = pktCopy.targetY;
+                    actionToRun.orientation.x = pktCopy.target2X;
+                    actionToRun.orientation.y = pktCopy.target2Y;
+                    actionToRun.no_cost                 = pktCopy.noCost;
+                    actionToRun.prime_trigger           = pktCopy.primeTrigger;
+                    actionToRun.is_chain                = pktCopy.isChain;
+                    actionToRun.even_if_dead             = pktCopy.evenIfDead;
+                    actionToRun.force_display_name       = pktCopy.forceDisplayName;
+                    actionToRun.auto_recompute_target    = pktCopy.autoRecomputeTarget;
+                    actionToRun.respect_prime_when_nocost = pktCopy.respectPrimeWhenNoCost;
+                    actionToRun.intentional            = pktCopy.intentional;
 
                     Overlay::Log("[ENQUEUE] Executed out-of-turn action '%s' for %s (NUID %u, current turn NUID %u) via ForceAbilityTrigger",
                                  pktCopy.abilityName, NetworkManager::Get().GetCharacterNameByNUID(pktCopy.actorNUID).c_str(), pktCopy.actorNUID, currentNUID);
@@ -651,23 +650,22 @@ void RegisterCombatSubscribers() {
                     return;
                 }
 
-                ev.actionData->type = pktCopy.actionType;
+                ev.actionData->kind = pktCopy.actionType;
                 ev.actionData->ability = ability;
-                ev.actionData->actor = pendingActor;
-                ev.actionData->targetX = pktCopy.targetX;
-                ev.actionData->targetY = pktCopy.targetY;
-                ev.actionData->target2X = pktCopy.target2X;
-                ev.actionData->target2Y = pktCopy.target2Y;
-                ev.actionData->unk_28 = pktCopy.unk_28;
-                ev.actionData->unk_2C = pktCopy.unk_2C;
-                ev.actionData->flag_30 = pktCopy.flag_30;
-                ev.actionData->flag_31 = pktCopy.flag_31;
-                ev.actionData->flag_32 = pktCopy.flag_32;
-                ev.actionData->flag_33 = pktCopy.flag_33;
-                ev.actionData->flag_34 = pktCopy.flag_34;
-                ev.actionData->flag_35 = pktCopy.flag_35;
-                ev.actionData->flag_36 = pktCopy.flag_36;
-                ev.actionData->magic84 = 0x544c5541; // "AULT"
+                ev.actionData->source.obj = pendingActor;
+                ev.actionData->source.generation = pktCopy.actorId;
+                ev.actionData->tile.x = pktCopy.targetX;
+                ev.actionData->tile.y = pktCopy.targetY;
+                ev.actionData->orientation.x = pktCopy.target2X;
+                ev.actionData->orientation.y = pktCopy.target2Y;
+                ev.actionData->no_cost                 = pktCopy.noCost;
+                ev.actionData->prime_trigger           = pktCopy.primeTrigger;
+                ev.actionData->is_chain                = pktCopy.isChain;
+                ev.actionData->even_if_dead             = pktCopy.evenIfDead;
+                ev.actionData->force_display_name       = pktCopy.forceDisplayName;
+                ev.actionData->auto_recompute_target    = pktCopy.autoRecomputeTarget;
+                ev.actionData->respect_prime_when_nocost = pktCopy.respectPrimeWhenNoCost;
+                ev.actionData->intentional            = pktCopy.intentional;
                 
                 GameUtils::SetRNGState(pktCopy.rngState);
 
@@ -697,32 +695,32 @@ void RegisterCombatSubscribers() {
             if (g_modState.talkative && (currentTime - lastLogTime >= 1000) &&
                 !g_pendingInjections.empty()) {
                 lastLogTime = currentTime;
-                uint32_t currentNUID = NetworkManager::Get().GetNUID(ev.actionData->actor);
+                uint32_t currentNUID = NetworkManager::Get().GetNUID(ev.actionData->source.obj);
                 Overlay::Log("[ENQUEUE] Skipping injection: pending NUID %u != current NUID %u",
                              g_pendingInjections.front().data.action.actorNUID,
                              currentNUID);
             }
         }
 
-        if (!ev.actionData || ev.actionData->type <= 1)
+        if (!ev.actionData || ev.actionData->kind <= ActionKind::WAITING)
             return;
 
         if (g_isCombatUIProcessing) {
-            g_waitingForPlayerAction = ev.actionData->type == 3 ||
+            g_waitingForPlayerAction = ev.actionData->kind == ActionKind::END_TURN ||
                 (ev.actionData->ability != nullptr &&
                  g_castableAbilities.count(ev.actionData->ability) > 0);
         }
 
-        if (ev.actionData->type == 3) {
-            Character *actor = ev.actionData->actor;
+        if (ev.actionData->kind == ActionKind::END_TURN) {
+            Character *actor = ev.actionData->source.obj;
             uint32_t nuid = actor ? NetworkManager::Get().GetNUID(actor) : 0xFFFFFFFF;
             if (nuid == 0xFFFFFFFF) {
                 nuid = NetworkManager::Get().GetActiveNUID();
             }
 
             const uint64_t ownerID = NetworkManager::Get().GetNUIDOwner(nuid);
-            const bool isPlayerCat = (actor && actor->isPlayerCat) ||
-                                     (nuid != 0xFFFFFFFF && NetworkManager::Get().GetCharacter(nuid) && NetworkManager::Get().GetCharacter(nuid)->isPlayerCat);
+            const bool isPlayerCat = (actor && actor->is_player_cat) ||
+                                     (nuid != 0xFFFFFFFF && NetworkManager::Get().GetCharacter(nuid) && NetworkManager::Get().GetCharacter(nuid)->is_player_cat);
             const bool isAI = (ownerID == 0 && !isPlayerCat);
 
             if (isAI) {
@@ -737,22 +735,22 @@ void RegisterCombatSubscribers() {
             if (nuid != 0xFFFFFFFF && !isInputBlocked) {
                 TurnActionPacket pkt{};
                 pkt.actorNUID = nuid;
-                pkt.actionType = 3;
+                pkt.actionType = ActionKind::END_TURN;
                 memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
                 strncpy_s(pkt.abilityName, "EndTurn", _TRUNCATE);
-                pkt.targetX = ev.actionData->targetX;
-                pkt.targetY = ev.actionData->targetY;
-                pkt.target2X = ev.actionData->target2X;
-                pkt.target2Y = ev.actionData->target2Y;
-                pkt.unk_28 = ev.actionData->unk_28;
-                pkt.unk_2C = ev.actionData->unk_2C;
-                pkt.flag_30 = ev.actionData->flag_30;
-                pkt.flag_31 = ev.actionData->flag_31;
-                pkt.flag_32 = ev.actionData->flag_32;
-                pkt.flag_33 = ev.actionData->flag_33;
-                pkt.flag_34 = ev.actionData->flag_34;
-                pkt.flag_35 = ev.actionData->flag_35;
-                pkt.flag_36 = ev.actionData->flag_36;
+                pkt.targetX = ev.actionData->tile.x;
+                pkt.targetY = ev.actionData->tile.y;
+                pkt.target2X = ev.actionData->orientation.x;
+                pkt.target2Y = ev.actionData->orientation.y;
+                pkt.actorId                = ev.actionData->source.generation;
+                pkt.noCost                 = ev.actionData->no_cost;
+                pkt.primeTrigger           = ev.actionData->prime_trigger;
+                pkt.isChain                = ev.actionData->is_chain;
+                pkt.evenIfDead             = ev.actionData->even_if_dead;
+                pkt.forceDisplayName       = ev.actionData->force_display_name;
+                pkt.autoRecomputeTarget    = ev.actionData->auto_recompute_target;
+                pkt.respectPrimeWhenNoCost = ev.actionData->respect_prime_when_nocost;
+                pkt.intentional            = ev.actionData->intentional;
                 GameUtils::GetRNGState(pkt.rngState);
 
                 ActionPacket actPkt{};
@@ -779,18 +777,18 @@ void RegisterCombatSubscribers() {
         }
 
         Ability *ability = ev.actionData->ability;
-        Character *actor = ev.actionData->actor;
+        Character *actor = ev.actionData->source.obj;
         if (!actor && ability)
-            actor = ability->owner;
+            actor = ability->character;
 
         uint32_t nuid = actor ? NetworkManager::Get().GetNUID(actor) : 0xFFFFFFFF;
-        std::string actorName = actor ? actor->name.to_utf8() : "UNKNOWN";
+        std::string actorName = actor ? actor->display_name.to_utf8() : "UNKNOWN";
 
         const uint64_t myID_enqueue = SteamUser()->GetSteamID().ConvertToUint64();
         const uint32_t activeNUID_enqueue = NetworkManager::Get().GetActiveNUID();
         const uint64_t ownerID_enqueue = NetworkManager::Get().GetNUIDOwner(activeNUID_enqueue);
         const bool isMyAuthoritativeTurn = ownerID_enqueue != 0 && ownerID_enqueue == myID_enqueue;
-        const bool isTurnAction = (ev.actionData->type > 1 && ev.actionData->type != 7);
+        const bool isTurnAction = (ev.actionData->kind > ActionKind::WAITING && ev.actionData->kind != ActionKind::NONE);
 
         if (g_waitingForPlayerAction || (isMyAuthoritativeTurn && isTurnAction)) {
             g_waitingForPlayerAction = false;
@@ -799,43 +797,43 @@ void RegisterCombatSubscribers() {
             if (nuid != 0xFFFFFFFF) {
                 TurnActionPacket pkt{};
                 pkt.actorNUID = nuid;
-                pkt.actionType = ev.actionData->type;
+                pkt.actionType = ev.actionData->kind;
 
                 std::string abilityName = GameUtils::GetAbilityName(ability).to_string();
                 if (abilityName == "NULL" || abilityName == "UNKNOWN" || abilityName.empty()) {
-                    if (ev.actionData->type == 3) {
+                    if (ev.actionData->kind == ActionKind::END_TURN) {
                         abilityName = "EndTurn";
-                    } else if (ev.actionData->type == 5) {
+                    } else if (ev.actionData->kind == ActionKind::RUN_AWAY) {
                         abilityName = "Escape";
                     }
                 }
                 memset(pkt.abilityName, 0, sizeof(pkt.abilityName));
                 strncpy_s(pkt.abilityName, abilityName.c_str(), _TRUNCATE);
 
-                pkt.targetX = ev.actionData->targetX;
-                pkt.targetY = ev.actionData->targetY;
-                pkt.target2X = ev.actionData->target2X;
-                pkt.target2Y = ev.actionData->target2Y;
-                pkt.unk_28 = ev.actionData->unk_28;
-                pkt.unk_2C = ev.actionData->unk_2C;
-                pkt.flag_30 = ev.actionData->flag_30;
-                pkt.flag_31 = ev.actionData->flag_31;
-                pkt.flag_32 = ev.actionData->flag_32;
-                pkt.flag_33 = ev.actionData->flag_33;
-                pkt.flag_34 = ev.actionData->flag_34;
-                pkt.flag_35 = ev.actionData->flag_35;
-                pkt.flag_36 = ev.actionData->flag_36;
+                pkt.targetX = ev.actionData->tile.x;
+                pkt.targetY = ev.actionData->tile.y;
+                pkt.target2X = ev.actionData->orientation.x;
+                pkt.target2Y = ev.actionData->orientation.y;
+                pkt.actorId                = ev.actionData->source.generation;
+                pkt.noCost                 = ev.actionData->no_cost;
+                pkt.primeTrigger           = ev.actionData->prime_trigger;
+                pkt.isChain                = ev.actionData->is_chain;
+                pkt.evenIfDead             = ev.actionData->even_if_dead;
+                pkt.forceDisplayName       = ev.actionData->force_display_name;
+                pkt.autoRecomputeTarget    = ev.actionData->auto_recompute_target;
+                pkt.respectPrimeWhenNoCost = ev.actionData->respect_prime_when_nocost;
+                pkt.intentional            = ev.actionData->intentional;
                 GameUtils::GetRNGState(pkt.rngState);
 
                 Overlay::Log("[ENQUEUE] SYNC Action: Actor=%s | Ability=%s | "
                              "T1=(%d,%d) | T2=(%d,%d) | Type=%d",
                              actorName.c_str(), pkt.abilityName,
-                             ev.actionData->targetX, ev.actionData->targetY,
-                             ev.actionData->target2X, ev.actionData->target2Y,
-                             ev.actionData->type);
+                             ev.actionData->tile.x, ev.actionData->tile.y,
+                             ev.actionData->orientation.x, ev.actionData->orientation.y,
+                             ev.actionData->kind);
 
-                if (!ability || strcmp(pkt.abilityName, "NULL") == 0 || strcmp(pkt.abilityName, "EndTurn") == 0 || strcmp(pkt.abilityName, "Escape") == 0 || pkt.actionType == 5 || pkt.actionType == 3) {
-                    // Non-ability actions (such as Escape, Type 5) do not trigger OnAbilityTrigger.
+                if (!ability || pkt.actionType == ActionKind::RUN_AWAY || pkt.actionType == ActionKind::END_TURN || pkt.actionType == ActionKind::WAITING) {
+                    // Non-ability actions (such as End Turn and Run Away) do not trigger OnAbilityTrigger.
                     // Broadcast them immediately so remote peers receive the action.
                     ActionPacket actPkt{};
                     actPkt.type = PacketType::TurnAction;
@@ -871,7 +869,7 @@ void RegisterCombatSubscribers() {
         } else {
             g_isSyncActionPending = false;
             Overlay::Log("[ENQUEUE] AUTO Action: Actor=%s | Type=%d", actorName.c_str(),
-                         ev.actionData->type);
+                         ev.actionData->kind);
         }
     });
 
@@ -889,9 +887,9 @@ void RegisterCombatSubscribers() {
         } else {
             NetworkManager::Get().UpdateDynamicEntities();
 
-            if (ev.combat && (ev.combat->victory || ev.combat->defeat)) {
+            if (ev.level && (ev.level->won || ev.level->lost)) {
                 Overlay::Log("[COMBAT] Fight End Detected: %s",
-                             ev.combat->victory ? "Victory" : "Defeat");
+                             ev.level->won ? "Victory" : "Defeat");
 
                 // Both Host and Client perform full cleanup immediately.
                 // Host's EndCombat also broadcasts CombatEnd packet to peers.
@@ -975,8 +973,8 @@ void RegisterCombatSubscribers() {
             return;
         }
         g_isCombatUIProcessing = true;
-        if (ev.ctx && ev.ctx->entityManager) {
-            auto entities = GameUtils::GetUIAbilitySlots(ev.ctx->entityManager);
+        if (ev.ctx && ev.ctx->character) {
+            auto entities = GameUtils::GetCharacterAbilities(ev.ctx->character);
             for (auto *ent : entities) {
                 g_castableAbilities.insert(ent);
             }

@@ -21,41 +21,39 @@ void RegisterSaveSubscribers() {
             const int index = GameUtils::g_currentCustomCatIndex;
             Overlay::Log("[SAVE] Hooked CreateStrayCat, loading custom cat at index %d from %s...", index, "mewtiplayer.sav");
 
-            if (glaiel::SQLSaveFile* dbFile = MewSQL::OpenSaveDatabase("mewtiplayer.sav")) {
+            if (SQLSaveFile* dbFile = MewSQL::OpenSaveDatabase("mewtiplayer.sav")) {
                 if (GameUtils::MewSaveFile_Load_t mewSaveFileLoad = GameUtils::GetMewSaveFileLoadPtr()) {
                     MewSaveFile dummySave = {};
-                    dummySave.sqlFile = *dbFile;
+                    dummySave.db = *dbFile;
 
-                    const auto catIdPtr = &((PersistentCharacter*)cat)->catID;
+                    const auto catIdPtr = &((CatData*)cat)->cat_uid;
                     const int64_t originalID = *catIdPtr;
 
                     mewSaveFileLoad(&dummySave, index, cat);
                     *catIdPtr = originalID;
 
-                    // sql_key is now populated from the deserialized blob.
-                    const int64_t sqlKey = ((PersistentCharacter*)cat)->sql_key;
-                    const int64_t catID  = ((PersistentCharacter*)cat)->catID;
+                    const int64_t catUID = ((CatData*)cat)->cat_uid;
 
                     const int slot = GameUtils::g_currentCustomCatIndex; // 1, 2, ...
                     const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(dbFile, slot);
 
                     if (ownerSteamID != 0) {
-                        g_catIdToOwnerSteamID[catID] = ownerSteamID;
-                        NetworkManager::Get().GetOwnershipMap()[sqlKey] = ownerSteamID;
-                        Overlay::Log("[SAVE] CreateStrayCat: OK slot=%d sql_key=%lld -> owner=%llu age=%d",
-                                     slot, sqlKey, ownerSteamID, catAge);
+                        g_catIdToOwnerSteamID[catUID] = ownerSteamID;
+                        NetworkManager::Get().GetOwnershipMap()[catUID] = ownerSteamID;
+                        Overlay::Log("[SAVE] CreateStrayCat: OK slot=%d cat_uid=%lld -> owner=%llu age=%d",
+                                     slot, catUID, ownerSteamID, catAge);
                     } else {
-                        Overlay::Log("[SAVE] [WARN] CreateStrayCat: No owner for slot %d (sql_key=%lld)", slot, sqlKey);
+                        Overlay::Log("[SAVE] [WARN] CreateStrayCat: No owner for slot %d (cat_uid=%lld)", slot, catUID);
                     }
 
-                    std::string narrowNameStr = ((PersistentCharacter*)cat)->name.to_utf8();
-                    NetworkManager::Get().RegisterCat(sqlKey, narrowNameStr.c_str(), ((PersistentCharacter*)cat)->className.begin());
+                    std::string narrowNameStr = ((CatData*)cat)->name_.to_utf8();
+                    NetworkManager::Get().RegisterCat(catUID, narrowNameStr.c_str(), ((CatData*)cat)->cat_class.begin());
 
                     if (catAge > 0) {
                         const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
-                        const int32_t currentDayVal = dir ? dir->currentDay : 1;
-                        ((PersistentCharacter*)cat)->birthDay = currentDayVal - catAge;
-                        Overlay::Log("[SAVE] Restored age %d for sql_key=%lld", catAge, sqlKey);
+                        const int32_t currentDayVal = dir ? static_cast<int32_t>(dir->current_day) : 1;
+                        ((CatData*)cat)->birthday = currentDayVal - catAge;
+                        Overlay::Log("[SAVE] Restored age %d for cat_uid=%lld", catAge, catUID);
                     }
                 }
                 MewSQL::CloseSaveDatabase(dbFile);

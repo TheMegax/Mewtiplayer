@@ -4,11 +4,6 @@
 #include <stdarg.h>
 #include <stdlib.h>
 
-#ifndef _MSC_VER
-#define __try try
-#define __except(x) catch(...)
-#endif
-
 // Keep the resolved Mewjector API around so the bootstrap path does not keep asking for it...
 static MewjectorAPI g_mew_ui_mj;
 static const char* g_mew_ui_owner_name = "MewUIApi";
@@ -978,7 +973,7 @@ void MewUI_Shutdown(void)
     InterlockedExchange(&g_mew_ui_install_started, 0);
 }
 
-MewUIDirector* MewUI_GetMewUIDirector(void)
+MewUIDirector* MewUI_GetMewDirector(void)
 {
     MewUIDirector** director_ptr;
 
@@ -1010,7 +1005,7 @@ void* MewUI_GetSceneByName(const char* scene_name)
         return NULL;
     }
 
-    mew_director = MewUI_GetMewUIDirector();
+    mew_director = MewUI_GetMewDirector();
 
     if (!mew_director || !mew_director->director)
     {
@@ -2231,6 +2226,7 @@ int MewUI_PlaySoundEventFromComponent(void* component, const char* event_name, d
     MewNarrowString sound_event;
     void* audio_source;
     uint8_t sound_event_initialized;
+    uint8_t sound_event_transferred_to_engine;
     int result;
 
     if (!component || !event_name || !event_name[0])
@@ -2251,6 +2247,7 @@ int MewUI_PlaySoundEventFromComponent(void* component, const char* event_name, d
     audio_source = NULL;
     memset(&sound_event, 0, sizeof(sound_event));
     sound_event_initialized = 0U;
+    sound_event_transferred_to_engine = 0U;
     result = 0;
 
     __try
@@ -2272,6 +2269,9 @@ int MewUI_PlaySoundEventFromComponent(void* component, const char* event_name, d
     {
         init_string(&sound_event, event_name);
         sound_event_initialized = 1U;
+
+        // AudioSource::PlaySoundEvent consumes/destroys this string argument...
+        sound_event_transferred_to_engine = 1U;
         play_sound_event(audio_source, &sound_event, x, y, z, routed);
         result = 1;
     }
@@ -2281,7 +2281,7 @@ int MewUI_PlaySoundEventFromComponent(void* component, const char* event_name, d
         result = 0;
     }
 
-    if (sound_event_initialized)
+    if (sound_event_initialized && !sound_event_transferred_to_engine)
     {
         __try
         {

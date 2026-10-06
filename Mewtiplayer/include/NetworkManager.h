@@ -9,6 +9,8 @@
 
 #include <set>
 
+#include "MewgenicsTypes.h"
+
 struct Character;
 
 enum class PacketType : uint8_t {
@@ -97,21 +99,21 @@ struct CatInfo {
 
 struct TurnActionPacket {
   uint32_t actorNUID;
-  int32_t actionType;
+  ActionKind actionType;
   char abilityName[64];
   int32_t targetX;
   int32_t targetY;
   int32_t target2X;
   int32_t target2Y;
-  int32_t unk_28;
-  int32_t unk_2C;
-  uint8_t flag_30;
-  uint8_t flag_31;
-  uint8_t flag_32;
-  uint8_t flag_33;
-  uint8_t flag_34;
-  uint8_t flag_35;
-  uint8_t flag_36;
+  uint64_t actorId;
+  uint8_t noCost;
+  uint8_t primeTrigger;
+  uint8_t isChain;
+  uint8_t evenIfDead;
+  uint8_t forceDisplayName;
+  uint8_t autoRecomputeTarget;
+  uint8_t respectPrimeWhenNoCost;
+  uint8_t intentional;
   bool isPassive;
   uint32_t rngState[8];
 };
@@ -138,6 +140,8 @@ struct LobbyInfo {
   std::string name;
   int memberCount;
   int maxMembers;
+  std::string uid;
+  bool isFriendsOnly = false;
 };
 
 #pragma pack(push, 1)
@@ -324,9 +328,12 @@ public:
   void Init(MewjectorAPI *mj, const char *modID);
   void Update();
 
-  void HostLobby(const char *lobbyName, bool friendsOnly = true);
+  void HostLobby(const char *lobbyName, bool friendsOnly = false);
   void LeaveLobby();
   void JoinLobby(CSteamID lobbyID);
+  void JoinLobbyByUID(const std::string &uidStr);
+  static std::string LobbyIDToUID(CSteamID lobbyID);
+  static CSteamID UIDToLobbyID(const std::string &uidStr);
   void JoinAnyLobby();
   void RefreshLobbyList();
   void SetFriendsOnly(bool friendsOnly);

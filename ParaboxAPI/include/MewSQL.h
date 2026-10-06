@@ -13,9 +13,9 @@ struct alignas(16) SQLData {
 namespace MewSQL {
 
 // Signatures
-typedef void (__fastcall *SQLSaveFile_open_t)(glaiel::SQLSaveFile* thisPtr, MsvcReleaseModeXString* pathStr);
-typedef void (__fastcall *ExecSQL_t)(glaiel::SQLSaveFile* thisPtr, MsvcReleaseModeXString* queryStr, void* stdFuncCallback);
-typedef void (__fastcall *Retrieve_t)(glaiel::SQLSaveFile* thisPtr, SQLData* outVal, MsvcReleaseModeXString* keyStr, SQLData* defaultVal, int32_t param5);
+typedef void (__fastcall *SQLSaveFile_open_t)(SQLSaveFile* thisPtr, MsvcReleaseModeXString* pathStr);
+typedef void (__fastcall *ExecSQL_t)(SQLSaveFile* thisPtr, MsvcReleaseModeXString* queryStr, void* stdFuncCallback);
+typedef void (__fastcall *Retrieve_t)(SQLSaveFile* thisPtr, SQLData* outVal, MsvcReleaseModeXString* keyStr, SQLData* defaultVal, int32_t param5);
 typedef int32_t (__fastcall *CloseConnection_t)(void* db, int32_t flag);
 typedef void (__fastcall *DestructString_t)(MsvcReleaseModeXString* str);
 
@@ -43,14 +43,14 @@ struct SQLMapFlag {
     int value;
 };
 
-PARABOX_API ParaboxAPI::Array<SQLMapFlag> QueryMapFlags(const glaiel::SQLSaveFile* dbFile);
-PARABOX_API glaiel::SQLSaveFile* OpenSaveDatabase(const char* path);
-PARABOX_API void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile);
-PARABOX_API void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const char* query);
-PARABOX_API void ExecSQLRaw(const glaiel::SQLSaveFile* dbFile, const char* query);
-PARABOX_API int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_t defaultVal = 0);
-PARABOX_API ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, const char* table, int64_t key);
-PARABOX_API ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(glaiel::SQLSaveFile* dbFile, const char* table, const char* key);
+PARABOX_API ParaboxAPI::Array<SQLMapFlag> QueryMapFlags(const SQLSaveFile* dbFile);
+PARABOX_API SQLSaveFile* OpenSaveDatabase(const char* path);
+PARABOX_API void CloseSaveDatabase(SQLSaveFile* dbFile);
+PARABOX_API void ExecSQLOnDatabase(SQLSaveFile* dbFile, const char* query);
+PARABOX_API void ExecSQLRaw(const SQLSaveFile* dbFile, const char* query);
+PARABOX_API int64_t ReadIntFromDatabase(SQLSaveFile* dbFile, const char* key, int64_t defaultVal = 0);
+PARABOX_API ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(SQLSaveFile* dbFile, const char* table, int64_t key);
+PARABOX_API ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(SQLSaveFile* dbFile, const char* table, const char* key);
 PARABOX_API ParaboxAPI::Array<uint8_t> ReadSaveFileRaw(const char* path);
 PARABOX_API bool WriteSaveFileRaw(const char* path, const uint8_t* data, size_t size);
 PARABOX_API ParaboxAPI::String GetAbsoluteSavePath(const char* path);
@@ -63,8 +63,8 @@ struct CatOwnershipEntry {
     int32_t  catAge;       // -1 if not found
 };
 
-PARABOX_API void             CreateCatOwnershipTable(glaiel::SQLSaveFile* db);
-PARABOX_API void             WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, int32_t slot, uint64_t ownerSteamID, int32_t catAge);
-PARABOX_API CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, int32_t slot);
+PARABOX_API void             CreateCatOwnershipTable(SQLSaveFile* db);
+PARABOX_API void             WriteCatOwnershipEntry(SQLSaveFile* db, int32_t slot, uint64_t ownerSteamID, int32_t catAge);
+PARABOX_API CatOwnershipEntry ReadCatOwnershipEntry(SQLSaveFile* db, int32_t slot);
 
 } // namespace MewSQL

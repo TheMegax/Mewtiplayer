@@ -10,13 +10,13 @@
 // ---------------------------------------------------------------------------
 
 // Check if local player is allowed to interact with the event screen
-static bool CanInteract(const glaiel::WorldEvent* worldEvent) {
+static bool CanInteract(const WorldEvent* worldEvent) {
     if (!NetworkManager::Get().GetCurrentLobby().IsValid()) {
         return true; // Single player or not in lobby, always allow
     }
 
-    if (const PersistentCharacter* activeCat = worldEvent->activeCat) {
-        const uint64_t ownerSteamID = NetworkManager::Get().GetCatOwner(activeCat->sql_key);
+    if (const CatData* activeCat = worldEvent->cat_choice) {
+        const uint64_t ownerSteamID = NetworkManager::Get().GetCatOwner(activeCat->cat_uid);
         const uint64_t localSteamID = SteamUser()->GetSteamID().ConvertToUint64();
         if (ownerSteamID != 0) {
             return ownerSteamID == localSteamID;
@@ -40,10 +40,10 @@ void RegisterWorldEventSubscribers() {
                 return;
             }
 
-            PersistentCharacter* activeCat = ev.self->activeCat;
+            CatData* activeCat = ev.self->cat_choice;
             if (ev.optionIndex != -1 && activeCat) {
                 WorldEventSelectOptionPacket pkt = {};
-                pkt.catUID = activeCat->sql_key;
+                pkt.catUID = activeCat->cat_uid;
                 pkt.optionIndex = static_cast<uint32_t>(ev.optionIndex);
                 NetworkManager::Get().BroadcastPacket(PacketType::WorldEventSelectOption, &pkt, sizeof(pkt), true);
                 Overlay::Log("[WORLDEVENT] Local owner selected option %d. Broadcasting sync.", ev.optionIndex);
@@ -64,9 +64,9 @@ void RegisterWorldEventSubscribers() {
 
             if (ev.clickedCat) {
                 WorldEventSelectCatPacket pkt = {};
-                pkt.selectedCatUID = ev.clickedCat->sql_key;
+                pkt.selectedCatUID = ev.clickedCat->cat_uid;
                 NetworkManager::Get().BroadcastPacket(PacketType::WorldEventSelectCat, &pkt, sizeof(pkt), true);
-                Overlay::Log("[WORLDEVENT] Local owner clicked cat. Syncing selectedCatUID %lld.", ev.clickedCat->sql_key);
+                Overlay::Log("[WORLDEVENT] Local owner clicked cat. Syncing selectedCatUID %lld.", ev.clickedCat->cat_uid);
             }
         }
     });
@@ -119,27 +119,27 @@ void RegisterWorldEventSubscribers() {
 
 // Trigger functions called from network thread
 void TriggerWorldEventSelectOption(int64_t catUID, uint32_t optionIndex) {
-    glaiel::WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
+    WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
     if (!event || !GameUtils::IsComponentValid(event)) {
         Overlay::Log("[WORLDEVENT] [ERR] TriggerWorldEventSelectOption: g_activeWorldEvent is null or invalid.");
         return;
     }
 
-    PersistentCharacter* activeCat = event->activeCat;
-    if (!activeCat || activeCat->sql_key != catUID) {
+    CatData* activeCat = event->cat_choice;
+    if (!activeCat || activeCat->cat_uid != catUID) {
         Overlay::Log("[WORLDEVENT] [ERR] TriggerWorldEventSelectOption: active screen cat UID (%lld) does not match packet UID (%lld).",
-                     activeCat ? activeCat->sql_key : -1, catUID);
+                     activeCat ? activeCat->cat_uid : -1, catUID);
         return;
     }
 
-    glaiel::WorldEventOption* vectorStart = event->options.Myfirst;
-    glaiel::WorldEventOption* vectorEnd = event->options.Mylast;
+    WorldEventOption* vectorStart = event->action_pane.options.Myfirst;
+    WorldEventOption* vectorEnd = event->action_pane.options.Mylast;
     if (!vectorStart || !vectorEnd) {
         Overlay::Log("[WORLDEVENT] [ERR] TriggerWorldEventSelectOption: options vector is null.");
         return;
     }
 
-    int count = static_cast<int>(event->options.size());
+    int count = static_cast<int>(event->action_pane.options.size());
     if (static_cast<int>(optionIndex) >= count) {
         Overlay::Log("[WORLDEVENT] [ERR] TriggerWorldEventSelectOption: optionIndex %u out of bounds (%d).", optionIndex, count);
         return;
@@ -150,7 +150,7 @@ void TriggerWorldEventSelectOption(int64_t catUID, uint32_t optionIndex) {
 }
 
 void TriggerWorldEventSelectCat(int64_t selectedCatUID) {
-    glaiel::WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
+    WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
     if (!event || !GameUtils::IsComponentValid(event)) {
         Overlay::Log("[WORLDEVENT] TriggerWorldEventSelectCat error: g_activeWorldEvent is null or invalid.");
         return;
@@ -161,7 +161,7 @@ void TriggerWorldEventSelectCat(int64_t selectedCatUID) {
 }
 
 void TriggerWorldEventClickEnd(uint8_t buttonType) {
-    glaiel::WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
+    WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
     if (!event || !GameUtils::IsComponentValid(event)) {
         Overlay::Log("[WORLDEVENT] TriggerWorldEventClickEnd error: g_activeWorldEvent is null or invalid.");
         return;

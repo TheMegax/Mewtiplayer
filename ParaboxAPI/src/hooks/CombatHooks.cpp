@@ -5,13 +5,13 @@
 
 HOOK_DEFINE(TurnStart, void, TurnControl*)
 HOOK_DEFINE(BeginTurn, void, Character*, int)
-HOOK_DEFINE(FightEnd, void, CombatResolutionState*)
+HOOK_DEFINE(FightEnd, void, Level*)
 HOOK_DEFINE(AbilityTrigger, void*, Ability*, TurnAction*)
 HOOK_DEFINE(EnqueueAction, void*, void*, TurnAction*)
 HOOK_DEFINE(FaceDirection, void, void*, uint64_t, bool, bool)
 HOOK_DEFINE(SlotUpdateDynamicValue, void*, void*, void*)
-HOOK_DEFINE(ProcessCombatInput, void*, CombatUIContext*, void*)
-HOOK_DEFINE(RouteCombatInput, void*, CombatUIContext*, void*, void*, void*)
+HOOK_DEFINE(ProcessCombatInput, void*, PlayerBrain*, void*)
+HOOK_DEFINE(RouteCombatInput, void*, PlayerBrain*, void*, void*, void*)
 HOOK_DEFINE(PossessionUpdate, void, void*, unsigned char)
 HOOK_DEFINE(CombatMenuShow, void, void*, void*, void*)
 HOOK_DEFINE(CombatMenuHide, void, void*)
@@ -76,9 +76,9 @@ static void *__fastcall Hook_EnqueueAction(void *queue, TurnAction *actionData) 
     return result;
 }
 
-static void Hook_FightEnd(CombatResolutionState *combat) {
+static void Hook_FightEnd(Level *combat) {
     ParaboxAPI::FightEndEvent ev = {};
-    ev.combat = combat;
+    ev.level = combat;
     ParaboxAPI::OnFightEnd.Publish(ev);
     if (!ev.cancelled && g_origFightEnd)
         g_origFightEnd(combat);
@@ -107,7 +107,7 @@ static void Hook_SlotUpdateDynamicValue(void *rcx, void *rdx) {
     }
 }
 
-static void *__fastcall Hook_ProcessCombatInput(CombatUIContext *ctx, void *outResult) {
+static void *__fastcall Hook_ProcessCombatInput(PlayerBrain *ctx, void *outResult) {
     ParaboxAPI::ProcessCombatInputEvent ev = {};
     ev.ctx = ctx;
     ev.outResult = outResult;
@@ -119,7 +119,7 @@ static void *__fastcall Hook_ProcessCombatInput(CombatUIContext *ctx, void *outR
     return g_origProcessCombatInput(ctx, outResult);
 }
 
-static void *__fastcall Hook_RouteCombatInput(CombatUIContext *ctx, void *outResult, void *param3, void *param4) {
+static void *__fastcall Hook_RouteCombatInput(PlayerBrain *ctx, void *outResult, void *param3, void *param4) {
     ParaboxAPI::RouteCombatInputEvent ev = {};
     ev.ctx = ctx;
     ev.outResult = outResult;
@@ -136,7 +136,7 @@ static void *__fastcall Hook_RouteCombatInput(CombatUIContext *ctx, void *outRes
 static void __fastcall Hook_PossessionUpdate(void *character, unsigned char param_2) {
     if (!character) return;
     auto *c = static_cast<Character *>(character);
-    if (!c->possessionComponent) return; // Prevent crash when possession component at offset 0xC8 is NULL
+    if (!c->current_ability) return; // Prevent crash when ability at offset 0xC8 is NULL
 
     if (g_origPossessionUpdate) {
         g_origPossessionUpdate(character, param_2);
@@ -170,49 +170,21 @@ static void __fastcall Hook_CombatMenuHide(void *menu) {
 }
 
 void CombatHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
-    HOOK_INSTALL(mj, gameBase, BeginTurn,
-        "48 89 5C 24 08 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 B0 FC FF FF", 16);
+    HOOK_INSTALL(mj, gameBase, BeginTurn, GameSymbols::Character_BeginTurn, 16);
+    HOOK_INSTALL(mj, gameBase, FightEnd, GameSymbols::Level_update, 15);
+    HOOK_INSTALL(mj, gameBase, AbilityTrigger, GameSymbols::Ability_trigger, 15);
+    HOOK_INSTALL(mj, gameBase, EnqueueAction, GameSymbols::TurnControl_QueueAction, 15);
+    HOOK_INSTALL(mj, gameBase, TurnStart, GameSymbols::TurnControl_NextTurn, 14);
+    HOOK_INSTALL(mj, gameBase, FaceDirection, GameSymbols::Character_Face, 14);
+    HOOK_INSTALL(mj, gameBase, SlotUpdateDynamicValue, GameSymbols::Ability_ComputeX, 15);
+    HOOK_INSTALL(mj, gameBase, ProcessCombatInput, GameSymbols::PlayerBrain_OnRequestAction, 15);
+    HOOK_INSTALL(mj, gameBase, RouteCombatInput, GameSymbols::MountBrain_OnRequestAction, 15);
+    HOOK_INSTALL(mj, gameBase, PossessionUpdate, GameSymbols::Character_CompleteAbilityNow, 16);
+    HOOK_INSTALL(mj, gameBase, CombatMenuShow, GameSymbols::CombatMenu_show, 15);
+    HOOK_INSTALL(mj, gameBase, CombatMenuHide, GameSymbols::CombatMenu_hide, 15);
 
-    HOOK_INSTALL(mj, gameBase, FightEnd,
-        "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 48 81 EC 18 01 00 00 0F 29 70 A8 0F 29 78 98 44 0F 29 40 88 44 0F 29 88 78 FF FF FF 4C 8B F1", 15);
-
-    HOOK_INSTALL(mj, gameBase, AbilityTrigger,
-        "48 89 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 68 FD FF FF", 15);
-
-    HOOK_INSTALL(mj, gameBase, EnqueueAction,
-        "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 20 48 8B FA 83 3A 01", 15);
-
-    HOOK_INSTALL(mj, gameBase, TurnStart,
-        "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 28 EF FF FF B8 D8 11 00 00 E8 ? ? ? ? 48 2B E0 0F 29 B4 24 C0 11 00 00 48 8B F1", 14);
-
-    HOOK_INSTALL(mj, gameBase, FaceDirection,
-        "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 00 FD FF FF", 14);
-
-    HOOK_INSTALL(mj, gameBase, SlotUpdateDynamicValue,
-        "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 60 48 8B D9 4C 8B 41 10", 15);
-
-    HOOK_INSTALL(mj, gameBase, ProcessCombatInput,
-        "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8D 6C 24 B9 48 81 EC D0 00 00 00", 15);
-
-    HOOK_INSTALL(mj, gameBase, RouteCombatInput,
-        "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 40 48 8B 41 38", 15);
-
-    HOOK_INSTALL(mj, gameBase, PossessionUpdate,
-        "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 81 EC 40 01 00 00", 16);
-
-    HOOK_INSTALL(mj, gameBase, CombatMenuShow,
-        "48 8B C4 48 89 58 18 48 89 50 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 C8 FD FF FF", 15);
-
-    HOOK_INSTALL(mj, gameBase, CombatMenuHide,
-        "48 89 5C 24 18 48 89 6C 24 20 57 41 56 41 57 48 83 EC 50 80 B9 40 01 00 00 00", 15);
-
-    SCAN_SET(mj, gameBase, ShowCombatPopup,
-        "4C 89 44 24 18 48 89 54 24 10 53 56 57 48 83 EC 60 49 8B F8 48 8B DA 4D 85 C0",
-        g_fnShowCombatPopup);
-
-    SCAN_SET(mj, gameBase, PostPopupAnim,
-        "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 70 48 8B DA 33 F6 48 8B 79 38",
-        g_fnPostPopupAnim);
+    RESOLVE_FUNC(gameBase, GameSymbols::Passive_DisplayText, g_fnShowCombatPopup);
+    RESOLVE_FUNC(gameBase, GameSymbols::Passive_TickSound, g_fnPostPopupAnim);
 }
 
 namespace ParaboxAPI {
@@ -264,7 +236,7 @@ PARABOX_API void ShowCombatPopup(Character *character, const char *text, float s
 
     const auto *comp = reinterpret_cast<const Component *>(character);
     Scene *scene = (comp && comp->entity) ? comp->entity->scene : nullptr;
-    const int countBefore = scene ? scene->damageNumberCount : 0;
+    const uint32_t countBefore = scene ? scene->CompList_update.unsorted_.size_ : 0;
 
     g_fnShowCombatPopup(character, &xs, character);
 
@@ -276,10 +248,10 @@ PARABOX_API void ShowCombatPopup(Character *character, const char *text, float s
         g_fnPostPopupAnim(character, &emptyAnim);
     }
 
-    if (scene && scene->damageNumberCount > countBefore && scene->damageNumbers) {
-        if (DamageNumber *dn = scene->damageNumbers[scene->damageNumberCount - 1]) {
-            if (dn->entity) {
-                dn->entity->timescale = static_cast<double>(speedScale);
+    if (scene && scene->CompList_update.unsorted_.size_ > countBefore && scene->CompList_update.unsorted_.data_) {
+        if (Component *c = scene->CompList_update.unsorted_.data_[scene->CompList_update.unsorted_.size_ - 1]) {
+            if (c->entity) {
+                c->entity->timescale = static_cast<double>(speedScale);
             }
         }
     }

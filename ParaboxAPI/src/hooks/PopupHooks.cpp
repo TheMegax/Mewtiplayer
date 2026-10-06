@@ -21,6 +21,14 @@ static thread_local bool     g_popupWasCreated       = false;
 
 HOOK_DEFINE(YesNoPromptInit, void, void*, void*, MsvcReleaseModeXString*, MsvcReleaseModeStdFunction*, MsvcReleaseModeStdFunction*, bool)
 
+struct OurClosureInline {
+  const void *vtable;
+  std::function<void()> *fn_ptr;
+  uint64_t pad[5];
+  OurClosureInline *self_ptr;
+};
+static_assert(sizeof(OurClosureInline) == 64, "OurClosureInline size mismatch");
+
 static OurClosureInline *__fastcall OurClosure_Clone(OurClosureInline *self, OurClosureInline *out);
 static OurClosureInline *__fastcall OurClosure_Move(OurClosureInline *self, OurClosureInline *out);
 static void              __fastcall OurClosure_Call(OurClosureInline *self);
@@ -120,16 +128,18 @@ static void __fastcall Hook_YesNoPromptInit(
 }
 
 void PopupHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
-    HOOK_INSTALL(mj, gameBase, YesNoPromptInit,
-        "4C 89 4C 24 20 4C 89 44 24 18 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 78 FF FF FF", 16);
+    HOOK_INSTALL(mj, gameBase, YesNoPromptInit, GameSymbols::YesNoPrompt_init, 16);
+    RESOLVE_FUNC(gameBase, GameSymbols::YesNoPrompt_Open, g_fnShowYesNoPromptHigh);
+    RESOLVE_FUNC(gameBase, GameSymbols::YesNoPrompt_OpenOk, g_fnShowOkPromptHigh);
+}
 
-    SCAN_SET(mj, gameBase, ShowYesNoPromptHigh,
-        "48 8B C4 4C 89 40 18 48 89 50 10 48 89 48 08 53 55 56 57 48 83 EC 68",
-        g_fnShowYesNoPromptHigh);
-
-    SCAN_SET(mj, gameBase, ShowOkPromptHigh,
-        "4C 8B DC 4D 89 43 18 49 89 53 10 49 89 4B 08 53 56 57 48 83 EC 60",
-        g_fnShowOkPromptHigh);
+static bool CallShowYesNoPromptHighSEH(MsvcReleaseModeXString *str, MsvcReleaseModeStdFunction *yesFn, MsvcReleaseModeStdFunction *noFn) {
+    __try {
+        g_fnShowYesNoPromptHigh(str, yesFn, noFn, nullptr);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
 }
 
 namespace ParaboxAPI {
@@ -168,13 +178,9 @@ PARABOX_API bool ShowYesNoPopup(
     MakeGameFunction(noFn, std::move(wrapNo));
 
     g_popupWasCreated = false;
-    bool callSuccess = false;
-    __try {
-        g_fnShowYesNoPromptHigh(&str, &yesFn, &noFn, nullptr);
-        callSuccess = true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    bool callSuccess = CallShowYesNoPromptHighSEH(&str, &yesFn, &noFn);
+    if (!callSuccess) {
         Log("[Popup] ShowYesNoPromptHigh caught SEH exception.");
-        callSuccess = false;
     }
 
     const bool opened = callSuccess && g_popupWasCreated;
@@ -197,6 +203,15 @@ PARABOX_API bool ShowYesNoPopup(
     std::string utf8Str(req, '\0');
     WideCharToMultiByte(CP_UTF8, 0, prompt, -1, &utf8Str[0], req, nullptr, nullptr);
     return ShowYesNoPopup(utf8Str.c_str(), std::move(onYes), std::move(onNo));
+}
+
+static bool CallShowOkPromptHighSEH(MsvcReleaseModeXString *str, MsvcReleaseModeStdFunction *okFn) {
+    __try {
+        g_fnShowOkPromptHigh(str, okFn);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
 }
 
 PARABOX_API bool ShowOkPopup(
@@ -222,13 +237,9 @@ PARABOX_API bool ShowOkPopup(
     MakeGameFunction(okFn, std::move(wrapOk));
 
     g_popupWasCreated = false;
-    bool okCallSuccess = false;
-    __try {
-        g_fnShowOkPromptHigh(&str, &okFn);
-        okCallSuccess = true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    bool okCallSuccess = CallShowOkPromptHighSEH(&str, &okFn);
+    if (!okCallSuccess) {
         Log("[Popup] ShowOkPromptHigh caught SEH exception.");
-        okCallSuccess = false;
     }
 
     const bool opened = okCallSuccess && g_popupWasCreated;

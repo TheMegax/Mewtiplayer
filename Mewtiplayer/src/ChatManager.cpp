@@ -32,9 +32,9 @@ void ChatManager::AddMessage(uint64_t senderSteamID, const std::string &senderNa
 
     // Only attempt to show popup text if we're in combat
     const auto *tc = GameUtils::GetTurnControl();
-    if (tc && tc->context) {
+    if (GameUtils::IsComponentValid(tc)) {
         for (auto *fighter : GameUtils::GetFighters()) {
-            if (fighter && fighter->persistentChar && NetworkManager::Get().GetCatOwner(fighter->persistentChar->sql_key) == senderSteamID) {
+            if (fighter && fighter->pcat_data && NetworkManager::Get().GetCatOwner(fighter->pcat_data->cat_uid) == senderSteamID) {
                 ParaboxAPI::ShowCombatPopup(fighter, text.c_str());
                 break;
             }

@@ -57,15 +57,15 @@ void ResetLobbyReadyStates() {
 void HostAuditCollarState() {
     if (!NetworkManager::Get().IsHost()) return;
     const auto director = GameUtils::GetMewDirectorSingleton();
-    if (!director || !director->partyCatIDs || director->partyCount <= 0) return;
+    if (!director || !director->current_battle_cats.data_ || director->current_battle_cats.size() == 0) return;
 
     std::map<int32_t, int64_t> collarToCatMap;
-    for (int i = 0; i < director->partyCount; i++) {
-        const int64_t catID = director->partyCatIDs[i];
-        PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(catID);
-        if (!cat || !cat->className.is_valid()) continue;
+    for (size_t i = 0; i < director->current_battle_cats.size(); i++) {
+        const int64_t catID = director->current_battle_cats.data_[i];
+        CatData *cat = ParaboxAPI::GetCatDataById(catID);
+        if (!cat || !cat->cat_class.is_valid()) continue;
 
-        const char *cName = cat->className.begin();
+        const char *cName = cat->cat_class.begin();
         if (strcmp(cName, "Colorless") == 0 || strcmp(cName, "Fighter") == 0) continue;
 
         int32_t collarIdx = -1;
@@ -101,14 +101,14 @@ void HostAuditCollarState() {
 void HostBroadcastFullCollarState(bool force) {
     if (!NetworkManager::Get().IsHost()) return;
     const auto director = GameUtils::GetMewDirectorSingleton();
-    if (!director || !director->partyCatIDs || director->partyCount <= 0) return;
+    if (!director || !director->current_battle_cats.data_ || director->current_battle_cats.size() == 0) return;
 
-    for (int i = 0; i < director->partyCount; i++) {
-        const int64_t catID = director->partyCatIDs[i];
-        PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(catID);
-        if (!cat || !cat->className.is_valid()) continue;
+    for (size_t i = 0; i < director->current_battle_cats.size(); i++) {
+        const int64_t catID = director->current_battle_cats.data_[i];
+        CatData *cat = ParaboxAPI::GetCatDataById(catID);
+        if (!cat || !cat->cat_class.is_valid()) continue;
 
-        const char *cName = cat->className.begin();
+        const char *cName = cat->cat_class.begin();
         int32_t collarIdx = -1;
         for (int idx = 0; idx < 16; idx++) {
             const char* name = ParaboxAPI::ResolveCollarNameFromIndex(idx);
@@ -139,7 +139,7 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
     if (length != sizeof(CollarSyncPacket)) return;
 
     const auto *packet = (const CollarSyncPacket *)data;
-    PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(packet->catID);
+    CatData *cat = ParaboxAPI::GetCatDataById(packet->catID);
     if (!cat) {
         Overlay::Log("[LOBBY] CollarSync: cat %lld not found", packet->catID);
         return;
@@ -154,15 +154,15 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
         g_hostLastCollarProcessTimePerCat[packet->catID] = now;
         if (packet->collarIndex != -1) {
             const auto director = GameUtils::GetMewDirectorSingleton();
-            if (director && director->partyCatIDs && director->partyCount > 0) {
-                for (int i = 0; i < director->partyCount; i++) {
-                    const int64_t otherCatID = director->partyCatIDs[i];
+            if (director && director->current_battle_cats.data_ && director->current_battle_cats.size() > 0) {
+                for (size_t i = 0; i < director->current_battle_cats.size(); i++) {
+                    const int64_t otherCatID = director->current_battle_cats.data_[i];
                     if (otherCatID == packet->catID) continue;
 
-                    PersistentCharacter *otherCat = ParaboxAPI::GetPersistentCharacterById(otherCatID);
-                    if (!otherCat || !otherCat->className.is_valid()) continue;
+                    CatData *otherCat = ParaboxAPI::GetCatDataById(otherCatID);
+                    if (!otherCat || !otherCat->cat_class.is_valid()) continue;
 
-                    const char *otherClassName = otherCat->className.begin();
+                    const char *otherClassName = otherCat->cat_class.begin();
                     const char *requestedCollarName = ParaboxAPI::ResolveCollarNameFromIndex(packet->collarIndex);
 
                     if (strcmp(otherClassName, requestedCollarName) == 0) {
@@ -289,13 +289,13 @@ void CatSelectorHooks_TriggerLockInProceed() {
     g_hasTriggeredProceed = true;
 
     if (g_activeClassChooserLambdaThis) {
-        std::vector<PersistentCharacter*> colorlessCats;
+        std::vector<CatData*> colorlessCats;
         if (const auto director = GameUtils::GetMewDirectorSingleton()) {
-            if (director->partyCatIDs && director->partyCount > 0) {
-                for (int i = 0; i < director->partyCount; i++) {
-                    const int64_t catID = director->partyCatIDs[i];
-                    PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(catID);
-                    if (cat && cat->className.is_valid() && cat->className.as_native_string_view() == "Colorless") {
+            if (director->current_battle_cats.data_ && director->current_battle_cats.size() > 0) {
+                for (size_t i = 0; i < director->current_battle_cats.size(); i++) {
+                    const int64_t catID = director->current_battle_cats.data_[i];
+                    CatData *cat = ParaboxAPI::GetCatDataById(catID);
+                    if (cat && cat->cat_class.is_valid() && cat->cat_class.as_native_string_view() == "Colorless") {
                         colorlessCats.push_back(cat);
                     }
                 }
@@ -303,15 +303,15 @@ void CatSelectorHooks_TriggerLockInProceed() {
         }
 
         for (auto *cat : colorlessCats) {
-            GameUtils::FreeXString(cat->className);
-            GameUtils::InitXString(cat->className, "Fighter");
+            GameUtils::FreeXString(cat->cat_class);
+            GameUtils::InitXString(cat->cat_class, "Fighter");
         }
 
         ParaboxAPI::ForceClassChooserLockIn(g_activeClassChooserLambdaThis);
 
         for (auto *cat : colorlessCats) {
-            GameUtils::FreeXString(cat->className);
-            GameUtils::InitXString(cat->className, "Colorless");
+            GameUtils::FreeXString(cat->cat_class);
+            GameUtils::InitXString(cat->cat_class, "Colorless");
         }
 
         g_activeClassChooserLambdaThis = nullptr;
@@ -355,13 +355,13 @@ void RegisterClassChooserSubscribers() {
                 }
             }
 
-            PersistentCharacter *cat = ParaboxAPI::GetPersistentCharacterById(ev.catID);
+            CatData *cat = ParaboxAPI::GetCatDataById(ev.catID);
             if (!cat || ev.clickedIndex == -1) {
                 ev.Cancel();
                 return;
             }
 
-            const char *className = cat->className.is_valid() ? cat->className.begin() : "Colorless";
+            const char *className = cat->cat_class.is_valid() ? cat->cat_class.begin() : "Colorless";
             const char *clickedClassName = ParaboxAPI::ResolveCollarNameFromIndex(ev.clickedIndex);
             const int32_t collarIndex = (strcmp(className, clickedClassName) == 0) ? -1 : ev.clickedIndex;
 

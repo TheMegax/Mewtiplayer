@@ -47,10 +47,10 @@ static void EvilModeUpdate() {
     }
 
     const auto director = GameUtils::GetMewDirectorSingleton();
-    if (!director || !director->partyCatIDs || director->partyCount <= 0) return;
+    if (!director || !director->current_battle_cats.data_ || director->current_battle_cats.size() == 0) return;
 
     if (isClassChooser) {
-        const int64_t targetCatID = director->partyCatIDs[g_evilCollarCounter % director->partyCount];
+        const int64_t targetCatID = director->current_battle_cats.data_[g_evilCollarCounter % director->current_battle_cats.size()];
         const int32_t tagBoxCount = ParaboxAPI::GetClassTagBoxCount();
         if (tagBoxCount > 0) {
             const int32_t collarIndex = g_evilCollarCounter % (tagBoxCount + 1) - 1;
@@ -141,7 +141,7 @@ void RegisterSubscribers() {
             MewDirector *dir = GameUtils::GetMewDirectorSingleton();
             if (dir == nullptr) {
                 GameUtils::g_oldDirector = nullptr;
-            } else if (dir != GameUtils::g_oldDirector && dir->director && dir->house != nullptr) {
+            } else if (dir != GameUtils::g_oldDirector && dir->director && dir->progression != nullptr) {
                 GameUtils::g_startCustomRunPending = false;
                 GameUtils::g_oldDirector           = nullptr;
                 GameUtils::StartCustomRun(GameUtils::g_customTeamSize, GameUtils::g_customDifficulty, 4);

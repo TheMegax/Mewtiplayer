@@ -8,9 +8,30 @@
 
 namespace CrashHandler {
     static PVOID g_vehHandler = nullptr;
+    static bool g_symInitialized = false;
+
+    static void EnsureSymbolsInitialized() {
+        if (g_symInitialized) return;
+        g_symInitialized = true;
+
+        char path[MAX_PATH] = {0};
+        HMODULE hMod = nullptr;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCSTR>(Register), &hMod) && hMod != nullptr) {
+            GetModuleFileNameA(hMod, path, sizeof(path));
+            char* lastSlash = strrchr(path, '\\');
+            if (lastSlash) {
+                *lastSlash = '\0';
+            }
+        }
+
+        SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES);
+        SymInitialize(GetCurrentProcess(), path[0] != '\0' ? path : nullptr, TRUE);
+    }
 
     // Helper to get module name and RVA from an address, with symbol resolution if available
     static void ResolveAddress(void *addr, char *outBuf, const size_t outBufSize) {
+        EnsureSymbolsInitialized();
         HMODULE hMod = nullptr;
         if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                static_cast<LPCSTR>(addr), &hMod) && hMod != nullptr) {
@@ -61,6 +82,12 @@ namespace CrashHandler {
 
         // Skip non-fatal exceptions
         if (code == 0x40010006 || code == 0x406D0012 || code == 0xE06D7363) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        // Prevent recursive exception handling if resolving symbols fails
+        static volatile LONG s_isHandling = 0;
+        if (InterlockedCompareExchange(&s_isHandling, 1, 0) != 0) {
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
@@ -146,20 +173,6 @@ namespace CrashHandler {
 
     void Register() {
         if (!g_vehHandler) {
-            // Retrieve the path of Mewtiplayer.dll to use as search path
-            char path[MAX_PATH] = {0};
-            HMODULE hMod = nullptr;
-            if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                   reinterpret_cast<LPCSTR>(Register), &hMod) && hMod != nullptr) {
-                GetModuleFileNameA(hMod, path, sizeof(path));
-                char* lastSlash = strrchr(path, '\\');
-                if (lastSlash) {
-                    *lastSlash = '\0';
-                }
-            }
-
-            SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES);
-            SymInitialize(GetCurrentProcess(), path[0] != '\0' ? path : nullptr, TRUE);
             g_vehHandler = AddVectoredExceptionHandler(1, VectoredHandler);
         }
     }
@@ -168,7 +181,10 @@ namespace CrashHandler {
         if (g_vehHandler) {
             RemoveVectoredExceptionHandler(g_vehHandler);
             g_vehHandler = nullptr;
+        }
+        if (g_symInitialized) {
             SymCleanup(GetCurrentProcess());
+            g_symInitialized = false;
         }
     }
 }

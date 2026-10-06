@@ -105,7 +105,7 @@ void ExecuteSQL(const char* query) {
   MewDirector* dir = GetMewDirectorSingleton();
   if (!dir) return;
 
-  void* sqlSaveFile = &dir->sqlSaveFile;
+  void* sqlSaveFile = &dir->current_save_file.db;
 
   MsvcReleaseModeXString queryStr = {};
   InitXString(queryStr, query);
@@ -268,7 +268,7 @@ ParaboxAPI::Array<uint8_t> SerializeUnlocksBlob(const UnlocksData& data) {
   return ParaboxAPI::MakeArray(blob);
 }
 
-void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs) {
+void MergeUnlocksBlobs(const SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs) {
   ParaboxAPI::Log("[SAVE] Merging %zu unlocks blobs...", clientBlobs.size());
   if (clientBlobs.empty()) return;
 
@@ -370,7 +370,7 @@ void MergeUnlocksBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<Pa
   ParaboxAPI::Log("[SAVE] Successfully merged and wrote unlocks blob!");
 }
 
-void MergeMapFlags(glaiel::SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<ParaboxAPI::String>>& clientFlagsList) {
+void MergeMapFlags(SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<ParaboxAPI::String>>& clientFlagsList) {
   ParaboxAPI::Log("[SAVE] Merging %zu map flags lists...", clientFlagsList.size());
   if (clientFlagsList.empty()) return;
   std::map<std::string, int> counts;
@@ -470,7 +470,7 @@ static void SerializeEquipment(std::vector<uint8_t>& blob, const Equipment& eq) 
     }
 }
 
-void MergeInventoryBlobs(const glaiel::SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs) {
+void MergeInventoryBlobs(const SQLSaveFile* db, const ParaboxAPI::Array<ParaboxAPI::Array<uint8_t>>& clientBlobs) {
     ParaboxAPI::Log("[SAVE] Merging %zu inventory blobs...", clientBlobs.size());
     if (clientBlobs.empty()) return;
 
@@ -557,13 +557,13 @@ void CreateSaveFile(const char *saveName) {
   MsvcReleaseModeXString saveNameXStr = {};
   InitXString(saveNameXStr, saveName);
 
-  // Call original InitializeSave (offset +0x38 of tempDirector is GameStateMap)
-  g_InitializeSave(tempDirector->gameStateMap, &saveNameXStr); // g_InitializeSave destructs saveNameXStr
+  // Call original InitializeSave (offset +0x38 of tempDirector is current_save_file)
+  g_InitializeSave(&tempDirector->current_save_file, &saveNameXStr); // g_InitializeSave destructs saveNameXStr
 
   MewSQL::CloseActiveSaveConnection(tempDirector);
 
   if (g_DestructString) {
-    g_DestructString(&tempDirector->sqlSaveFile.db_path_string);
+    g_DestructString(&tempDirector->current_save_file.db.filename);
   }
   free(tempDirector);
 
@@ -574,7 +574,7 @@ void CreateMewtiplayerSave(const char *saveName) {
   MewSQL::DeleteSaveFile(saveName);
   CreateSaveFile(saveName);
 
-  if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(saveName)) {
+  if (SQLSaveFile* db = MewSQL::OpenSaveDatabase(saveName)) {
     const std::vector<std::string> keys = {
       "mapflag_TutorialUnlocked",
       "mapflag_TutorialDone",
@@ -641,9 +641,9 @@ void LoadSaveFile(const char *saveName) {
     return;
   }
 
-  if (md->inCombat) {
+  if (md->savescum_took_action) {
     ParaboxAPI::Log("[SAVE] MewDirector was in combat, deactivating combat state...");
-    md->inCombat = false;
+    md->savescum_took_action = false;
   }
 
   auto scenes = GetCurrentScenes();
@@ -719,16 +719,16 @@ void StartCustomRun(const int teamSize, const int difficulty, const int collarIn
     return;
   }
 
-  House* progressState = dir->house;
+  GlobalProgressionData* progressState = dir->progression;
   if (!progressState) {
     ParaboxAPI::Log("[SAVE] ProgressState is null!");
     return;
   }
 
   // Set difficulty mod
-  progressState->difficultyMod1 = difficulty;
-  progressState->difficultyMod2 = difficulty;
-  progressState->difficultyMod3 = difficulty;
+  progressState->difficulty.act1.current_difficulty = difficulty;
+  progressState->difficulty.act2.current_difficulty = difficulty;
+  progressState->difficulty.act3.current_difficulty = difficulty;
 
   const auto mapName = "alley.gon";
 
@@ -792,10 +792,29 @@ ParaboxAPI::Array<Character *> GetAllEntities() {
   std::vector<Character *> result;
   __try {
     const TurnControl *tc = GetTurnControl();
-    if (!tc || !tc->context || !tc->context->entityManager || !tc->context->entityManager->stateBlock || !tc->context->entityManager->stateBlock->fighters || !tc->context->entityManager->stateBlock->fighters->data) return ParaboxAPI::MakeArray(result);
-    const FighterList *list = tc->context->entityManager->stateBlock->fighters;
-    for (uint32_t i = 0; i < list->count; i++) {
-      if (Character *c = list->data[i]) result.push_back(c);
+    if (!tc || !tc->scene) return ParaboxAPI::MakeArray(result);
+    if (tc->scene->CachedActiveComponentLists) {
+      CachedActiveComponentList *charList = &tc->scene->CachedActiveComponentLists[505];
+      if (charList && charList->ActiveComponents.internal_data && charList->ActiveComponents.internal_data->list.data_) {
+        auto &list = charList->ActiveComponents.internal_data->list;
+        for (uint32_t i = 0; i < list.size_; ++i) {
+          if (Character *c = static_cast<Character*>(list.data_[i])) {
+            result.push_back(c);
+          }
+        }
+        return ParaboxAPI::MakeArray(result);
+      }
+    }
+    for (uint32_t i = 0; i < tc->scene->Entities.size_; ++i) {
+      if (Entity *e = tc->scene->Entities.data_[i]) {
+        for (uint32_t j = 0; j < e->components.size_; ++j) {
+          if (Component *comp = e->components.data_[j]) {
+            if (comp->_objid == 505) {
+              result.push_back(static_cast<Character*>(comp));
+            }
+          }
+        }
+      }
     }
   } __except(EXCEPTION_EXECUTE_HANDLER) {
     result.clear();
@@ -807,7 +826,7 @@ ParaboxAPI::Array<Character *> GetFighters() {
   const auto all = GetAllEntities();
   std::vector<Character *> fighters;
   for (auto c : all) {
-    if (c->isStatic || c->isInanimate || c->characterType == 4) continue;
+    if (c->static_object || c->inanimate || c->character_type == CharacterType::OBJECT) continue;
     fighters.push_back(c);
   }
   return ParaboxAPI::MakeArray(fighters);
@@ -843,10 +862,10 @@ static bool SafeReadProcessMemory(void* addr, void* buf, size_t len) {
   return ok;
 }
 
-static std::string CheckAbilityDefinitionPtr(void *p) {
+static std::string CheckGonObjectPtr(void *p) {
   if (!p || (uintptr_t)p <= 0x10000 || (uintptr_t)p >= 0x7FFFFFFFFFFF) return "";
-  AbilityDefinition def = {};
-  if (!SafeReadProcessMemory(p, &def, sizeof(AbilityDefinition))) return "";
+  GonObject def = {};
+  if (!SafeReadProcessMemory(p, &def, sizeof(GonObject))) return "";
   std::string name = SafeGetNativeString(def.name);
   if (!name.empty() && name.length() < 128) {
     bool printable = true;
@@ -860,8 +879,8 @@ ParaboxAPI::String GetAbilityName(Ability *ability) {
   if (!ability || (uintptr_t)ability <= 0x10000 || (uintptr_t)ability >= 0x7FFFFFFFFFFF) return ParaboxAPI::MakeString("NULL");
 
   void* defPtr = nullptr;
-  if (SafeReadProcessMemory((void*)((uintptr_t)ability + offsetof(Ability, definition)), &defPtr, sizeof(void*))) {
-    std::string result = CheckAbilityDefinitionPtr(defPtr);
+  if (SafeReadProcessMemory((void*)((uintptr_t)ability + offsetof(Ability, data)), &defPtr, sizeof(void*))) {
+    std::string result = CheckGonObjectPtr(defPtr);
     if (!result.empty()) return ParaboxAPI::MakeString(result);
   }
 
@@ -869,7 +888,7 @@ ParaboxAPI::String GetAbilityName(Ability *ability) {
     if (i == 16) continue;
     void *p = nullptr;
     if (SafeReadProcessMemory((void*)((uintptr_t)ability + i), &p, sizeof(void*))) {
-        std::string result = CheckAbilityDefinitionPtr(p);
+        std::string result = CheckGonObjectPtr(p);
         if (!result.empty()) return ParaboxAPI::MakeString(result);
     }
   }
@@ -929,7 +948,7 @@ static Ability* CreateAbilityFromSpawnDatabase(Character* actor, const char* abi
     Ability* createdAbility = SafeInvokeCreateAbility(fnCreate, spawnDb, actor, &nameStr); // fnCreate destructs nameStr
 
     if (createdAbility) {
-        std::string charName = (actor) ? actor->name.to_utf8() : "Unknown";
+        std::string charName = (actor) ? actor->display_name.to_utf8() : "Unknown";
         if (charName.empty() || charName == "UNKNOWN" || charName == "NULL") charName = "Character";
         ParaboxAPI::Log("[SPAWNDB] Dynamically created ability '%s' for %s", abilityName, charName.c_str());
     } else {
@@ -945,27 +964,27 @@ Ability *FindCharacterAbility(const Character *actor, const char *targetName_c) 
     return nullptr;
 
   // Check direct ability pointers
-  if (CheckAbilityNameMatch(actor->ability0, targetName)) return actor->ability0;
-  if (CheckAbilityNameMatch(actor->defaultMove, targetName)) return actor->defaultMove;
-  if (CheckAbilityNameMatch(actor->basicAttack, targetName)) return actor->basicAttack;
-  if (CheckAbilityNameMatch(actor->bonusAbility, targetName)) return actor->bonusAbility;
+  if (CheckAbilityNameMatch(actor->current_ability, targetName)) return actor->current_ability;
+  if (CheckAbilityNameMatch(actor->move, targetName)) return actor->move;
+  if (CheckAbilityNameMatch(actor->attack, targetName)) return actor->attack;
+  if (CheckAbilityNameMatch(actor->bonus_ability, targetName)) return actor->bonus_ability;
 
-  // Iterate spells
-  if (actor->spells && IsPointerReadable(actor->spells) && actor->spellCount > 0 && actor->spellCount < 100) {
-    for (uint32_t i = 0; i < actor->spellCount; ++i) {
-      Ability* a = actor->spells[i];
+  // Iterate abilities
+  if (actor->abilities.data_ && IsPointerReadable(actor->abilities.data_) && actor->abilities.size_ > 0 && actor->abilities.size_ < 100) {
+    for (uint32_t i = 0; i < actor->abilities.size_; ++i) {
+      Ability* a = actor->abilities.data_[i];
       if (CheckAbilityNameMatch(a, targetName)) {
         return a;
       }
     }
   }
 
-  // Iterate passives / extra abilities vector
-  if (actor->passives && IsPointerReadable(actor->passives) && actor->passivesCount > 0 && actor->passivesCount < 200) {
-    for (uint32_t i = 0; i < actor->passivesCount; ++i) {
-      Ability* a = actor->passives[i];
-      if (CheckAbilityNameMatch(a, targetName)) {
-        return a;
+  // Iterate cached_passives
+  if (actor->cached_passives.data_ && IsPointerReadable(actor->cached_passives.data_) && actor->cached_passives.size_ > 0 && actor->cached_passives.size_ < 200) {
+    for (uint32_t i = 0; i < actor->cached_passives.size_; ++i) {
+      Passive* p = actor->cached_passives.data_[i];
+      if (p && p->associated_ability && CheckAbilityNameMatch(p->associated_ability, targetName)) {
+        return p->associated_ability;
       }
     }
   }
@@ -1074,7 +1093,7 @@ bool SafeGetComponentName(const Component *p_component,
     if (!p_component || !p_component->vtable ||
         !p_component->vtable->GetObjectTypeSTR)
       return false;
-    p_component->vtable->GetObjectTypeSTR(p_component, out_name);
+    p_component->vtable->GetObjectTypeSTR(const_cast<Component*>(p_component), out_name);
     return true;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return false;
@@ -1136,17 +1155,17 @@ uint32_t CalculateCRC32(const void *data, size_t size) {
   return ~crc;
 }
 
-ParaboxAPI::Array<UIAbilitySlot *> GetUIAbilitySlots(const CombatUISlotManager *em) {
-  std::vector<UIAbilitySlot *> list;
-  if (!em) return ParaboxAPI::MakeArray(list);
-  if (em->primaryEntity) list.push_back(em->primaryEntity);
-  if (em->secondaryEntity) list.push_back(em->secondaryEntity);
-  if (em->extraArray) {
-    for (uint32_t i = 0; i < em->extraCount; i++) {
-      if (em->extraArray[i]) list.push_back(em->extraArray[i]);
+ParaboxAPI::Array<Ability *> GetCharacterAbilities(const Character *c) {
+  std::vector<Ability *> list;
+  if (!c) return ParaboxAPI::MakeArray(list);
+  if (c->move) list.push_back(c->move);
+  if (c->attack) list.push_back(c->attack);
+  if (c->bonus_ability) list.push_back(c->bonus_ability);
+  if (c->abilities.data_) {
+    for (uint32_t i = 0; i < c->abilities.size_; i++) {
+      if (c->abilities.data_[i]) list.push_back(c->abilities.data_[i]);
     }
   }
-  if (em->tertiaryEntity) list.push_back(em->tertiaryEntity);
   return ParaboxAPI::MakeArray(list);
 }
 

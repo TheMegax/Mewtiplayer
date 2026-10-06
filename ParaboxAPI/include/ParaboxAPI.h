@@ -14,22 +14,20 @@
 
 struct Character;
 struct TurnControl;
-struct CombatResolutionState;
+struct Level;
 struct Ability;
 struct TurnAction;
-struct CombatUIContext;
+struct PlayerBrain;
 struct ButchBox;
 struct LoadAdventureArgs;
-struct PersistentCharacter;
+struct CatData;
 
-namespace glaiel {
-    struct LevelUpScreen;
-    struct LevelUpOption;
-    struct AbilityChooser;
-    struct WorldEvent;
-    struct WorldEventOption;
-    struct WorldEventCatButton;
-}
+struct LevelUpScreen;
+struct LevelUpOption;
+struct AbilityChooser;
+struct WorldEvent;
+struct WorldEventOption;
+struct WorldEventCatButton;
 
 namespace ParaboxAPI {
 
@@ -102,7 +100,7 @@ struct BeginTurnEvent : EventBase {
 };
 
 struct FightEndEvent : EventBase {
-    CombatResolutionState *combat;
+    Level *level;
 };
 
 struct AbilityTriggerEvent : EventBase {
@@ -129,13 +127,13 @@ struct SlotUpdateDynamicValueEvent : EventBase {
 };
 
 struct ProcessCombatInputEvent : EventBase {
-    CombatUIContext *ctx;
+    PlayerBrain *ctx;
     void *outResult;
     void *returnValue = nullptr;
 };
 
 struct RouteCombatInputEvent : EventBase {
-    CombatUIContext *ctx;
+    PlayerBrain *ctx;
     void *outResult;
     void *param3;
     void *param4;
@@ -270,27 +268,27 @@ struct ActSelectionScreenSelectActEvent : EventBase {
 // Event types — LevelUpHooks
 // ---------------------------------------------------------------------------
 struct LevelUpScreenInitEvent : EventBase {
-    glaiel::LevelUpScreen *self;
-    PersistentCharacter *cat;
+    LevelUpScreen *self;
+    CatData *cat;
 };
 
 struct LevelUpScreenSelectOptionEvent : EventBase {
-    glaiel::LevelUpScreen *self;
-    glaiel::LevelUpOption *option;
+    LevelUpScreen *self;
+    LevelUpOption *option;
     int optionIndex;
 };
 
 struct LevelUpScreenRerollEvent : EventBase {
-    glaiel::LevelUpScreen *self;
+    LevelUpScreen *self;
 };
 
 struct AbilityChooserInitEvent : EventBase {
-    glaiel::AbilityChooser *self;
-    PersistentCharacter *cat;
+    AbilityChooser *self;
+    CatData *cat;
 };
 
 struct AbilityChooserSelectSlotEvent : EventBase {
-    glaiel::AbilityChooser *self;
+    AbilityChooser *self;
     uint32_t slotIndex;
 };
 
@@ -298,31 +296,31 @@ struct AbilityChooserSelectSlotEvent : EventBase {
 // Event types — WorldEventHooks
 // ---------------------------------------------------------------------------
 struct WorldEventInitEvent : EventBase {
-    glaiel::WorldEvent *self;
+    WorldEvent *self;
 };
 
 struct WorldEventClickOptionEvent : EventBase {
-    glaiel::WorldEvent *self;
-    glaiel::WorldEventOption *clickedOption;
+    WorldEvent *self;
+    WorldEventOption *clickedOption;
     int optionIndex;
 };
 
 struct WorldEventClickCatEvent : EventBase {
-    glaiel::WorldEvent *self;
-    glaiel::WorldEventCatButton *clickedButton;
-    PersistentCharacter *clickedCat;
+    WorldEvent *self;
+    WorldEventCatButton *clickedButton;
+    CatData *clickedCat;
 };
 
 struct WorldEventClickEnd1Event : EventBase {
-    glaiel::WorldEvent *self;
+    WorldEvent *self;
 };
 
 struct WorldEventClickEnd2Event : EventBase {
-    glaiel::WorldEvent *self;
+    WorldEvent *self;
 };
 
 struct WorldEventClickEndCustomEvent : EventBase {
-    glaiel::WorldEvent *self;
+    WorldEvent *self;
     const char *tokenString;
 };
 
@@ -440,8 +438,8 @@ PARABOX_API void* GameAllocate(size_t size);
 PARABOX_API void* GetActiveCatSelector();
 PARABOX_API bool IsCatSelectorValid(const void *selector);
 PARABOX_API void RefreshCatSelectorUI();
-PARABOX_API PersistentCharacter *GetPersistentCharacterById(int64_t catID);
-PARABOX_API void ApplyCollarToCharacter(PersistentCharacter *cat, const char *collarName);
+PARABOX_API CatData *GetCatDataById(int64_t catID);
+PARABOX_API void ApplyCollarToCharacter(CatData *cat, const char *collarName);
 PARABOX_API void RefreshClassChooserInventory();
 PARABOX_API void ClearClassTagBoxes();
 PARABOX_API void RegisterClassTagBox(void *comp);
@@ -469,14 +467,14 @@ PARABOX_API void *GetActSelectionScreen();
 PARABOX_API void ForceActSelectionScreenSelectAct(void *screen, int actIndex);
 
 // LevelUp API
-PARABOX_API glaiel::LevelUpScreen *GetActiveLevelUpScreen();
-PARABOX_API glaiel::AbilityChooser *GetActiveAbilityChooser();
-PARABOX_API void ForceLevelUpScreenSelectOption(glaiel::LevelUpScreen *self, glaiel::LevelUpOption *option);
-PARABOX_API void ForceLevelUpScreenReroll(glaiel::LevelUpScreen *self);
-PARABOX_API void ForceAbilityChooserSelectSlot(glaiel::AbilityChooser *self, uint32_t slotIndex);
+PARABOX_API LevelUpScreen *GetActiveLevelUpScreen();
+PARABOX_API AbilityChooser *GetActiveAbilityChooser();
+PARABOX_API void ForceLevelUpScreenSelectOption(LevelUpScreen *self, LevelUpOption *option);
+PARABOX_API void ForceLevelUpScreenReroll(LevelUpScreen *self);
+PARABOX_API void ForceAbilityChooserSelectSlot(AbilityChooser *self, uint32_t slotIndex);
 
 // WorldEvent API
-PARABOX_API glaiel::WorldEvent *GetActiveWorldEvent();
+PARABOX_API WorldEvent *GetActiveWorldEvent();
 PARABOX_API void ForceWorldEventSelectOption(int64_t catUID, uint32_t optionIndex);
 PARABOX_API void ForceWorldEventSelectCat(int64_t selectedCatUID);
 PARABOX_API void ForceWorldEventClickEnd(uint8_t buttonType);

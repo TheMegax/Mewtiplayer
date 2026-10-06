@@ -84,14 +84,14 @@ void DeleteSaveFile(const char* path) {
 
 void CloseActiveSaveConnection(void* mewDirector) {
   if (!mewDirector || !g_CloseConnection) return;
-  auto* saveFile = &static_cast<MewDirector*>(mewDirector)->sqlSaveFile;
+  auto* saveFile = &static_cast<MewDirector*>(mewDirector)->current_save_file.db;
   if (saveFile && saveFile->db) {
     g_CloseConnection(saveFile->db, 0);
     saveFile->db = nullptr;
   }
 }
 
-ParaboxAPI::Array<SQLMapFlag> QueryMapFlags(const glaiel::SQLSaveFile* dbFile) {
+ParaboxAPI::Array<SQLMapFlag> QueryMapFlags(const SQLSaveFile* dbFile) {
   std::vector<SQLMapFlag> result;
   if (!dbFile || !dbFile->db) return ParaboxAPI::MakeArray(result);
   if (!g_sqlite3Prepare || !g_sqlite3Step || !g_sqlite3ColumnText || !g_sqlite3Finalize) {
@@ -129,13 +129,13 @@ static bool IsValidDbPointer(const void* ptr) {
   return val >= 0x10000 && val < 0x7FFFFFFFFFFF;
 }
 
-glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
+SQLSaveFile* OpenSaveDatabase(const char* path) {
   if (!g_open) return nullptr;
 
   ParaboxAPI::String fullPath = GetAbsoluteSavePath(path);
 
-  auto* dbFile = new glaiel::SQLSaveFile();
-  memset(dbFile, 0, sizeof(glaiel::SQLSaveFile));
+  auto* dbFile = new SQLSaveFile();
+  memset(dbFile, 0, sizeof(SQLSaveFile));
 
   MsvcReleaseModeXString pathStr = {};
   GameUtils::InitXString(pathStr, fullPath.c_str());
@@ -144,7 +144,7 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
 
   if (!dbFile || !IsValidDbPointer(dbFile->db)) {
     if (dbFile && g_DestructString) {
-      g_DestructString(&dbFile->db_path_string);
+      g_DestructString(&dbFile->filename);
     }
     delete dbFile;
     return nullptr;
@@ -153,7 +153,7 @@ glaiel::SQLSaveFile* OpenSaveDatabase(const char* path) {
   return dbFile;
 }
 
-void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile) {
+void CloseSaveDatabase(SQLSaveFile* dbFile) {
   if (!dbFile) return;
 
   if (g_CloseConnection && IsValidDbPointer(dbFile->db)) {
@@ -162,13 +162,13 @@ void CloseSaveDatabase(glaiel::SQLSaveFile* dbFile) {
   }
 
   if (g_DestructString) {
-    g_DestructString(&dbFile->db_path_string);
+    g_DestructString(&dbFile->filename);
   }
 
   delete dbFile;
 }
 
-void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const char* query) {
+void ExecSQLOnDatabase(SQLSaveFile* dbFile, const char* query) {
   if (!g_ExecSQL || !dbFile || !IsValidDbPointer(dbFile->db)) return;
 
   MsvcReleaseModeXString queryStr = {};
@@ -178,7 +178,7 @@ void ExecSQLOnDatabase(glaiel::SQLSaveFile* dbFile, const char* query) {
   g_ExecSQL(dbFile, &queryStr, dummyFunc); // g_ExecSQL destructs queryStr
 }
 
-int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_t defaultVal) {
+int64_t ReadIntFromDatabase(SQLSaveFile* dbFile, const char* key, int64_t defaultVal) {
   if (!g_Retrieve || !dbFile || !IsValidDbPointer(dbFile->db)) return defaultVal;
 
   MsvcReleaseModeXString tableStr = {};
@@ -206,7 +206,7 @@ int64_t ReadIntFromDatabase(glaiel::SQLSaveFile* dbFile, const char* key, int64_
   return result;
 }
 
-ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, const char* table, const int64_t key) {
+ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(SQLSaveFile* dbFile, const char* table, const int64_t key) {
   std::vector<uint8_t> result;
   if (!g_Retrieve || !dbFile || !IsValidDbPointer(dbFile->db)) return ParaboxAPI::MakeArray(result);
 
@@ -231,7 +231,7 @@ ParaboxAPI::Array<uint8_t> ReadBlobFromDatabase(glaiel::SQLSaveFile* dbFile, con
   return ParaboxAPI::MakeArray(result);
 }
 
-ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(glaiel::SQLSaveFile* dbFile, const char* table, const char* key) {
+ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(SQLSaveFile* dbFile, const char* table, const char* key) {
   std::vector<uint8_t> result;
   if (!g_Retrieve || !dbFile || !IsValidDbPointer(dbFile->db)) return ParaboxAPI::MakeArray(result);
 
@@ -260,7 +260,7 @@ ParaboxAPI::Array<uint8_t> ReadBlobFromDatabaseStr(glaiel::SQLSaveFile* dbFile, 
   return ParaboxAPI::MakeArray(result);
 }
 
-void ExecSQLRaw(const glaiel::SQLSaveFile* dbFile, const char* query) {
+void ExecSQLRaw(const SQLSaveFile* dbFile, const char* query) {
   if (!dbFile || !dbFile->db || !g_sqlite3Prepare || !g_sqlite3Step || !g_sqlite3Finalize || !query) return;
   void* stmt = nullptr;
   const int rc = g_sqlite3Prepare(dbFile->db, query, -1, 0x80, nullptr, &stmt, nullptr);
@@ -300,7 +300,7 @@ bool WriteSaveFileRaw(const char* path, const uint8_t* data, const size_t size) 
   return file.good();
 }
 
-void CreateCatOwnershipTable(glaiel::SQLSaveFile* db) {
+void CreateCatOwnershipTable(SQLSaveFile* db) {
   ExecSQLRaw(db,
     "CREATE TABLE IF NOT EXISTS cat_ownership ("
     "  cat_slot      INTEGER PRIMARY KEY,"
@@ -309,7 +309,7 @@ void CreateCatOwnershipTable(glaiel::SQLSaveFile* db) {
     ");");
 }
 
-void WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, const int32_t slot,
+void WriteCatOwnershipEntry(SQLSaveFile* db, const int32_t slot,
                              const uint64_t ownerSteamID, const int32_t catAge) {
   char query[256];
   snprintf(query, sizeof(query),
@@ -319,7 +319,7 @@ void WriteCatOwnershipEntry(glaiel::SQLSaveFile* db, const int32_t slot,
   ExecSQLRaw(db, query);
 }
 
-CatOwnershipEntry ReadCatOwnershipEntry(glaiel::SQLSaveFile* db, const int32_t slot) {
+CatOwnershipEntry ReadCatOwnershipEntry(SQLSaveFile* db, const int32_t slot) {
   CatOwnershipEntry result = { 0, -1 };
   if (!db || !db->db) return result;
   if (!g_sqlite3Prepare || !g_sqlite3Step || !g_sqlite3ColumnText || !g_sqlite3Finalize) {

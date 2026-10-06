@@ -10,8 +10,8 @@
 static int g_adventureCapacity = 4;
 static HANDLE* g_pCRTHeap = nullptr;
 
-typedef void* (__fastcall *LookupPersistentCharacter_t)(void* pedigreeState, int64_t catID);
-static LookupPersistentCharacter_t g_LookupPersistentCharacter = nullptr;
+typedef void* (__fastcall *LookupCatData_t)(void* pedigreeState, int64_t catID);
+static LookupCatData_t g_LookupCatData = nullptr;
 
 static HANDLE GetCRTHeap() {
   if (g_pCRTHeap) {
@@ -43,33 +43,33 @@ void __fastcall Hook_ButchBox_Init(ButchBox *self, const bool param2) {
   if (self && g_adventureCapacity > 4) {
     HANDLE heap = GetCRTHeap();
 
-    // Reallocate cats vector
-    if (self->cats.data_) {
-      if (void* newCats = HeapReAlloc(heap, HEAP_ZERO_MEMORY, self->cats.data_, g_adventureCapacity * sizeof(PersistentCharacter*))) {
-        self->cats.data_ = (PersistentCharacter**)newCats;
+    // Reallocate slots vector
+    if (self->slots.data_) {
+      if (void* newCats = HeapReAlloc(heap, HEAP_ZERO_MEMORY, self->slots.data_, g_adventureCapacity * sizeof(HouseCat*))) {
+        self->slots.data_ = (HouseCat**)newCats;
         if (g_adventureCapacity > 4) {
-          memset(self->cats.data_ + 4, 0, (g_adventureCapacity - 4) * sizeof(PersistentCharacter*));
+          memset(self->slots.data_ + 4, 0, (g_adventureCapacity - 4) * sizeof(HouseCat*));
         }
-        self->cats.capacity_ = g_adventureCapacity;
-        self->cats.size_ = g_adventureCapacity;
+        self->slots.capacity_ = g_adventureCapacity;
+        self->slots.size_ = g_adventureCapacity;
       }
     }
 
-    // Reallocate positions vector
-    if (self->positions.data_) {
-      if (void* newPositions = HeapReAlloc(heap, HEAP_ZERO_MEMORY, self->positions.data_, g_adventureCapacity * sizeof(vec2))) {
-        self->positions.data_ = (vec2*)newPositions;
+    // Reallocate slot_offsets vector
+    if (self->slot_offsets.data_) {
+      if (void* newPositions = HeapReAlloc(heap, HEAP_ZERO_MEMORY, self->slot_offsets.data_, g_adventureCapacity * sizeof(Vec2D))) {
+        self->slot_offsets.data_ = (Vec2D*)newPositions;
 
         // Positioning it ourselves
-        const double startX = self->positions.data_[0].x;
-        const double startY = self->positions.data_[0].y;
+        const double startX = self->slot_offsets.data_[0].x;
+        const double startY = self->slot_offsets.data_[0].y;
         const double step = g_adventureCapacity > 1 ? (3.0 / (double)(g_adventureCapacity - 1)) : 0.0;
         for (int i = 0; i < g_adventureCapacity; ++i) {
-          self->positions.data_[i].x = startX + (double)i * step;
-          self->positions.data_[i].y = startY;
+          self->slot_offsets.data_[i].x = startX + (double)i * step;
+          self->slot_offsets.data_[i].y = startY;
         }
-        self->positions.capacity_ = g_adventureCapacity;
-        self->positions.size_ = g_adventureCapacity;
+        self->slot_offsets.capacity_ = g_adventureCapacity;
+        self->slot_offsets.size_ = g_adventureCapacity;
       }
     }
   }
@@ -84,23 +84,24 @@ bool __fastcall Hook_ButchBox_TryPlaceCat(ButchBox *self, void *cat) {
   if (!self || !cat) return false;
 
   int best_slot = -1;
-  auto* catMc = static_cast<glaiel::CatVisualComponent*>(cat)->movieClip;
-  auto* boxMc = (MovieClip*)self->movieClip;
+  auto* houseCat = static_cast<HouseCat*>(cat);
+  auto* catTransform = houseCat ? houseCat->transform : nullptr;
+  auto* boxTransform = self->transform;
 
-  if (catMc && boxMc) {
-    const double catX = catMc->x;
-    const double catY = catMc->y;
-    const double boxX = boxMc->x;
-    const double boxY = boxMc->y;
+  if (catTransform && boxTransform) {
+    const double catX = catTransform->position.x;
+    const double catY = catTransform->position.y;
+    const double boxX = boxTransform->position.x;
+    const double boxY = boxTransform->position.y;
 
     const double relX = catX - boxX;
     const double relY = catY - boxY;
 
     double min_dist = 1e9;
     for (int i = 0; i < g_adventureCapacity; ++i) {
-      if (self->cats.data_ && self->cats.data_[i] == nullptr) {
-        const double slotX = self->positions.data_[i].x;
-        const double slotY = self->positions.data_[i].y;
+      if (self->slots.data_ && self->slots.data_[i] == nullptr) {
+        const double slotX = self->slot_offsets.data_[i].x;
+        const double slotY = self->slot_offsets.data_[i].y;
         const double dx = relX - slotX;
         const double dy = relY - slotY;
         const double dist = dx * dx + dy * dy;
@@ -115,7 +116,7 @@ bool __fastcall Hook_ButchBox_TryPlaceCat(ButchBox *self, void *cat) {
   // Fallback to first empty slot
   if (best_slot == -1) {
     for (int i = 0; i < g_adventureCapacity; ++i) {
-      if (self->cats.data_ && self->cats.data_[i] == nullptr) {
+      if (self->slots.data_ && self->slots.data_[i] == nullptr) {
         best_slot = i;
         break;
       }
@@ -129,16 +130,16 @@ bool __fastcall Hook_ButchBox_TryPlaceCat(ButchBox *self, void *cat) {
   bool result = false;
   if (best_slot >= 4) {
     // Swap empty slot with slot 0 so the original function places it there
-    std::swap(self->cats.data_[0], self->cats.data_[best_slot]);
-    std::swap(self->positions.data_[0], self->positions.data_[best_slot]);
+    std::swap(self->slots.data_[0], self->slots.data_[best_slot]);
+    std::swap(self->slot_offsets.data_[0], self->slot_offsets.data_[best_slot]);
 
     if (g_origButchBox_TryPlaceCat) {
       result = g_origButchBox_TryPlaceCat(self, cat);
     }
 
     // Swap back
-    std::swap(self->cats.data_[0], self->cats.data_[best_slot]);
-    std::swap(self->positions.data_[0], self->positions.data_[best_slot]);
+    std::swap(self->slots.data_[0], self->slots.data_[best_slot]);
+    std::swap(self->slot_offsets.data_[0], self->slot_offsets.data_[best_slot]);
   } else {
     if (g_origButchBox_TryPlaceCat) {
       result = g_origButchBox_TryPlaceCat(self, cat);
@@ -165,8 +166,8 @@ void __fastcall Hook_ButchBox_ConfigCats(ButchBox *self) {
     } else {
       const int count = std::min(4, g_adventureCapacity - start);
       for (int i = 0; i < count; ++i) {
-        std::swap(self->cats.data_[i], self->cats.data_[start + i]);
-        std::swap(self->positions.data_[i], self->positions.data_[start + i]);
+        std::swap(self->slots.data_[i], self->slots.data_[start + i]);
+        std::swap(self->slot_offsets.data_[i], self->slot_offsets.data_[start + i]);
       }
 
       if (g_origButchBox_ConfigCats) {
@@ -174,8 +175,8 @@ void __fastcall Hook_ButchBox_ConfigCats(ButchBox *self) {
       }
 
       for (int i = 0; i < count; ++i) {
-        std::swap(self->cats.data_[i], self->cats.data_[start + i]);
-        std::swap(self->positions.data_[i], self->positions.data_[start + i]);
+        std::swap(self->slots.data_[i], self->slots.data_[start + i]);
+        std::swap(self->slot_offsets.data_[i], self->slot_offsets.data_[start + i]);
       }
     }
   }
@@ -190,7 +191,7 @@ void __fastcall Hook_ButchBox_TryRemoveCat(ButchBox *self, void *cat) {
 
   int idx = -1;
   for (int i = 0; i < g_adventureCapacity; ++i) {
-    if (self->cats.data_[i] == cat) {
+    if (self->slots.data_[i] == cat) {
       idx = i;
       break;
     }
@@ -198,15 +199,15 @@ void __fastcall Hook_ButchBox_TryRemoveCat(ButchBox *self, void *cat) {
 
   if (idx != -1) {
     if (idx >= 4) {
-      std::swap(self->cats.data_[0], self->cats.data_[idx]);
-      std::swap(self->positions.data_[0], self->positions.data_[idx]);
+      std::swap(self->slots.data_[0], self->slots.data_[idx]);
+      std::swap(self->slot_offsets.data_[0], self->slot_offsets.data_[idx]);
 
       if (g_origButchBox_TryRemoveCat) {
         g_origButchBox_TryRemoveCat(self, cat);
       }
 
-      std::swap(self->cats.data_[0], self->cats.data_[idx]);
-      std::swap(self->positions.data_[0], self->positions.data_[idx]);
+      std::swap(self->slots.data_[0], self->slots.data_[idx]);
+      std::swap(self->slot_offsets.data_[0], self->slot_offsets.data_[idx]);
     } else {
       if (g_origButchBox_TryRemoveCat) {
         g_origButchBox_TryRemoveCat(self, cat);
@@ -225,8 +226,8 @@ bool __fastcall Hook_ButchBox_Depart(ButchBox *self) {
 
   std::vector<int64_t> activeKeys;
   for (int i = 0; i < g_adventureCapacity; ++i) {
-    if (self->cats.data_ && self->cats.data_[i]) {
-      activeKeys.push_back(self->cats.data_[i]->sql_key);
+    if (self->slots.data_ && self->slots.data_[i]) {
+      activeKeys.push_back(self->slots.data_[i]->cat_id);
     }
   }
 
@@ -277,17 +278,9 @@ void __fastcall Hook_LoadAdventure(LoadAdventureArgs *args) {
 
   if (args && args->butchBox) {
     const ButchBox *self = args->butchBox;
-    const MewDirector* director = GameUtils::GetMewDirectorSingleton();
-    void* pedigreeState = director ? director->pedigreeState : nullptr;
-
-    if (pedigreeState && g_LookupPersistentCharacter) {
-      for (int i = 4; i < g_adventureCapacity; ++i) {
-        if (self->cats.data_ && self->cats.data_[i]) {
-          const int64_t catID = self->cats.data_[i]->sql_key;
-          if (auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
-            cat->onAdventure = true;
-          }
-        }
+    for (int i = 4; i < g_adventureCapacity; ++i) {
+      if (self->slots.data_ && self->slots.data_[i]) {
+        self->slots.data_[i]->departed = true;
       }
     }
   }
@@ -302,31 +295,16 @@ PARABOX_API void SetAdventureCapacity(int capacity) {
 }
 
 void AdventureBoxHooks_Init(MewjectorAPI *mj, uintptr_t gameBase) {
-    SCAN_RESOLVE(mj, gameBase, CRTFree,
-        "48 85 C9 74 36 53 48 83 EC 20 4C 8B C1 33 D2 48 8B 0D",
-        g_pCRTHeap, 15, 3, 7);
+    RESOLVE_DATA(gameBase, GameSymbols::acrt_heap, g_pCRTHeap);
 
-    HOOK_INSTALL(mj, gameBase, ButchBox_Init,
-        "48 8B C4 55 53 56 57 41 56 48 8D 68 A1 48 81 EC E0 00 00 00", 20);
+    HOOK_INSTALL(mj, gameBase, ButchBox_Init, GameSymbols::ButchBox_init, 0);
+    HOOK_INSTALL(mj, gameBase, ButchBox_TryPlaceCat, GameSymbols::ButchBox_try_place_cat, 0);
+    HOOK_INSTALL(mj, gameBase, ButchBox_ConfigCats, GameSymbols::ButchBox_late_update, 0);
+    HOOK_INSTALL(mj, gameBase, ButchBox_TryRemoveCat, GameSymbols::ButchBox_try_remove_cat, 0);
+    HOOK_INSTALL(mj, gameBase, ButchBox_Depart, GameSymbols::ButchBox_depart, 0);
+    HOOK_INSTALL(mj, gameBase, LoadAdventure, GameSymbols::ButchBox_depart_transition, 0);
 
-    HOOK_INSTALL(mj, gameBase, ButchBox_TryPlaceCat,
-        "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8B EC 48 81 EC 80 00 00 00 4C 8B FA 4C 8B E9 80 B9 F0 00 00 00 00", 27);
-
-    HOOK_INSTALL(mj, gameBase, ButchBox_ConfigCats,
-        "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 40 33 DB", 20);
-
-    HOOK_INSTALL(mj, gameBase, ButchBox_TryRemoveCat,
-        "48 8B 81 00 01 00 00 45 33 C9 48 39 10 75 03 4C 89 08 48 8B 81 00 01 00 00 48 39 50 08 75 04 4C 89 48 08", 35);
-
-    HOOK_INSTALL(mj, gameBase, ButchBox_Depart,
-        "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E8 48 81 EC 18 01 00 00", 29);
-
-    HOOK_INSTALL(mj, gameBase, LoadAdventure,
-        "48 89 5C 24 08 48 89 7C 24 20 55 48 8D 6C 24 C0 48 81 EC 40 01 00 00", 23);
-
-    SCAN_SET(mj, gameBase, LookupPersistentCharacter,
-        "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 40 4C 8B C2 48 8B F9 48 83 FA FF 0F 84",
-        g_LookupPersistentCharacter);
+    RESOLVE_FUNC(gameBase, GameSymbols::CatDatabase_get_cat, g_LookupCatData);
 }
 
 PARABOX_API ParaboxAPI::Array<int64_t> GetButchBoxCatKeys() {
@@ -346,8 +324,8 @@ PARABOX_API ParaboxAPI::Array<int64_t> GetButchBoxCatKeys() {
   if (!box) return ParaboxAPI::MakeArray(keys);
 
   for (int i = 0; i < g_adventureCapacity; ++i) {
-    if (box->cats.data_ && box->cats.data_[i]) {
-      keys.push_back(box->cats.data_[i]->sql_key);
+    if (box->slots.data_ && box->slots.data_[i]) {
+      keys.push_back(box->slots.data_[i]->cat_id);
     }
   }
   return ParaboxAPI::MakeArray(keys);
@@ -371,19 +349,19 @@ PARABOX_API int GetButchBoxCatAge(const int64_t sqlKey) {
   MewDirector* director = GameUtils::GetMewDirectorSingleton();
   if (!director) return 0;
 
-  void* pedigreeState = director->pedigreeState;
-  if (!pedigreeState || !g_LookupPersistentCharacter) return 0;
+  void* pedigreeState = director->cat_db;
+  if (!pedigreeState || !g_LookupCatData) return 0;
 
   for (int i = 0; i < g_adventureCapacity; ++i) {
-    if (box->cats.data_ && box->cats.data_[i]) {
-      const int64_t catID = box->cats.data_[i]->sql_key;
+    if (box->slots.data_ && box->slots.data_[i]) {
+      const int64_t catID = box->slots.data_[i]->cat_id;
       if (catID == sqlKey) {
-        if (const auto* cat = (PersistentCharacter*)g_LookupPersistentCharacter(pedigreeState, catID)) {
-          int64_t deathDay = cat->deathDay;
+        if (const auto* cat = (CatData*)g_LookupCatData(pedigreeState, catID)) {
+          int64_t deathDay = cat->deathday;
           if (deathDay == -1) {
-            deathDay = director->currentDay;
+            deathDay = director->current_day;
           }
-          return (int)deathDay - cat->birthDay;
+          return (int)(deathDay - cat->birthday);
         }
       }
     }
@@ -408,7 +386,7 @@ PARABOX_API int GetLocalButchBoxCatCount() {
 
   int count = 0;
   for (int i = 0; i < g_adventureCapacity; ++i) {
-    if (box->cats.data_ && box->cats.data_[i]) {
+    if (box->slots.data_ && box->slots.data_[i]) {
       count++;
     }
   }

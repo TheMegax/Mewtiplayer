@@ -22,12 +22,12 @@ struct ClassChooser : Component {
 
 static void *g_activeCatSelector = nullptr;
 
-typedef void *(__fastcall *LookupPersistentCharacter_t)(void *pedigreeState, int64_t catID);
+typedef void *(__fastcall *LookupCatData_t)(void *pedigreeState, int64_t catID);
 typedef void (__fastcall *RefreshCatSelectorUI_t)(void *selector);
-typedef void (__fastcall *ApplyCollar_t)(PersistentCharacter *cat, void *collarNameStr);
+typedef void (__fastcall *ApplyCollar_t)(CatData *cat, void *collarNameStr);
 typedef void (__fastcall *RefreshInventoryGrid_t)(void *classChooser);
 
-static LookupPersistentCharacter_t g_LookupPersistentCharacter = nullptr;
+static LookupCatData_t g_LookupCatData = nullptr;
 static RefreshCatSelectorUI_t g_RefreshCatSelectorUI = nullptr;
 static ApplyCollar_t g_ApplyCollar = nullptr;
 static RefreshInventoryGrid_t g_RefreshInventoryGrid = nullptr;
@@ -157,21 +157,21 @@ PARABOX_API void RefreshCatSelectorUI() {
   }
 }
 
-PARABOX_API PersistentCharacter *GetPersistentCharacterById(const int64_t catID) {
-  if (!g_LookupPersistentCharacter || catID == -1) {
+PARABOX_API CatData *GetCatDataById(const int64_t catID) {
+  if (!g_LookupCatData || catID == -1) {
     return nullptr;
   }
 
   const MewDirector *director = GameUtils::GetMewDirectorSingleton();
-  void *pedigreeState = director ? director->pedigreeState : nullptr;
+  void *pedigreeState = director ? director->cat_db : nullptr;
   if (!pedigreeState) {
     return nullptr;
   }
 
-  return (PersistentCharacter *)g_LookupPersistentCharacter(pedigreeState, catID);
+  return (CatData *)g_LookupCatData(pedigreeState, catID);
 }
 
-PARABOX_API void ApplyCollarToCharacter(PersistentCharacter *cat, const char *collarName) {
+PARABOX_API void ApplyCollarToCharacter(CatData *cat, const char *collarName) {
   if (!g_ApplyCollar || !cat || !collarName) {
     return;
   }
@@ -313,31 +313,12 @@ PARABOX_API int32_t GetClassTagBoxCount() {
 } // namespace ParaboxAPI
 
 void CatSelectorHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
-  SCAN_SET(mj, gameBase, RefreshInventoryGrid,
-    "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 28 FF FF FF",
-    g_RefreshInventoryGrid);
+  RESOLVE_FUNC(gameBase, GameSymbols::ClassChooser_refresh_item_locations, g_RefreshInventoryGrid);
+  RESOLVE_FUNC(gameBase, GameSymbols::CatData_set_class_preview, g_ApplyCollar);
+  RESOLVE_FUNC(gameBase, GameSymbols::CatDatabase_get_cat, g_LookupCatData);
+  RESOLVE_FUNC(gameBase, GameSymbols::CatSelector_RefreshAll, g_RefreshCatSelectorUI);
 
-  SCAN_SET(mj, gameBase, ApplyCollar,
-    "48 89 5C 24 18 48 89 54 24 10 55 56 57 41 56 41 57 48 8D 6C 24 C9 48 81 EC A0 00 00 00",
-    g_ApplyCollar);
-
-  SCAN_SET(mj, gameBase, LookupPersistentCharacter,
-    "48 89 5C 24 08 48 89 74 24 20 48 89 54 24 10 57 48 83 EC 40 4C 8B C2 48 8B F9 48 83 FA FF 0F 84",
-    g_LookupPersistentCharacter);
-
-  SCAN_SET(mj, gameBase, RefreshCatSelectorUI,
-    "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 48 FF FF FF 48 81 EC B8 01 00 00 48 8B D9",
-    g_RefreshCatSelectorUI);
-
-  HOOK_INSTALL(mj, gameBase, CatSelector_init,
-    "48 8B C4 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 98 FE FF FF 48 81 EC 28 02 00 00 0F 29 70 A8 0F 29 78 98",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, ClassTagBox_Click,
-    "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 38 FF FF FF",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, ClassChooser_LockIn,
-    "40 53 55 56 57 41 54 41 56 41 57 48 81 EC C0 00 00 00",
-    0);
+  HOOK_INSTALL(mj, gameBase, CatSelector_init, GameSymbols::CatSelector_init, 0);
+  HOOK_INSTALL(mj, gameBase, ClassTagBox_Click, GameSymbols::ClassTagBox_click, 0);
+  HOOK_INSTALL(mj, gameBase, ClassChooser_LockIn, GameSymbols::ClassChooser_init_embark, 0);
 }

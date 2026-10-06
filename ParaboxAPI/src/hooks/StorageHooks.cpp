@@ -149,9 +149,9 @@ PARABOX_API int32_t FindStorageSlotIndex(const void *clickedBox) {
 PARABOX_API void UpdateStorageItemSlot(int32_t slotIndex, int64_t catID) {
   if (slotIndex >= 0 && static_cast<size_t>(slotIndex) < g_storageItemBoxes->size()) {
     void *comp = (*g_storageItemBoxes)[slotIndex];
-    auto *itemBox = static_cast<glaiel::InventoryItemBox *>(comp);
-    if (auto *inventoryScreen = static_cast<glaiel::InventoryScreen *>(itemBox->inventoryScreen)) {
-      int64_t *screenCatIDPtr = &inventoryScreen->catID;
+    auto *itemBox = static_cast<InventoryItemBox *>(comp);
+    if (auto *inventoryScreen = static_cast<InventoryScreen2 *>(itemBox->parent)) {
+      int64_t *screenCatIDPtr = &inventoryScreen->current_cat;
       const int64_t origCatID = *screenCatIDPtr;
       *screenCatIDPtr = catID;
 
@@ -178,9 +178,9 @@ PARABOX_API void UpdateStorageItemSlot(int32_t slotIndex, int64_t catID) {
 }
 
 PARABOX_API int64_t ResolveSelectedCatID() {
-  if (const auto *selector = static_cast<const glaiel::CatSelector *>(GetActiveCatSelector());
+  if (const auto *selector = static_cast<const CatSelector *>(GetActiveCatSelector());
       selector && IsCatSelectorValid(selector)) {
-    return selector->catID;
+    return selector->current_cat;
   }
   return -1;
 }
@@ -208,27 +208,11 @@ PARABOX_API int32_t GetStorageSlotCount() {
 } // namespace ParaboxAPI
 
 void StorageHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
-  SCAN_SET(mj, gameBase, RefreshInventoryScreen,
-    "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 B8 FD FF FF 48 81 EC 08 03 00 00 0F 29 70",
-    g_RefreshInventoryScreen);
+  RESOLVE_FUNC(gameBase, GameSymbols::InventoryScreen2_refresh_item_locations, g_RefreshInventoryScreen);
 
-  HOOK_INSTALL(mj, gameBase, InventoryItemBox_Click,
-    "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 E1 48 81 EC E8 00 00 00 4C 8B E9 C7 45 67 00 00 00 00",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, InventoryItemBox_EquipInternal,
-    "48 8B C4 48 89 58 20 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 38 FF FF FF 48 81 EC 90 01 00 00",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, InventoryScreen2_Close,
-    "48 89 5C 24 08 57 48 81 EC 80 00 00 00 48 8B F9 E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ??",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, SceneManager_CreateScene,
-    "48 89 5C 24 18 48 89 74 24 20 48 89 54 24 10 57 48 83 ec 20 48 8b fa 48 8b f1 48 8d 0d",
-    0);
-
-  HOOK_INSTALL(mj, gameBase, Scene_AddComponent,
-    "48 89 5C 24 18 48 89 6c 24 20 48 89 54 24 10 56 57 41 56 48 83 ec 20 48 8b 02 48 8b f1 48 8b ca",
-    0);
+  HOOK_INSTALL(mj, gameBase, InventoryItemBox_Click, GameSymbols::InventoryItemBox_click, 0);
+  HOOK_INSTALL(mj, gameBase, InventoryItemBox_EquipInternal, GameSymbols::InventoryItemBox_click_equip, 0);
+  HOOK_INSTALL(mj, gameBase, InventoryScreen2_Close, GameSymbols::InventoryScreen2_close, 0);
+  HOOK_INSTALL(mj, gameBase, SceneManager_CreateScene, GameSymbols::Director_AddScene, 0);
+  HOOK_INSTALL(mj, gameBase, Scene_AddComponent, GameSymbols::Scene_AddComponent, 0);
 }

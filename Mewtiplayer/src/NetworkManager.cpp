@@ -13,6 +13,7 @@
 #include "hooks/AdventureBoxHooks.h"
 #include "ChatManager.h"
 #include <algorithm>
+#include <cctype>
 
 using FaceDirection_t = void(__fastcall *)(void *character,
                                           uint64_t target_packed,
@@ -439,16 +440,16 @@ void NetworkManager::UpdateNUIDOwnership() {
 
     uint64_t ownerSteamID = 0;
 
-    if (character->persistentChar) {
-      const int64_t sqlKey = character->persistentChar->sql_key;
-      const auto it = m_catOwnership.find(sqlKey);
+    if (character->pcat_data) {
+      const int64_t catUID = character->pcat_data->cat_uid;
+      const auto it = m_catOwnership.find(catUID);
       if (it != m_catOwnership.end()) {
         ownerSteamID = it->second;
       }
     }
 
-    if (ownerSteamID == 0 && character->persistentChar) {
-      const int64_t catID = character->persistentChar->catID;
+    if (ownerSteamID == 0 && character->pcat_data) {
+      const int64_t catID = character->pcat_data->cat_uid;
       const auto it = g_catIdToOwnerSteamID.find(catID);
       if (it != g_catIdToOwnerSteamID.end()) {
         ownerSteamID = it->second;
@@ -472,13 +473,13 @@ void NetworkManager::UpdateNUIDOwnership() {
       if (ownedIt != m_nuidOwnership.end() && ownedIt->second != 0)
         continue;
 
-      Character *spawner = character->spawner;
+      Character *spawner = character->spawned_by.obj;
       if (!spawner)
         continue;
 
       // Validate spawner token
       const uint64_t expectedToken = *(uint64_t *)((char *)spawner - 8);
-      if (character->spawnerToken != expectedToken)
+      if (character->spawned_by.generation != expectedToken)
         continue;
 
       const auto spawnerNuidIt = m_charToNuid.find(spawner);
@@ -492,7 +493,7 @@ void NetworkManager::UpdateNUIDOwnership() {
         newlyAssigned = true;
         const char *name = SteamFriends()->GetFriendPersonaName(spawnerOwnerIt->second);
         Overlay::Log("[NETWORK] Familiar Ownership Inherited: NUID %u (%s) -> Owned by %s (via Spawner NUID %u)",
-                     nuid, character->name.to_utf8().c_str(), name ? name : "Unknown", spawnerNuid);
+                     nuid, character->display_name.to_utf8().c_str(), name ? name : "Unknown", spawnerNuid);
       }
     }
     if (!newlyAssigned)
@@ -533,15 +534,15 @@ void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
   BroadcastPacket(PacketType::CatOwnershipSync, &data, sizeof(data),
                   false); // Include self to update map
 
-  if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str())) {
+  if (SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str())) {
     MewSQL::CreateCatOwnershipTable(db);
     int32_t slot = 0;
     const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
-    if (dir && dir->partyCatIDs) {
-      for (int i = 0; i < dir->partyCount; i++) {
-        if (const auto* cat = ParaboxAPI::GetPersistentCharacterById(dir->partyCatIDs[i])) {
-          if (cat->sql_key == uid) {
-            slot = i + 1;
+    if (dir && dir->current_battle_cats.data_) {
+      for (size_t i = 0; i < dir->current_battle_cats.size(); i++) {
+        if (const auto* cat = ParaboxAPI::GetCatDataById(dir->current_battle_cats.data_[i])) {
+          if (cat->cat_uid == uid) {
+            slot = (int32_t)i + 1;
             break;
           }
         }
@@ -549,7 +550,7 @@ void NetworkManager::SyncOwnership(const int64_t uid, const uint64_t steamID) {
     }
     if (slot > 0) {
       MewSQL::WriteCatOwnershipEntry(db, slot, steamID, 0);
-      Overlay::Log("[SAVE] Persisted ownership change: slot=%d, sql_key=%lld -> %llu", slot, uid, steamID);
+      Overlay::Log("[SAVE] Persisted ownership change: slot=%d, cat_uid=%lld -> %llu", slot, uid, steamID);
     }
     MewSQL::CloseSaveDatabase(db);
   }
@@ -658,6 +659,7 @@ void NetworkManager::SetFriendsOnly(const bool friendsOnly) {
   if (m_CurrentLobby.IsValid() && IsHost()) {
     const ELobbyType lobbyType = friendsOnly ? k_ELobbyTypeFriendsOnly : k_ELobbyTypePublic;
     SteamMatchmaking()->SetLobbyType(m_CurrentLobby, lobbyType);
+    SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "friends_only", friendsOnly ? "1" : "0");
     Overlay::Log("[NETWORK] Changed lobby type to %s", friendsOnly ? "Friends Only" : "Public");
   }
 }
@@ -683,6 +685,87 @@ void NetworkManager::JoinLobby(const CSteamID lobbyID) {
   Overlay::Log("[NETWORK] Joining lobby %llu...", lobbyID.ConvertToUint64());
   const SteamAPICall_t call = SteamMatchmaking()->JoinLobby(lobbyID);
   m_LobbyEnterCallResult.Set(call, this, &NetworkManager::OnLobbyEnter);
+}
+
+void NetworkManager::JoinLobbyByUID(const std::string &uidStr) {
+  const CSteamID lobbyID = UIDToLobbyID(uidStr);
+  if (lobbyID.IsValid()) {
+    JoinLobby(lobbyID);
+    return;
+  }
+
+  for (const auto &lobby : m_LobbyList) {
+    if (lobby.uid == uidStr) {
+      JoinLobby(lobby.id);
+      return;
+    }
+  }
+
+  Overlay::Log("[NETWORK] [ERR] Could not resolve Lobby UID '%s'", uidStr.c_str());
+  ChatManager::Get().AddSystemMessage("Invalid Lobby UID format.");
+}
+
+std::string NetworkManager::LobbyIDToUID(const CSteamID lobbyID) {
+  uint64_t val = lobbyID.ConvertToUint64();
+  if (val == 0) return "";
+  static const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  std::string result;
+  while (val > 0) {
+    result += charset[val % 36];
+    val /= 36;
+  }
+  std::reverse(result.begin(), result.end());
+
+  // Format into chunks separated by hyphens (e.g. ABCD-EFGH-1234)
+  std::string formatted;
+  const size_t len = result.size();
+  for (size_t i = 0; i < len; ++i) {
+    if (i > 0 && (len - i) % 4 == 0) {
+      formatted += '-';
+    }
+    formatted += result[i];
+  }
+  return formatted;
+}
+
+CSteamID NetworkManager::UIDToLobbyID(const std::string &uidStr) {
+  std::string clean;
+  for (char c : uidStr) {
+    if (isalnum(static_cast<unsigned char>(c))) {
+      clean += static_cast<char>(toupper(static_cast<unsigned char>(c)));
+    }
+  }
+  if (clean.empty()) return {};
+
+  bool isAllDigits = true;
+  for (char c : clean) {
+    if (!isdigit(static_cast<unsigned char>(c))) {
+      isAllDigits = false;
+      break;
+    }
+  }
+  if (isAllDigits && clean.length() >= 15) {
+    const uint64_t raw = std::strtoull(clean.c_str(), nullptr, 10);
+    return CSteamID(raw);
+  }
+
+  uint64_t val = 0;
+  for (char c : clean) {
+    int digit;
+    if (c >= '0' && c <= '9') {
+      digit = c - '0';
+    } else if (c >= 'A' && c <= 'Z') {
+      digit = c - 'A' + 10;
+    } else {
+      return {};
+    }
+
+    if (val > (UINT64_MAX - digit) / 36) {
+      return {};
+    }
+    val = val * 36 + digit;
+  }
+  return CSteamID(val);
 }
 
 void NetworkManager::JoinAnyLobby() {
@@ -747,23 +830,52 @@ void NetworkManager::OnLobbyCreated(LobbyCreated_t *pCallback, const bool bIOFai
   m_discoveredCats.clear();
   ResetLobbyReadyStates();
 
+  const std::string uid = LobbyIDToUID(m_CurrentLobby);
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "name",
                                    m_PendingLobbyName.c_str());
   SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "mewtiplayer",
                                    m_ModID.c_str());
-  Overlay::Log("[NETWORK] [OK] Lobby created: %llu", m_CurrentLobby.ConvertToUint64());
-  ChatManager::Get().AddSystemMessage("Lobby created: " + m_PendingLobbyName);
+  SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "uid", uid.c_str());
+  SteamMatchmaking()->SetLobbyData(m_CurrentLobby, "friends_only",
+                                   m_friendsOnly ? "1" : "0");
+  Overlay::Log("[NETWORK] [OK] Lobby created: %llu (UID: %s, %s)",
+               m_CurrentLobby.ConvertToUint64(), uid.c_str(),
+               m_friendsOnly ? "Friends Only" : "Public");
+  ChatManager::Get().AddSystemMessage("Lobby created: " + m_PendingLobbyName + " (UID: " + uid + ")");
 }
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure) {
   if (bIOFailure || pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
-    Overlay::Log("[NETWORK] [ERR] Failed to join lobby (Response: %d)",
-                 pCallback->m_EChatRoomEnterResponse);
-    ChatManager::Get().AddSystemMessage("Failed to join lobby.");
+    if (pCallback->m_EChatRoomEnterResponse == k_EChatRoomEnterResponseNotAllowed ||
+        pCallback->m_EChatRoomEnterResponse == k_EChatRoomEnterResponseLimited) {
+      Overlay::Log("[NETWORK] [DENIED] Cannot join lobby: Lobby is Friends Only and you are not Steam friends with the host.");
+      ChatManager::Get().AddSystemMessage("Access denied: Lobby is Friends Only.");
+    } else {
+      Overlay::Log("[NETWORK] [ERR] Failed to join lobby (Response: %d)",
+                   pCallback->m_EChatRoomEnterResponse);
+      ChatManager::Get().AddSystemMessage("Failed to join lobby.");
+    }
     return;
   }
   m_CurrentLobby = CSteamID(pCallback->m_ulSteamIDLobby);
+
+  // Check if lobby is marked friends only, and verify friend status with host (essential for emulators like Goldberg)
+  const char *friendsOnlyStr = SteamMatchmaking()->GetLobbyData(m_CurrentLobby, "friends_only");
+  const bool isLobbyFriendsOnly = (friendsOnlyStr && strcmp(friendsOnlyStr, "1") == 0);
+  if (isLobbyFriendsOnly && !IsHost()) {
+    const CSteamID hostID = GetHostID();
+    if (hostID.IsValid() && hostID != SteamUser()->GetSteamID()) {
+      const EFriendRelationship rel = SteamFriends()->GetFriendRelationship(hostID);
+      if (rel != k_EFriendRelationshipFriend) {
+        Overlay::Log("[NETWORK] [DENIED] Disconnecting: Lobby is Friends Only and you are not Steam friends with host %llu.", hostID.ConvertToUint64());
+        ChatManager::Get().AddSystemMessage("Access denied: Lobby is Friends Only (not Steam friends).");
+        LeaveLobby();
+        return;
+      }
+    }
+  }
+
   m_combatActive = false;
   m_activeNUID = 0xFFFFFFFF;
   m_catOwnership.clear();
@@ -771,7 +883,8 @@ void NetworkManager::OnLobbyEnter(LobbyEnter_t *pCallback, const bool bIOFailure
   m_lobbyMemberCatCounts.clear();
   ResetLobbyReadyStates();
 
-  Overlay::Log("[OK] Joined lobby: %llu", m_CurrentLobby.ConvertToUint64());
+  const std::string uid = LobbyIDToUID(m_CurrentLobby);
+  Overlay::Log("[OK] Joined lobby: %llu (UID: %s)", m_CurrentLobby.ConvertToUint64(), uid.c_str());
   ChatManager::Get().AddSystemMessage("Joined lobby.");
 
   if (g_modState.autoJoin) {
@@ -791,9 +904,12 @@ void NetworkManager::OnLobbyMatchList(LobbyMatchList_t *pCallback,
     LobbyInfo info;
     info.id = lobbyID;
     const char *name = SteamMatchmaking()->GetLobbyData(lobbyID, "name");
-    info.name = name ? name : "Unknown Lobby";
+    info.name = name && name[0] ? name : "Unknown Lobby";
     info.memberCount = SteamMatchmaking()->GetNumLobbyMembers(lobbyID);
     info.maxMembers = SteamMatchmaking()->GetLobbyMemberLimit(lobbyID);
+    info.uid = LobbyIDToUID(lobbyID);
+    const char *fo = SteamMatchmaking()->GetLobbyData(lobbyID, "friends_only");
+    info.isFriendsOnly = (fo && strcmp(fo, "1") == 0);
     m_LobbyList.push_back(info);
   }
   Overlay::Log("Found %d lobbies.", static_cast<int>(m_LobbyList.size()));
@@ -961,7 +1077,7 @@ void NetworkManager::InitializeEntityMapping() {
     m_nuidToChar[nuid] = c;
 
     Overlay::Log("[NUID] Map [%u] -> Character: %s", nuid,
-                 c->name.to_utf8().c_str());
+                 c->display_name.to_utf8().c_str());
   }
 
   UpdateNUIDOwnership();
@@ -991,7 +1107,7 @@ Character *NetworkManager::GetCharacter(const uint32_t nuid) {
 std::string NetworkManager::GetCharacterNameByNUID(const uint32_t nuid) {
   const Character *c = GetCharacter(nuid);
   if (!c) return "NUID:" + std::to_string(nuid);
-  std::string name = c->name.to_utf8();
+  std::string name = c->display_name.to_utf8();
   if (name.empty() || name == "UNKNOWN" || name == "NULL") {
     return "Fighter(NUID:" + std::to_string(nuid) + ")";
   }
@@ -1011,7 +1127,7 @@ void NetworkManager::UpdateDynamicEntities() {
       m_nuidToChar[nuid] = c;
 
       Overlay::Log("NUID: Dynamic Map [%d] -> Character %p (%s)", nuid, c,
-                   c->name.to_utf8().c_str());
+                   c->display_name.to_utf8().c_str());
     }
   }
 
@@ -1131,14 +1247,14 @@ void NetworkManager::BeginMultiplayerSave() {
 
   // Read host's own cats from their active save file
   const MewDirector* director = GameUtils::GetMewDirectorSingleton();
-  void* activeDb = director ? director->sqlSaveFile.db : nullptr;
+  void* activeDb = director ? director->current_save_file.db.db : nullptr;
 
   // Get host's ButchBox cat keys
   const std::vector<int64_t> hostKeys = GetButchBoxCatKeys().to_vector();
   Overlay::Log("[SAVE] Host found %zu cats in their ButchBox.", hostKeys.size());
 
   if (activeDb) {
-    glaiel::SQLSaveFile tempDb = {};
+    SQLSaveFile tempDb = {};
     tempDb.db = activeDb;
 
     for (const int64_t key : hostKeys) {
@@ -1195,7 +1311,7 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
   Overlay::Log("[SAVE] Received SaveCatRequest from host %llu", remoteID.ConvertToUint64());
 
   const MewDirector* director = GameUtils::GetMewDirectorSingleton();
-  void* activeDb = director ? director->sqlSaveFile.db : nullptr;
+  void* activeDb = director ? director->current_save_file.db.db : nullptr;
 
   const std::vector<int64_t> clientKeys = GetButchBoxCatKeys().to_vector();
   Overlay::Log("[SAVE] Client found %zu cats in ButchBox.", clientKeys.size());
@@ -1207,7 +1323,7 @@ void NetworkManager::HandleSaveCatRequest(const CSteamID remoteID) {
 
   if (activeDb) {
     uint32_t numCats = 0;
-    glaiel::SQLSaveFile tempDb = {};
+    SQLSaveFile tempDb = {};
     tempDb.db = activeDb;
 
     for (const int64_t key : clientKeys) {
@@ -1376,7 +1492,7 @@ void NetworkManager::BuildAndDistributeSave() {
   GameUtils::CreateMewtiplayerSave(CUSTOM_SAVE_NAME.c_str());
 
   // Open it and write all collected cat blobs, and merge extra data
-  if (glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str())) {
+  if (SQLSaveFile* db = MewSQL::OpenSaveDatabase(CUSTOM_SAVE_NAME.c_str())) {
     {
       std::vector<ParaboxAPI::Array<ParaboxAPI::String>> convertedFlags;
       for (const auto& flags : m_collectedMapFlags) {
@@ -1638,13 +1754,13 @@ int NetworkManager::GetLobbyMemberCatCount(const uint64_t steamID) {
 
 void NetworkManager::RestoreOwnershipFromSave(const char* saveName) {
   const MewDirector* dir = GameUtils::GetMewDirectorSingleton();
-  if (!dir || !dir->partyCatIDs || dir->partyCount <= 0) {
-    Overlay::Log("[SAVE] [WARN] No party cats in MewDirector! (dir=%p, partyCatIDs=%p, partyCount=%d)",
-                 dir, dir ? dir->partyCatIDs : nullptr, dir ? dir->partyCount : -1);
+  if (!dir || !dir->current_battle_cats.data_ || dir->current_battle_cats.size() == 0) {
+    Overlay::Log("[SAVE] [WARN] No party cats in MewDirector! (dir=%p, data=%p, size=%zu)",
+                 dir, dir ? dir->current_battle_cats.data_ : nullptr, dir ? dir->current_battle_cats.size() : 0);
     return;
   }
 
-  glaiel::SQLSaveFile* db = MewSQL::OpenSaveDatabase(saveName);
+  SQLSaveFile* db = MewSQL::OpenSaveDatabase(saveName);
   if (!db) {
     Overlay::Log("[SAVE] [ERR] Failed to open database %s!", saveName);
     return;
@@ -1652,34 +1768,34 @@ void NetworkManager::RestoreOwnershipFromSave(const char* saveName) {
 
   extern std::map<int64_t, uint64_t> g_catIdToOwnerSteamID;
   int restored = 0;
-  for (int i = 0; i < dir->partyCount; i++) {
-    const int32_t slot = i + 1;
-    const int64_t catID = dir->partyCatIDs[i];
-    const PersistentCharacter* cat = ParaboxAPI::GetPersistentCharacterById(catID);
+  for (size_t i = 0; i < dir->current_battle_cats.size(); i++) {
+    const int32_t slot = (int32_t)i + 1;
+    const int64_t catID = dir->current_battle_cats.data_[i];
+    const CatData* cat = ParaboxAPI::GetCatDataById(catID);
     if (!cat) {
-      Overlay::Log("[SAVE] [WARN] [%d] GetPersistentCharacterById(%lld) -> null, skipping", i, catID);
+      Overlay::Log("[SAVE] [WARN] [%zu] GetCatDataById(%lld) -> null, skipping", i, catID);
       continue;
     }
 
-    const int64_t sqlKey = cat->sql_key;
-    Overlay::Log("[SAVE] RestoreOwnership: [%d] cat found -> slot=%d, sql_key=%lld", i, slot, sqlKey);
+    const int64_t catUID = cat->cat_uid;
+    Overlay::Log("[SAVE] RestoreOwnership: [%zu] cat found -> slot=%d, cat_uid=%lld", i, slot, catUID);
 
-    std::string narrowNameStr = cat->name.to_utf8();
-    RegisterCat(sqlKey, narrowNameStr.c_str(), cat->className.begin());
+    std::string narrowNameStr = cat->name_.to_utf8();
+    RegisterCat(catUID, narrowNameStr.c_str(), cat->cat_class.begin());
 
     const auto [ownerSteamID, catAge] = MewSQL::ReadCatOwnershipEntry(db, slot);
     if (ownerSteamID != 0) {
-      m_catOwnership[sqlKey] = ownerSteamID;
+      m_catOwnership[catUID] = ownerSteamID;
       g_catIdToOwnerSteamID[catID] = ownerSteamID;
       restored++;
     } else {
-      Overlay::Log("[SAVE] [WARN] [%d] MISS slot=%d sql_key=%lld not found in cat_ownership", i, slot, sqlKey);
+      Overlay::Log("[SAVE] [WARN] [%d] MISS slot=%d cat_uid=%lld not found in cat_ownership", i, slot, catUID);
     }
   }
 
   MewSQL::CloseSaveDatabase(db);
-  Overlay::Log("[SAVE] Restored %d/%d cats from %s",
-               restored, dir->partyCount, saveName);
+  Overlay::Log("[SAVE] Restored %d/%zu cats from %s",
+               restored, dir->current_battle_cats.size(), saveName);
   UpdateNUIDOwnership();
 }
 
@@ -1949,12 +2065,12 @@ uint32_t NetworkManager::ComputeCombatStateCRC() {
     #pragma pack(pop)
 
     cdata.nuid = nuid;
-    cdata.currentHP = c->currentHP;
-    cdata.barrierHP = c->barrierHP;
-    cdata.maxHP = c->maxHP;
-    cdata.lives = c->lives;
-    cdata.isDead = c->isDead ? 1 : 0;
-    cdata.sqlKey = c->persistentChar ? c->persistentChar->sql_key : -1;
+    cdata.currentHP = c->health;
+    cdata.barrierHP = c->shield;
+    cdata.maxHP = c->max_health;
+    cdata.lives = c->divine_shield;
+    cdata.isDead = c->dead ? 1 : 0;
+    cdata.sqlKey = c->pcat_data ? c->pcat_data->cat_uid : -1;
 
     buffer.insert(buffer.end(), (const uint8_t*)&cdata, (const uint8_t*)&cdata + sizeof(cdata));
   }
