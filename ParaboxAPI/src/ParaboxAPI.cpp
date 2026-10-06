@@ -5,18 +5,9 @@
 namespace ParaboxAPI {
 
 static LogCallback g_logCallback = nullptr;
-static EnqueueResultCallback g_enqueueResultCallback = nullptr;
 
 PARABOX_API void SetLogCallback(LogCallback cb) {
     g_logCallback = cb;
-}
-
-PARABOX_API void SetEnqueueResultCallback(EnqueueResultCallback cb) {
-    g_enqueueResultCallback = cb;
-}
-
-EnqueueResultCallback GetEnqueueResultCallback() {
-    return g_enqueueResultCallback;
 }
 
 PARABOX_API void Log(const char *fmt, ...) {
@@ -46,6 +37,7 @@ PARABOX_API Event<EnqueueActionEvent>          OnEnqueueAction;
 PARABOX_API Event<FaceDirectionEvent>          OnFaceDirection;
 PARABOX_API Event<SlotUpdateDynamicValueEvent> OnSlotUpdateDynamicValue;
 PARABOX_API Event<ProcessCombatInputEvent>     OnProcessCombatInput;
+PARABOX_API Event<PostProcessCombatInputEvent> OnPostProcessCombatInput;
 PARABOX_API Event<RouteCombatInputEvent>       OnRouteCombatInput;
 PARABOX_API Event<CombatMenuShowEvent>         OnCombatMenuShow;
 PARABOX_API Event<CombatMenuHideEvent>         OnCombatMenuHide;

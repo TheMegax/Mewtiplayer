@@ -132,6 +132,11 @@ struct ProcessCombatInputEvent : EventBase {
     void *returnValue = nullptr;
 };
 
+struct PostProcessCombatInputEvent : EventBase {
+    PlayerBrain *ctx;
+    TurnAction *actionData;
+};
+
 struct RouteCombatInputEvent : EventBase {
     PlayerBrain *ctx;
     void *outResult;
@@ -349,10 +354,8 @@ struct PopupChoiceEvent : EventBase {
 // If no callback is set, messages go to OutputDebugStringA.
 // ---------------------------------------------------------------------------
 using LogCallback = void(*)(const char *fmt, va_list args);
-using EnqueueResultCallback = void(*)(void *result);
 
 PARABOX_API void SetLogCallback(LogCallback cb);
-PARABOX_API void SetEnqueueResultCallback(EnqueueResultCallback cb);
 PARABOX_API void Log(const char *fmt, ...);
 
 // ---------------------------------------------------------------------------
@@ -370,6 +373,7 @@ extern PARABOX_API Event<EnqueueActionEvent>          OnEnqueueAction;
 extern PARABOX_API Event<FaceDirectionEvent>          OnFaceDirection;
 extern PARABOX_API Event<SlotUpdateDynamicValueEvent> OnSlotUpdateDynamicValue;
 extern PARABOX_API Event<ProcessCombatInputEvent>     OnProcessCombatInput;
+extern PARABOX_API Event<PostProcessCombatInputEvent> OnPostProcessCombatInput;
 extern PARABOX_API Event<RouteCombatInputEvent>       OnRouteCombatInput;
 extern PARABOX_API Event<CombatMenuShowEvent>         OnCombatMenuShow;
 extern PARABOX_API Event<CombatMenuHideEvent>         OnCombatMenuHide;

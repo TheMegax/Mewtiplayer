@@ -114,7 +114,8 @@ struct TurnActionPacket {
   uint8_t autoRecomputeTarget;
   uint8_t respectPrimeWhenNoCost;
   uint8_t intentional;
-  bool isPassive;
+  int32_t additionalData;
+  Animate animate;
   uint32_t rngState[8];
 };
 

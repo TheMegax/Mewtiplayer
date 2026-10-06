@@ -994,15 +994,8 @@ void NetworkManager::HandleTurnAction(const void *data,
   const auto *pkt = (const TurnActionPacket *)data;
   const std::string actorName = Get().GetCharacterNameByNUID(pkt->actorNUID);
 
-  if (pkt->isPassive && ConsumeNaturalPassiveTrigger(pkt->actorNUID, pkt->abilityName)) {
-    Overlay::Log("[NET] Dropped duplicate incoming passive packet '%s' for %s (NUID %u) as already executed naturally",
-                 pkt->abilityName, actorName.c_str(), pkt->actorNUID);
-    return;
-  }
-
-  Overlay::Log("[NET] Received Queued Action: '%s' for %s (Type %d, NUID %u%s)",
-               pkt->abilityName, actorName.c_str(), pkt->actionType, pkt->actorNUID,
-               pkt->isPassive ? ", Passive" : "");
+  Overlay::Log("[NET] Received Action: '%s' for %s (Type %d, NUID %u)",
+               pkt->abilityName, actorName.c_str(), pkt->actionType, pkt->actorNUID);
   ActionPacket action{};
   action.type = PacketType::TurnAction;
   action.data.action = *pkt;

@@ -53,10 +53,6 @@ void ParaboxAPI::ForceAbilityTrigger(Ability *ability, TurnAction *turnAction) {
         g_origAbilityTrigger(ability, turnAction);
 }
 
-namespace ParaboxAPI {
-    EnqueueResultCallback GetEnqueueResultCallback();
-}
-
 static void *__fastcall Hook_EnqueueAction(void *queue, TurnAction *actionData) {
     ParaboxAPI::EnqueueActionEvent ev = {};
     ev.queue = queue;
@@ -69,9 +65,6 @@ static void *__fastcall Hook_EnqueueAction(void *queue, TurnAction *actionData) 
     void *result = nullptr;
     if (g_origEnqueueAction)
         result = g_origEnqueueAction(queue, actionData);
-
-    if (const auto cb = ParaboxAPI::GetEnqueueResultCallback())
-        cb(result);
 
     return result;
 }
@@ -116,7 +109,14 @@ static void *__fastcall Hook_ProcessCombatInput(PlayerBrain *ctx, void *outResul
     if (ev.cancelled)
         return ev.returnValue;
 
-    return g_origProcessCombatInput(ctx, outResult);
+    void *result = g_origProcessCombatInput(ctx, outResult);
+
+    ParaboxAPI::PostProcessCombatInputEvent postEv = {};
+    postEv.ctx = ctx;
+    postEv.actionData = static_cast<TurnAction*>(result ? result : outResult);
+    ParaboxAPI::OnPostProcessCombatInput.Publish(postEv);
+
+    return result;
 }
 
 static void *__fastcall Hook_RouteCombatInput(PlayerBrain *ctx, void *outResult, void *param3, void *param4) {

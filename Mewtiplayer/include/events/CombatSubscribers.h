@@ -13,15 +13,6 @@ extern std::unordered_set<void *> g_castableAbilities;
 extern bool g_waitingForPlayerAction;
 extern bool g_isSyncActionPending;
 
-extern bool g_deferredBroadcastPending;
-extern TurnActionPacket g_deferredActionPkt;
-extern uint32_t g_deferredActorNUID;
-
-extern bool g_isMainActionActive;
-extern uint32_t g_activeMainActionActorNUID;
-extern Ability *g_activeMainActionAbilityPtr;
-extern std::string g_activeMainActionAbilityName;
-
 extern bool g_startedCombat;
 extern bool g_isQueueEmpty;
 extern bool g_inCombatDetected;
@@ -33,13 +24,5 @@ extern void *g_lastActionQueue;
 extern std::map<LevelUpScreen*, CatData*> g_levelUpScreenToCat;
 extern std::map<AbilityChooser*, CatData*> g_abilityChooserToCat;
 
-extern ActionPacket g_lastInjectedActionPacket;
-extern bool g_injectedInCurrentCall;
-
-void NotifyEnqueueResult(void* result);
 void ResetCombatSubscribersState();
 void RegisterCombatSubscribers();
-
-void RecordNaturalPassiveTrigger(uint32_t nuid, const std::string& abilityName);
-bool ConsumeNaturalPassiveTrigger(uint32_t nuid, const std::string& abilityName);
-void ResetNaturalPassiveTriggers();
