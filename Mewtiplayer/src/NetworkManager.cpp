@@ -600,6 +600,8 @@ void NetworkManager::StartCombat() {
   m_currentTurnNumber = 0;
   m_turnRngHistory.clear();
   m_pendingRngChecks.clear();
+  m_turnCombatHistory.clear();
+  m_pendingCombatChecks.clear();
   m_desyncDetected = false;
   m_desyncPopupOpened = false;
   if (!m_combatActive) {
@@ -622,6 +624,8 @@ void NetworkManager::EndCombat() {
 
   m_turnRngHistory.clear();
   m_pendingRngChecks.clear();
+  m_turnCombatHistory.clear();
+  m_pendingCombatChecks.clear();
   m_desyncDetected = false;
   m_desyncPopupOpened = false;
 
@@ -2054,85 +2058,361 @@ void NetworkManager::HandleChatMessage(CSteamID remoteID, const void *data, uint
 // Combat State Verification & Desync Handling
 // ---------------------------------------------------------------------------
 
-uint32_t NetworkManager::ComputeCombatStateCRC() {
-  std::vector<uint8_t> buffer;
+static inline bool IsValidPointer(const void *ptr) {
+  if (!ptr || reinterpret_cast<uintptr_t>(ptr) <= 0x100000 ||
+      reinterpret_cast<uintptr_t>(ptr) >= 0x7FFFFFFFFFFF ||
+      (reinterpret_cast<uintptr_t>(ptr) & 0x7) != 0) {
+    return false;
+  }
+  MEMORY_BASIC_INFORMATION mbi;
+  if (VirtualQuery(ptr, &mbi, sizeof(mbi)) == 0) {
+    return false;
+  }
+  if (mbi.State != MEM_COMMIT ||
+      (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) == 0 ||
+      (mbi.Protect & PAGE_GUARD)) {
+    return false;
+  }
+  return true;
+}
 
-  // 1. Append 32-byte TLS RNG state
+#pragma pack(push, 1)
+struct TurnControlStateData {
+  int32_t roundCount;
+  uint32_t currentTurnNuid;
+  uint32_t pendingTurnKind;
+  uint32_t pendingTurnNuid;
+  uint32_t currentActionKind;
+  int64_t choiceId;
+  uint8_t battleStarted;
+};
+
+struct PassiveHashEntry {
+  int32_t priority;
+  int32_t stacks;
+};
+
+// Sub-structs used to check individual categories when a desync happens.
+struct FighterVitalsData {
+  uint32_t nuid;
+  int32_t currentHP;
+  int32_t barrierHP;
+  int32_t maxHP;
+  int32_t lives;
+};
+
+struct FighterPositionData {
+  uint32_t nuid;
+  int32_t posX;
+  int32_t posY;
+  int32_t orientX;
+  int32_t orientY;
+};
+
+struct FighterStatsData {
+  uint32_t nuid;
+  int32_t mana;
+  int32_t maxMana;
+  int32_t movePoints;
+  int32_t actPoints;
+};
+
+struct FighterPassivesData {
+  uint32_t nuid;
+  uint32_t passivesCount;
+  uint32_t passivesHash;
+  uint32_t abilitiesCount;
+};
+
+struct FighterStatusData {
+  uint32_t nuid;
+  int64_t sqlKey;
+  int32_t faction;
+  int32_t displayedFaction;
+  uint64_t innateElements;
+  uint64_t immuneElements;
+  uint8_t isDead;
+  uint8_t champion;
+  uint8_t elite;
+};
+#pragma pack(pop)
+
+CombatStateChecksum NetworkManager::ComputeCombatStateChecksum() {
+  // RNG seed from game TLS
   uint32_t rngState[8] = {};
   GameUtils::GetRNGState(rngState);
-  buffer.insert(buffer.end(), (const uint8_t*)rngState, (const uint8_t*)rngState + sizeof(rngState));
+  const uint32_t rngCrc = GameUtils::CalculateCRC32(rngState, sizeof(rngState));
 
-  // 2. Fetch active fighters on board
+  // Turn order and initiative state
+  TurnControlStateData tcData = {};
+  const auto *tc = GameUtils::GetTurnControl();
+  if (tc && GameUtils::IsComponentValid(tc)) {
+    tcData.roundCount = tc->round_count;
+    tcData.currentTurnNuid = (tc->current_turn && IsValidPointer(tc->current_turn)) ? GetNUID(tc->current_turn) : 0xFFFFFFFF;
+    tcData.pendingTurnKind = static_cast<uint32_t>(tc->pending_next_turn.kind);
+    Character *pendingChar = tc->pending_next_turn.character.obj;
+    tcData.pendingTurnNuid = (pendingChar && IsValidPointer(pendingChar))
+                                ? GetNUID(pendingChar) : 0xFFFFFFFF;
+    tcData.currentActionKind = static_cast<uint32_t>(tc->current_action.kind);
+    tcData.choiceId = tc->choice_id;
+    tcData.battleStarted = tc->battle_started ? 1 : 0;
+  }
+  const uint32_t turnControlCrc = GameUtils::CalculateCRC32(&tcData, sizeof(tcData));
+
+  // Active fighters sorted by NUID so both peers iterate identically
   const auto fighters = GameUtils::GetFighters();
-
-  // Collect NUID and character state to sort deterministically by NUID
   std::vector<std::pair<uint32_t, Character*>> sortedFighters;
   for (Character* c : fighters) {
-    if (!c) continue;
+    if (!c || !IsValidPointer(c)) continue;
     const uint32_t nuid = GetNUID(c);
     sortedFighters.push_back({nuid, c});
   }
   std::sort(sortedFighters.begin(), sortedFighters.end(),
             [](const auto& a, const auto& b) { return a.first < b.first; });
 
-  const uint32_t count = static_cast<uint32_t>(sortedFighters.size());
-  buffer.insert(buffer.end(), (const uint8_t*)&count, (const uint8_t*)&count + sizeof(count));
+  std::vector<FighterVitalsData> vitalsList;
+  std::vector<FighterPositionData> posList;
+  std::vector<FighterStatsData> statsList;
+  std::vector<FighterPassivesData> passivesList;
+  std::vector<FighterStatusData> statusList;
+
+  vitalsList.reserve(sortedFighters.size());
+  posList.reserve(sortedFighters.size());
+  statsList.reserve(sortedFighters.size());
+  passivesList.reserve(sortedFighters.size());
+  statusList.reserve(sortedFighters.size());
 
   for (const auto& [nuid, c] : sortedFighters) {
-    #pragma pack(push, 1)
-    struct CharacterStateData {
-      uint32_t nuid;
-      int32_t currentHP;
-      int32_t barrierHP;
-      int32_t maxHP;
-      int32_t lives;
-      uint8_t isDead;
-      int64_t sqlKey;
-    } cdata = {};
-    #pragma pack(pop)
+    // Health, shields, and lives
+    FighterVitalsData vdata = {};
+    vdata.nuid = nuid;
+    vdata.currentHP = c->health;
+    vdata.barrierHP = c->shield;
+    vdata.maxHP = c->max_health;
+    vdata.lives = c->divine_shield;
+    vitalsList.push_back(vdata);
 
-    cdata.nuid = nuid;
-    cdata.currentHP = c->health;
-    cdata.barrierHP = c->shield;
-    cdata.maxHP = c->max_health;
-    cdata.lives = c->divine_shield;
-    cdata.isDead = c->dead ? 1 : 0;
-    cdata.sqlKey = c->pcat_data ? c->pcat_data->cat_uid : -1;
+    // Tile coordinates and facing direction
+    FighterPositionData pdata = {};
+    pdata.nuid = nuid;
+    pdata.posX = (c->obj && IsValidPointer(c->obj)) ? c->obj->position.x : -999;
+    pdata.posY = (c->obj && IsValidPointer(c->obj)) ? c->obj->position.y : -999;
+    pdata.orientX = c->orientation.x;
+    pdata.orientY = c->orientation.y;
+    posList.push_back(pdata);
 
-    buffer.insert(buffer.end(), (const uint8_t*)&cdata, (const uint8_t*)&cdata + sizeof(cdata));
+    // Mana and move/action pools
+    FighterStatsData sdata = {};
+    sdata.nuid = nuid;
+    sdata.mana = c->mana;
+    sdata.maxMana = c->max_mana;
+    sdata.movePoints = c->move_points;
+    sdata.actPoints = c->act_points;
+    statsList.push_back(sdata);
+
+    // Passives and ability counts (skip equipment_id since dynamic summons roll local IDs)
+    std::vector<PassiveHashEntry> pEntries;
+    if (c->cached_passives.data_ && IsValidPointer(c->cached_passives.data_) &&
+        c->cached_passives.size_ > 0 && c->cached_passives.size_ < 200) {
+      for (uint32_t i = 0; i < c->cached_passives.size_; ++i) {
+        Passive *p = c->cached_passives.data_[i];
+        if (p && IsValidPointer(p)) {
+          pEntries.push_back({p->priority, p->stacks});
+        }
+      }
+    }
+    std::sort(pEntries.begin(), pEntries.end(), [](const auto &a, const auto &b) {
+      if (a.priority != b.priority) return a.priority < b.priority;
+      return a.stacks < b.stacks;
+    });
+
+    FighterPassivesData passData = {};
+    passData.nuid = nuid;
+    passData.passivesCount = static_cast<uint32_t>(pEntries.size());
+    passData.passivesHash = pEntries.empty()
+                               ? 0
+                               : GameUtils::CalculateCRC32(pEntries.data(), pEntries.size() * sizeof(PassiveHashEntry));
+    passData.abilitiesCount = (c->abilities.data_ && IsValidPointer(c->abilities.data_) &&
+                               c->abilities.size_ > 0 && c->abilities.size_ < 100)
+                                  ? c->abilities.size_
+                                  : 0;
+    passivesList.push_back(passData);
+
+    // Core status flags and elemental affinities
+    FighterStatusData stData = {};
+    stData.nuid = nuid;
+    stData.sqlKey = (c->pcat_data && IsValidPointer(c->pcat_data)) ? c->pcat_data->cat_uid : -1;
+    stData.faction = c->faction;
+    stData.displayedFaction = c->displayed_faction;
+    stData.innateElements = c->innate_elements.flags;
+    stData.immuneElements = c->immune_elements.flags;
+    stData.isDead = c->dead ? 1 : 0;
+    stData.champion = c->champion ? 1 : 0;
+    stData.elite = c->elite ? 1 : 0;
+    statusList.push_back(stData);
   }
 
-  return GameUtils::CalculateCRC32(buffer.data(), buffer.size());
+  const uint32_t fighterCount = static_cast<uint32_t>(sortedFighters.size());
+  const uint32_t vitalsCrc = vitalsList.empty() ? 0 : GameUtils::CalculateCRC32(vitalsList.data(), vitalsList.size() * sizeof(FighterVitalsData));
+  const uint32_t positionsCrc = posList.empty() ? 0 : GameUtils::CalculateCRC32(posList.data(), posList.size() * sizeof(FighterPositionData));
+  const uint32_t statsCrc = statsList.empty() ? 0 : GameUtils::CalculateCRC32(statsList.data(), statsList.size() * sizeof(FighterStatsData));
+  const uint32_t passivesCrc = passivesList.empty() ? 0 : GameUtils::CalculateCRC32(passivesList.data(), passivesList.size() * sizeof(FighterPassivesData));
+  const uint32_t statusCrc = statusList.empty() ? 0 : GameUtils::CalculateCRC32(statusList.data(), statusList.size() * sizeof(FighterStatusData));
+
+  // Pack fighter sub-CRCs into a single checksum
+  std::vector<uint8_t> fightersBuffer;
+  fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&fighterCount, (const uint8_t*)&fighterCount + sizeof(fighterCount));
+  fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&vitalsCrc, (const uint8_t*)&vitalsCrc + sizeof(vitalsCrc));
+  fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&positionsCrc, (const uint8_t*)&positionsCrc + sizeof(positionsCrc));
+  fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&statsCrc, (const uint8_t*)&statsCrc + sizeof(statsCrc));
+  fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&passivesCrc, (const uint8_t*)&passivesCrc + sizeof(passivesCrc));
+  fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&statusCrc, (const uint8_t*)&statusCrc + sizeof(statusCrc));
+  const uint32_t fightersCrc = GameUtils::CalculateCRC32(fightersBuffer.data(), fightersBuffer.size());
+
+  // Master checksum over RNG, turn control, and fighter states
+  std::vector<uint8_t> masterBuffer;
+  masterBuffer.insert(masterBuffer.end(), (const uint8_t*)rngState, (const uint8_t*)rngState + sizeof(rngState));
+  masterBuffer.insert(masterBuffer.end(), (const uint8_t*)&tcData, (const uint8_t*)&tcData + sizeof(tcData));
+  masterBuffer.insert(masterBuffer.end(), fightersBuffer.begin(), fightersBuffer.end());
+  const uint32_t masterCrc = GameUtils::CalculateCRC32(masterBuffer.data(), masterBuffer.size());
+
+  CombatStateChecksum result = {};
+  result.masterCrc = masterCrc;
+  result.rngCrc = rngCrc;
+  result.fightersCrc = fightersCrc;
+  result.turnControlCrc = turnControlCrc;
+  result.fighterCount = fighterCount;
+  result.vitalsCrc = vitalsCrc;
+  result.positionsCrc = positionsCrc;
+  result.statsCrc = statsCrc;
+  result.passivesCrc = passivesCrc;
+  result.statusCrc = statusCrc;
+  return result;
+}
+
+uint32_t NetworkManager::ComputeCombatStateCRC() {
+  return ComputeCombatStateChecksum().masterCrc;
+}
+
+void NetworkManager::LogFighterSnapshots(const uint32_t turnNum) {
+  const auto it = m_turnCombatHistory.find(turnNum);
+  if (it == m_turnCombatHistory.end()) {
+    Overlay::Log("[DESYNC] No fighter snapshots found for turn %u", turnNum);
+    return;
+  }
+  const auto &snap = it->second;
+  Overlay::Log("[DESYNC] --- Fighter Snapshot for Turn %u (%zu units) ---", turnNum, snap.fighters.size());
+  for (const auto &f : snap.fighters) {
+    Overlay::Log("[DESYNC]   [NUID %u] '%s': HP=%d/%d (Shield=%d Lives=%d) Pos=(%d,%d) Mana=%d/%d Move=%d Act=%d Dead=%d Passives=%u",
+                 f.nuid, f.name.c_str(), f.hp, f.maxHp, f.shield, f.divineShield, f.posX, f.posY,
+                 f.mana, f.maxMana, f.movePoints, f.actPoints, f.isDead ? 1 : 0, f.passivesCount);
+  }
+  Overlay::Log("[DESYNC] ------------------------------------------------");
 }
 
 void NetworkManager::RecordTurnState(const uint32_t turnNum) {
-  const uint32_t localCrc = ComputeCombatStateCRC();
-  m_turnRngHistory[turnNum] = localCrc;
+  const CombatStateChecksum localChecksum = ComputeCombatStateChecksum();
+
+  // Cache fighter state in case we need to dump it on desync
+  TurnCombatSnapshot turnSnap;
+  turnSnap.checksum = localChecksum;
+
+  const auto fighters = GameUtils::GetFighters();
+  for (Character *c : fighters) {
+    if (!c || !IsValidPointer(c)) continue;
+    const uint32_t nuid = GetNUID(c);
+    FighterStateSnapshot snap = {};
+    snap.nuid = nuid;
+    snap.name = GetCharacterNameByNUID(nuid);
+    snap.hp = c->health;
+    snap.maxHp = c->max_health;
+    snap.shield = c->shield;
+    snap.divineShield = c->divine_shield;
+    snap.posX = (c->obj && IsValidPointer(c->obj)) ? c->obj->position.x : -999;
+    snap.posY = (c->obj && IsValidPointer(c->obj)) ? c->obj->position.y : -999;
+    snap.mana = c->mana;
+    snap.maxMana = c->max_mana;
+    snap.movePoints = c->move_points;
+    snap.actPoints = c->act_points;
+    snap.passivesCount = (c->cached_passives.data_ && IsValidPointer(c->cached_passives.data_)) ? c->cached_passives.size_ : 0;
+    snap.isDead = c->dead;
+    turnSnap.fighters.push_back(snap);
+  }
+  std::sort(turnSnap.fighters.begin(), turnSnap.fighters.end(),
+            [](const auto &a, const auto &b) { return a.nuid < b.nuid; });
+
+  m_turnCombatHistory[turnNum] = turnSnap;
+  m_turnRngHistory[turnNum] = localChecksum.masterCrc;
 
   if (g_modState.talkative) {
-    Overlay::Log("[SYNC] Turn %u local state recorded: CRC=0x%08X", turnNum, localCrc);
+    Overlay::Log("[SYNC] Turn %u recorded: master=0x%08X rng=0x%08X fighters=0x%08X (%u units) tc=0x%08X vitals=0x%08X pos=0x%08X stats=0x%08X",
+                 turnNum, localChecksum.masterCrc, localChecksum.rngCrc, localChecksum.fightersCrc,
+                 localChecksum.fighterCount, localChecksum.turnControlCrc, localChecksum.vitalsCrc, localChecksum.positionsCrc, localChecksum.statsCrc);
   }
 
-  // If client received a host check early (due to lag/timing), process queued check now
-  const auto it = m_pendingRngChecks.find(turnNum);
-  if (it != m_pendingRngChecks.end()) {
-    const uint32_t hostCrc = it->second;
-    m_pendingRngChecks.erase(it);
+  // Process host check if it beat us to this turn
+  const auto it = m_pendingCombatChecks.find(turnNum);
+  if (it != m_pendingCombatChecks.end()) {
+    const RNGCheckRequestPacket hostPkt = it->second;
+    m_pendingCombatChecks.erase(it);
+    m_pendingRngChecks.erase(turnNum);
 
     if (g_modState.talkative) {
-      Overlay::Log("[SYNC] Evaluating delayed state check for Turn %u: Client=0x%08X, Host=0x%08X",
-                   turnNum, localCrc, hostCrc);
+      Overlay::Log("[SYNC] Running queued turn %u check: local=0x%08X host=0x%08X",
+                   turnNum, localChecksum.masterCrc, hostPkt.hostRngCrc);
     }
 
     RNGCheckResponsePacket respPkt = {};
     respPkt.turnNumber = turnNum;
-    respPkt.clientRngCrc = localCrc;
+    respPkt.clientRngCrc = localChecksum.masterCrc;
+    respPkt.clientRngStateCrc = localChecksum.rngCrc;
+    respPkt.clientFightersCrc = localChecksum.fightersCrc;
+    respPkt.clientTurnControlCrc = localChecksum.turnControlCrc;
+    respPkt.clientFighterCount = localChecksum.fighterCount;
+    respPkt.clientVitalsCrc = localChecksum.vitalsCrc;
+    respPkt.clientPositionsCrc = localChecksum.positionsCrc;
+    respPkt.clientStatsCrc = localChecksum.statsCrc;
+    respPkt.clientPassivesCrc = localChecksum.passivesCrc;
+    respPkt.clientStatusCrc = localChecksum.statusCrc;
 
     SendPacketReliable(GetHostID(), PacketType::RNGCheckResponse, &respPkt, sizeof(respPkt));
 
-    if (localCrc != hostCrc) {
-      Overlay::Log("[DESYNC] Combat state mismatch detected locally on Turn %u! Local: 0x%08X, Host: 0x%08X",
-                   turnNum, localCrc, hostCrc);
+    if (localChecksum.masterCrc != hostPkt.hostRngCrc) {
+      Overlay::Log("[DESYNC] Desync on turn %u: local=0x%08X host=0x%08X",
+                   turnNum, localChecksum.masterCrc, hostPkt.hostRngCrc);
+      if (localChecksum.rngCrc != hostPkt.hostRngStateCrc) {
+        Overlay::Log("[DESYNC]   RNG diverged: local=0x%08X host=0x%08X",
+                     localChecksum.rngCrc, hostPkt.hostRngStateCrc);
+      }
+      if (localChecksum.turnControlCrc != hostPkt.hostTurnControlCrc) {
+        Overlay::Log("[DESYNC]   Turn control diverged: local=0x%08X host=0x%08X",
+                     localChecksum.turnControlCrc, hostPkt.hostTurnControlCrc);
+      }
+      if (localChecksum.fighterCount != hostPkt.hostFighterCount) {
+        Overlay::Log("[DESYNC]   Fighter count diverged: local=%u host=%u",
+                     localChecksum.fighterCount, hostPkt.hostFighterCount);
+      }
+      if (localChecksum.fightersCrc != hostPkt.hostFightersCrc) {
+        Overlay::Log("[DESYNC]   Fighters diverged: local=0x%08X host=0x%08X",
+                     localChecksum.fightersCrc, hostPkt.hostFightersCrc);
+        Overlay::Log("[DESYNC]     Vitals (HP/Shield):    %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.vitalsCrc == hostPkt.hostVitalsCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.vitalsCrc, hostPkt.hostVitalsCrc);
+        Overlay::Log("[DESYNC]     Positions (Grid):      %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.positionsCrc == hostPkt.hostPositionsCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.positionsCrc, hostPkt.hostPositionsCrc);
+        Overlay::Log("[DESYNC]     Stats (Mana/Move/Act): %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.statsCrc == hostPkt.hostStatsCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.statsCrc, hostPkt.hostStatsCrc);
+        Overlay::Log("[DESYNC]     Passives:              %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.passivesCrc == hostPkt.hostPassivesCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.passivesCrc, hostPkt.hostPassivesCrc);
+        Overlay::Log("[DESYNC]     Status & Affinities:   %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.statusCrc == hostPkt.hostStatusCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.statusCrc, hostPkt.hostStatusCrc);
+      }
+      LogFighterSnapshots(turnNum);
+      m_desyncDetected = true;
     }
   }
 }
@@ -2140,16 +2420,26 @@ void NetworkManager::RecordTurnState(const uint32_t turnNum) {
 void NetworkManager::SendDesyncCheck(const uint32_t turnNum) {
   if (!IsHost()) return;
 
-  const auto it = m_turnRngHistory.find(turnNum);
-  const uint32_t hostCrc = (it != m_turnRngHistory.end()) ? it->second : 0;
+  const auto it = m_turnCombatHistory.find(turnNum);
+  const CombatStateChecksum hostChecksum = (it != m_turnCombatHistory.end()) ? it->second.checksum : CombatStateChecksum{};
 
   RNGCheckRequestPacket reqPkt = {};
   reqPkt.turnNumber = turnNum;
-  reqPkt.hostRngCrc = hostCrc;
+  reqPkt.hostRngCrc = hostChecksum.masterCrc;
+  reqPkt.hostRngStateCrc = hostChecksum.rngCrc;
+  reqPkt.hostFightersCrc = hostChecksum.fightersCrc;
+  reqPkt.hostTurnControlCrc = hostChecksum.turnControlCrc;
+  reqPkt.hostFighterCount = hostChecksum.fighterCount;
+  reqPkt.hostVitalsCrc = hostChecksum.vitalsCrc;
+  reqPkt.hostPositionsCrc = hostChecksum.positionsCrc;
+  reqPkt.hostStatsCrc = hostChecksum.statsCrc;
+  reqPkt.hostPassivesCrc = hostChecksum.passivesCrc;
+  reqPkt.hostStatusCrc = hostChecksum.statusCrc;
 
   BroadcastPacket(PacketType::RNGCheckRequest, &reqPkt, sizeof(reqPkt), true);
   if (g_modState.talkative) {
-    Overlay::Log("[SYNC] Host sent state check for Turn %u (Host CRC: 0x%08X)", turnNum, hostCrc);
+    Overlay::Log("[SYNC] Host sent turn %u check (master=0x%08X, fighters=%u)",
+                 turnNum, hostChecksum.masterCrc, hostChecksum.fighterCount);
   }
 }
 
@@ -2169,7 +2459,7 @@ void NetworkManager::CheckAndShowDesyncPopup() {
 
   if (opened) {
     m_desyncPopupOpened = true;
-    Overlay::Log("[DESYNC] Native game desync OK popup successfully opened!");
+    Overlay::Log("[DESYNC] Opened combat desync popup.");
   }
 }
 
@@ -2180,30 +2470,74 @@ void NetworkManager::HandleRNGCheckRequest(const CSteamID remoteID, const void *
   const uint32_t turnNum = pkt->turnNumber;
   const uint32_t hostCrc = pkt->hostRngCrc;
 
-  const auto it = m_turnRngHistory.find(turnNum);
-  if (it != m_turnRngHistory.end()) {
-    const uint32_t clientCrc = it->second;
+  const auto it = m_turnCombatHistory.find(turnNum);
+  if (it != m_turnCombatHistory.end()) {
+    const auto &localSnapshot = it->second;
+    const auto &localChecksum = localSnapshot.checksum;
+
     if (g_modState.talkative) {
-      Overlay::Log("[SYNC] Client evaluated state check for Turn %u: Client=0x%08X, Host=0x%08X",
-                   turnNum, clientCrc, hostCrc);
+      Overlay::Log("[SYNC] Client checked turn %u: local=0x%08X host=0x%08X",
+                   turnNum, localChecksum.masterCrc, hostCrc);
     }
 
     RNGCheckResponsePacket respPkt = {};
     respPkt.turnNumber = turnNum;
-    respPkt.clientRngCrc = clientCrc;
+    respPkt.clientRngCrc = localChecksum.masterCrc;
+    respPkt.clientRngStateCrc = localChecksum.rngCrc;
+    respPkt.clientFightersCrc = localChecksum.fightersCrc;
+    respPkt.clientTurnControlCrc = localChecksum.turnControlCrc;
+    respPkt.clientFighterCount = localChecksum.fighterCount;
+    respPkt.clientVitalsCrc = localChecksum.vitalsCrc;
+    respPkt.clientPositionsCrc = localChecksum.positionsCrc;
+    respPkt.clientStatsCrc = localChecksum.statsCrc;
+    respPkt.clientPassivesCrc = localChecksum.passivesCrc;
+    respPkt.clientStatusCrc = localChecksum.statusCrc;
 
     SendPacketReliable(remoteID, PacketType::RNGCheckResponse, &respPkt, sizeof(respPkt));
 
-    if (clientCrc != hostCrc) {
-      Overlay::Log("[DESYNC] Combat state mismatch detected on Client for Turn %u! Client: 0x%08X, Host: 0x%08X",
-                   turnNum, clientCrc, hostCrc);
+    if (localChecksum.masterCrc != hostCrc) {
+      Overlay::Log("[DESYNC] Desync on turn %u: local=0x%08X host=0x%08X",
+                   turnNum, localChecksum.masterCrc, hostCrc);
+      if (localChecksum.rngCrc != pkt->hostRngStateCrc) {
+        Overlay::Log("[DESYNC]   RNG diverged: local=0x%08X host=0x%08X",
+                     localChecksum.rngCrc, pkt->hostRngStateCrc);
+      }
+      if (localChecksum.turnControlCrc != pkt->hostTurnControlCrc) {
+        Overlay::Log("[DESYNC]   Turn control diverged: local=0x%08X host=0x%08X",
+                     localChecksum.turnControlCrc, pkt->hostTurnControlCrc);
+      }
+      if (localChecksum.fighterCount != pkt->hostFighterCount) {
+        Overlay::Log("[DESYNC]   Fighter count diverged: local=%u host=%u",
+                     localChecksum.fighterCount, pkt->hostFighterCount);
+      }
+      if (localChecksum.fightersCrc != pkt->hostFightersCrc) {
+        Overlay::Log("[DESYNC]   Fighters diverged: local=0x%08X host=0x%08X",
+                     localChecksum.fightersCrc, pkt->hostFightersCrc);
+        Overlay::Log("[DESYNC]     Vitals (HP/Shield):    %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.vitalsCrc == pkt->hostVitalsCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.vitalsCrc, pkt->hostVitalsCrc);
+        Overlay::Log("[DESYNC]     Positions (Grid):      %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.positionsCrc == pkt->hostPositionsCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.positionsCrc, pkt->hostPositionsCrc);
+        Overlay::Log("[DESYNC]     Stats (Mana/Move/Act): %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.statsCrc == pkt->hostStatsCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.statsCrc, pkt->hostStatsCrc);
+        Overlay::Log("[DESYNC]     Passives:              %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.passivesCrc == pkt->hostPassivesCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.passivesCrc, pkt->hostPassivesCrc);
+        Overlay::Log("[DESYNC]     Status & Affinities:   %s (local=0x%08X host=0x%08X)",
+                     (localChecksum.statusCrc == pkt->hostStatusCrc) ? "MATCH" : "MISMATCH",
+                     localChecksum.statusCrc, pkt->hostStatusCrc);
+      }
+      LogFighterSnapshots(turnNum);
       m_desyncDetected = true;
     }
   } else {
-    // Client has not reached this turn yet due to lag/timing. Queue request!
+    // Host reached this turn before us; hold the check until our turn ends
+    m_pendingCombatChecks[turnNum] = *pkt;
     m_pendingRngChecks[turnNum] = hostCrc;
     if (g_modState.talkative) {
-      Overlay::Log("[SYNC] Client queued state check for future Turn %u (Host CRC: 0x%08X)", turnNum, hostCrc);
+      Overlay::Log("[SYNC] Queued early turn %u check from host (host=0x%08X)", turnNum, hostCrc);
     }
   }
 }
@@ -2216,31 +2550,63 @@ void NetworkManager::HandleRNGCheckResponse(const CSteamID remoteID, const void 
   const uint32_t turnNum = pkt->turnNumber;
   const uint32_t clientCrc = pkt->clientRngCrc;
 
-  const auto it = m_turnRngHistory.find(turnNum);
-  const uint32_t hostCrc = (it != m_turnRngHistory.end()) ? it->second : 0;
+  const auto it = m_turnCombatHistory.find(turnNum);
+  const CombatStateChecksum hostChecksum = (it != m_turnCombatHistory.end()) ? it->second.checksum : CombatStateChecksum{};
 
-  if (clientCrc != hostCrc) {
-    Overlay::Log("[DESYNC] Combat state mismatch detected on Turn %u from Client %llu! Host: 0x%08X, Client: 0x%08X",
-                 turnNum, remoteID.ConvertToUint64(), hostCrc, clientCrc);
+  if (clientCrc != hostChecksum.masterCrc) {
+    Overlay::Log("[DESYNC] Desync on turn %u from client %llu: host=0x%08X client=0x%08X",
+                 turnNum, remoteID.ConvertToUint64(), hostChecksum.masterCrc, clientCrc);
+    if (hostChecksum.rngCrc != pkt->clientRngStateCrc) {
+      Overlay::Log("[DESYNC]   RNG diverged: host=0x%08X client=0x%08X",
+                   hostChecksum.rngCrc, pkt->clientRngStateCrc);
+    }
+    if (hostChecksum.turnControlCrc != pkt->clientTurnControlCrc) {
+      Overlay::Log("[DESYNC]   Turn control diverged: host=0x%08X client=0x%08X",
+                   hostChecksum.turnControlCrc, pkt->clientTurnControlCrc);
+    }
+    if (hostChecksum.fighterCount != pkt->clientFighterCount) {
+      Overlay::Log("[DESYNC]   Fighter count diverged: host=%u client=%u",
+                   hostChecksum.fighterCount, pkt->clientFighterCount);
+    }
+    if (hostChecksum.fightersCrc != pkt->clientFightersCrc) {
+      Overlay::Log("[DESYNC]   Fighters diverged: host=0x%08X client=0x%08X",
+                   hostChecksum.fightersCrc, pkt->clientFightersCrc);
+      Overlay::Log("[DESYNC]     Vitals (HP/Shield):    %s (host=0x%08X client=0x%08X)",
+                   (hostChecksum.vitalsCrc == pkt->clientVitalsCrc) ? "MATCH" : "MISMATCH",
+                   hostChecksum.vitalsCrc, pkt->clientVitalsCrc);
+      Overlay::Log("[DESYNC]     Positions (Grid):      %s (host=0x%08X client=0x%08X)",
+                   (hostChecksum.positionsCrc == pkt->clientPositionsCrc) ? "MATCH" : "MISMATCH",
+                   hostChecksum.positionsCrc, pkt->clientPositionsCrc);
+      Overlay::Log("[DESYNC]     Stats (Mana/Move/Act): %s (host=0x%08X client=0x%08X)",
+                   (hostChecksum.statsCrc == pkt->clientStatsCrc) ? "MATCH" : "MISMATCH",
+                   hostChecksum.statsCrc, pkt->clientStatsCrc);
+      Overlay::Log("[DESYNC]     Passives:              %s (host=0x%08X client=0x%08X)",
+                   (hostChecksum.passivesCrc == pkt->clientPassivesCrc) ? "MATCH" : "MISMATCH",
+                   hostChecksum.passivesCrc, pkt->clientPassivesCrc);
+      Overlay::Log("[DESYNC]     Status & Affinities:   %s (host=0x%08X client=0x%08X)",
+                   (hostChecksum.statusCrc == pkt->clientStatusCrc) ? "MATCH" : "MISMATCH",
+                   hostChecksum.statusCrc, pkt->clientStatusCrc);
+    }
+    LogFighterSnapshots(turnNum);
 
     BroadcastPacket(PacketType::CombatDesyncDetected, nullptr, 0, true);
 
     m_desyncDetected = true;
   } else {
     if (g_modState.talkative) {
-      Overlay::Log("[SYNC]Turn %u combat state matched with Client %llu (CRC: 0x%08X)",
-                   turnNum, remoteID.ConvertToUint64(), hostCrc);
+      Overlay::Log("[SYNC] Turn %u verified with client %llu (CRC: 0x%08X)",
+                   turnNum, remoteID.ConvertToUint64(), hostChecksum.masterCrc);
     }
   }
 }
 
 void NetworkManager::HandleCombatDesyncDetected() {
-  Overlay::Log("[DESYNC] Combat desync notification received from Host!");
+  Overlay::Log("[DESYNC] Received combat desync notice from host.");
   m_desyncDetected = true;
 }
 
 void NetworkManager::TriggerDesyncReload() {
-  Overlay::Log("[DESYNC] Host initiated desync reload restart sequence.");
+  Overlay::Log("[DESYNC] Host restarted combat after desync.");
   m_desyncDetected = false;
   m_desyncPopupOpened = false;
   if (IsHost()) {

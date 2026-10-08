@@ -529,6 +529,38 @@ static void RenderRNGTab() {
         Overlay::Log("[EVIL MODE] No active fighters found on board!");
       }
     }
+    if (ImGui::Button("FORCE DESYNC (Move First Fighter Pos +1)")) {
+      const auto fighters = GameUtils::GetFighters();
+      if (!fighters.empty() && fighters[0] && fighters[0]->obj) {
+        fighters[0]->obj->position.x += 1;
+        Overlay::Log("[EVIL MODE] Shifted grid position of unit %s to (%d, %d)!",
+                     fighters[0]->display_name.to_utf8().c_str(),
+                     fighters[0]->obj->position.x, fighters[0]->obj->position.y);
+      } else {
+        Overlay::Log("[EVIL MODE] No active fighter with valid grid object found!");
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("FORCE DESYNC (Modify First Fighter Mana -1)")) {
+      const auto fighters = GameUtils::GetFighters();
+      if (!fighters.empty() && fighters[0]) {
+        fighters[0]->mana -= 1;
+        Overlay::Log("[EVIL MODE] Reduced mana of unit %s to %d!",
+                     fighters[0]->display_name.to_utf8().c_str(), fighters[0]->mana);
+      } else {
+        Overlay::Log("[EVIL MODE] No active fighters found on board!");
+      }
+    }
+    if (ImGui::Button("FORCE DESYNC (Modify First Fighter Move -1)")) {
+      const auto fighters = GameUtils::GetFighters();
+      if (!fighters.empty() && fighters[0]) {
+        fighters[0]->move_points -= 1;
+        Overlay::Log("[EVIL MODE] Reduced move points of unit %s to %d!",
+                     fighters[0]->display_name.to_utf8().c_str(), fighters[0]->move_points);
+      } else {
+        Overlay::Log("[EVIL MODE] No active fighters found on board!");
+      }
+    }
     ImGui::PopStyleColor(3);
   }
 }

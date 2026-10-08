@@ -208,6 +208,15 @@ struct ButchBoxCatCountPacket {
 struct RNGCheckRequestPacket {
   uint32_t turnNumber;
   uint32_t hostRngCrc;
+  uint32_t hostRngStateCrc;
+  uint32_t hostFightersCrc;
+  uint32_t hostTurnControlCrc;
+  uint32_t hostFighterCount;
+  uint32_t hostVitalsCrc;
+  uint32_t hostPositionsCrc;
+  uint32_t hostStatsCrc;
+  uint32_t hostPassivesCrc;
+  uint32_t hostStatusCrc;
 };
 #pragma pack(pop)
 
@@ -215,8 +224,52 @@ struct RNGCheckRequestPacket {
 struct RNGCheckResponsePacket {
   uint32_t turnNumber;
   uint32_t clientRngCrc;
+  uint32_t clientRngStateCrc;
+  uint32_t clientFightersCrc;
+  uint32_t clientTurnControlCrc;
+  uint32_t clientFighterCount;
+  uint32_t clientVitalsCrc;
+  uint32_t clientPositionsCrc;
+  uint32_t clientStatsCrc;
+  uint32_t clientPassivesCrc;
+  uint32_t clientStatusCrc;
 };
 #pragma pack(pop)
+
+struct CombatStateChecksum {
+  uint32_t masterCrc = 0;
+  uint32_t rngCrc = 0;
+  uint32_t fightersCrc = 0;
+  uint32_t turnControlCrc = 0;
+  uint32_t fighterCount = 0;
+  uint32_t vitalsCrc = 0;
+  uint32_t positionsCrc = 0;
+  uint32_t statsCrc = 0;
+  uint32_t passivesCrc = 0;
+  uint32_t statusCrc = 0;
+};
+
+struct FighterStateSnapshot {
+  uint32_t nuid = 0;
+  std::string name;
+  int32_t hp = 0;
+  int32_t maxHp = 0;
+  int32_t shield = 0;
+  int32_t divineShield = 0;
+  int32_t posX = -999;
+  int32_t posY = -999;
+  int32_t mana = 0;
+  int32_t maxMana = 0;
+  int32_t movePoints = 0;
+  int32_t actPoints = 0;
+  uint32_t passivesCount = 0;
+  bool isDead = false;
+};
+
+struct TurnCombatSnapshot {
+  CombatStateChecksum checksum;
+  std::vector<FighterStateSnapshot> fighters;
+};
 
 #pragma pack(push, 1)
 struct CollarSyncPacket {
@@ -417,11 +470,13 @@ public:
   void SendChatMessage(const std::string &message);
 
   // Combat State Verification & Desync Handling
+  CombatStateChecksum ComputeCombatStateChecksum();
   uint32_t ComputeCombatStateCRC();
   void RecordTurnState(uint32_t turnNum);
   void SendDesyncCheck(uint32_t turnNum);
   void CheckAndShowDesyncPopup();
   void TriggerDesyncReload();
+  void LogFighterSnapshots(uint32_t turnNum);
   uint32_t GetCurrentTurnNumber() const { return m_currentTurnNumber; }
   void IncrementTurnNumber() { m_currentTurnNumber++; }
 
@@ -479,6 +534,8 @@ private:
   uint32_t m_currentTurnNumber = 0;
   std::map<uint32_t, uint32_t> m_turnRngHistory;   // turnNumber -> local RNG CRC32
   std::map<uint32_t, uint32_t> m_pendingRngChecks; // turnNumber -> host RNG CRC32 (queued when client receives request early)
+  std::map<uint32_t, TurnCombatSnapshot> m_turnCombatHistory;
+  std::map<uint32_t, RNGCheckRequestPacket> m_pendingCombatChecks;
 
   bool m_desyncDetected = false;
   bool m_desyncPopupOpened = false;

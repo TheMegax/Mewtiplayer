@@ -1759,26 +1759,35 @@ struct GonObject {
 static_assert(sizeof(GonObject) == 176, "GonObject size mismatch");
 
 struct TacticsTile : Component {
-  void *obj;                                             // 0x38
-  TacticsGrid *grid;                                     // 0x40
-  void *renderer;                                        // 0x48
-  Transform *transform;                                  // 0x50
-  int32_t enter_cost;                                    // 0x58
-  int32_t exit_cost;                                     // 0x5C
-  ElementList elements;                                  // 0x60
-  uint8_t _pad68[208];                                   // 0x68
+  void *obj;                                             // 0x38 (56)
+  TacticsGrid *grid;                                     // 0x40 (64)
+  void *renderer;                                        // 0x48 (72)
+  void *front_renderer;                                  // 0x50 (80)
+  void *renderer_borders;                                // 0x58 (88)
+  Transform *transform;                                  // 0x60 (96)
+  int32_t faction;                                       // 0x68 (104)
+  uint8_t _pad6C[4];                                     // 0x6C (108)
+  int64_t creation_frame;                                // 0x70 (112)
+  int32_t enter_cost;                                    // 0x78 (120)
+  int32_t exit_cost;                                     // 0x7C (124)
+  int32_t desire_cost;                                   // 0x80 (128)
+  int32_t pathfind_cost_scale;                           // 0x84 (132)
+  uint8_t _pad88[168];                                   // 0x88 (136)
+  ElementList elements;                                  // 0x130 (304)
 };
 static_assert(sizeof(TacticsTile) == 312, "TacticsTile size mismatch");
 
 struct TacticsObject {
   uint8_t _pad0[56];                                     // 0x00
-  TacticsGrid *grid;                                     // 0x38
-  Transform *transform;                                  // 0x40
-  iVec2D position;                                       // 0x48
-  iVec2D old_position;                                   // 0x50
-  Character *character;                                  // 0x58
-  TacticsTile *tile;                                     // 0x60
-  uint8_t _pad68[248];                                   // 0x68
+  TacticsGrid *grid;                                     // 0x38 (56)
+  Transform *transform;                                  // 0x40 (64)
+  iVec2D position;                                       // 0x48 (72)
+  iVec2D old_position;                                   // 0x50 (80)
+  iVec2D last_onmap_position;                            // 0x58 (88)
+  uint8_t _pad60[56];                                    // 0x60 (96)
+  Character *character;                                  // 0x98 (152)
+  TacticsTile *tile;                                     // 0xA0 (160)
+  uint8_t _padA8[184];                                   // 0xA8 (168)
 };
 static_assert(sizeof(TacticsObject) == 352, "TacticsObject size mismatch");
 
