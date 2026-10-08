@@ -15,4 +15,5 @@ void ClassChooserHooks_UITick();
 void ClassChooserHooks_Shutdown();
 void CatSelectorHooks_TriggerLockInProceed();
 void HostBroadcastFullCollarState(bool force = false);
+void HostAuditCollarState();
 void RegisterClassChooserSubscribers();

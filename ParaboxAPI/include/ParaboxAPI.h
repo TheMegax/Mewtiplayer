@@ -36,6 +36,11 @@ struct AbilityChooser;
 struct WorldEvent;
 struct WorldEventOption;
 struct WorldEventCatButton;
+struct ClassChooser;
+struct ClassTagBox;
+struct InventoryScreen2;
+struct InventoryItemBox;
+struct Equipment;
 
 namespace ParaboxAPI {
 
@@ -482,6 +487,9 @@ PARABOX_API int32_t FindTagBoxIndex(const void *tagBoxPtr, const void *classChoo
 PARABOX_API void UpdateClassChooserTagBoxes(int64_t catID, int32_t collarIndex);
 PARABOX_API const char *ResolveCollarNameFromIndex(int32_t collarIndex);
 PARABOX_API void ForceClassChooserLockIn(void *lambdaThis);
+PARABOX_API ClassChooser* GetActiveClassChooser();
+PARABOX_API void ResetCatOnClassChooser(ClassChooser *chooser, int64_t catID, bool restoreDefaults = true);
+PARABOX_API void ForceClassChooserClose(ClassChooser *chooser = nullptr);
 
 // Storage API
 PARABOX_API extern bool g_isHandlingNetworkStorageItemSync;
@@ -490,6 +498,13 @@ PARABOX_API void UpdateStorageItemSlot(int32_t slotIndex, int64_t catID);
 PARABOX_API int64_t ResolveSelectedCatID();
 PARABOX_API void ForceInventoryScreen2Close(void *self);
 PARABOX_API void *GetMapScreen();
+PARABOX_API InventoryScreen2* GetActiveInventoryScreen2();
+PARABOX_API void UpdateStorageItem(int64_t itemID, int64_t catID);
+PARABOX_API int64_t GetItemEquippedOwner(int64_t itemID);
+PARABOX_API int32_t GetItemSortOrder(const void *itemBox);
+PARABOX_API int64_t GetSortOrderItemEquippedOwner(int32_t sortOrder);
+PARABOX_API void UpdateStorageItemBySortOrder(int32_t sortOrder, int64_t catID);
+PARABOX_API Equipment *GetActiveInventoryItemBySortOrder(int32_t sortOrder, InventoryItemBox **outBox = nullptr);
 
 
 // Map API
@@ -544,5 +559,7 @@ PARABOX_API bool ShowOkPopup(
 
 PARABOX_API int32_t GetClassTagBoxCount();
 PARABOX_API int32_t GetStorageSlotCount();
+PARABOX_API int64_t GetStorageSlotEquippedOwner(int32_t slotIndex);
+PARABOX_API void RefreshInventoryEquippedStatus();
 
 } // namespace ParaboxAPI

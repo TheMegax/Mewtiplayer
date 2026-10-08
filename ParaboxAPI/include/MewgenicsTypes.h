@@ -363,6 +363,8 @@ struct ShopItem;
 struct Shop;
 struct InventoryItemBox;
 struct InventoryScreen2;
+struct ClassTagBox;
+struct ClassChooser;
 
 // Core Engine Hierarchy
 struct ComponentVTable {
@@ -2605,6 +2607,20 @@ struct Shop : Component {
 };
 static_assert(sizeof(Shop) == 192, "Shop size mismatch");
 
+struct Equipment {
+  int64_t uid;                             // 0x00
+  MsvcReleaseModeXString name;             // 0x08
+  MsvcReleaseModeXString str_aux;          // 0x28 (40)
+  int32_t durability;                      // 0x48 (72)
+  int32_t aux;                             // 0x4C (76)
+  uint32_t flags;                          // 0x50 (80)
+  int32_t inventory_sortorder;             // 0x54 (84)
+  int8_t quest_item_destination;           // 0x58 (88)
+  int8_t _pad[3];                          // 0x59 (89)
+  uint32_t condition;                      // 0x5C (92)
+};
+static_assert(sizeof(Equipment) == 96, "Equipment size mismatch");
+
 struct InventoryItemBox : Component {
   InventoryScreen2 *parent;                              // 0x038
   void *renderer;                                        // 0x040
@@ -2645,3 +2661,34 @@ struct InventoryScreen2 : Component {
   int32_t current_sort;                                  // 0x134
 };
 static_assert(sizeof(InventoryScreen2) == 312, "InventoryScreen2 size mismatch");
+
+struct ClassTagBox;
+
+struct ClassChooser : Component {
+  void *panel;                                           // 0x038
+  void *bg_panel;                                        // 0x040
+  CatSelector *selector;                                 // 0x048
+  int32_t grid_width;                                    // 0x050
+  uint8_t _pad54[4];                                     // 0x054
+  MsvcReleaseModeStdFunction on_close;                   // 0x058
+  podvector<ClassTagBox *> boxes;                        // 0x098
+  podvector<void *> bg_boxes;                            // 0x0A8
+  MsvcReleaseModeVector<CatData> cat_defaults;           // 0x0B8
+  int64_t current_cat;                                   // 0x0D0
+};
+static_assert(sizeof(ClassChooser) == 216, "ClassChooser size mismatch");
+
+struct ClassTagBox : Component {
+  ClassChooser *parent;                                  // 0x038
+  void *renderer;                                        // 0x040
+  Button *button;                                        // 0x048
+  Transform *transform;                                  // 0x050
+  MsvcReleaseModeXString cat_class;                      // 0x058
+  Vec2D want_location;                                   // 0x078
+  double want_scale;                                     // 0x088
+  int64_t equipped_cat_id;                               // 0x090
+  bool equipped;                                         // 0x098
+  uint8_t _pad99[7];                                     // 0x099
+};
+static_assert(sizeof(ClassTagBox) == 160, "ClassTagBox size mismatch");
+

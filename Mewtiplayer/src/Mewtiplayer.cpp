@@ -49,8 +49,17 @@ static void EvilModeUpdate() {
     const auto director = GameUtils::GetMewDirectorSingleton();
     if (!director || !director->current_battle_cats.data_ || director->current_battle_cats.size() == 0) return;
 
+    std::vector<int64_t> myControlledCats;
+    for (size_t i = 0; i < director->current_battle_cats.size(); ++i) {
+        const int64_t catUID = director->current_battle_cats.data_[i];
+        if (NetworkManager::Get().IsCatControlledLocally(catUID)) {
+            myControlledCats.push_back(catUID);
+        }
+    }
+    if (myControlledCats.empty()) return;
+
     if (isClassChooser) {
-        const int64_t targetCatID = director->current_battle_cats.data_[g_evilCollarCounter % director->current_battle_cats.size()];
+        const int64_t targetCatID = myControlledCats[g_evilCollarCounter % myControlledCats.size()];
         const int32_t tagBoxCount = ParaboxAPI::GetClassTagBoxCount();
         if (tagBoxCount > 0) {
             const int32_t collarIndex = g_evilCollarCounter % (tagBoxCount + 1) - 1;
@@ -67,17 +76,44 @@ static void EvilModeUpdate() {
             }
         }
     } else if (isStorageItems) {
-        const int64_t targetCatID = ParaboxAPI::ResolveSelectedCatID();
-        if (targetCatID != -1) {
-            const int32_t storageBoxCount = ParaboxAPI::GetStorageSlotCount();
-            if (storageBoxCount > 0) {
-                const int32_t slotIndex = g_evilStorageCounter % storageBoxCount;
-                g_evilStorageCounter++;
+        const int64_t selectedCatID = ParaboxAPI::ResolveSelectedCatID();
+        const int64_t targetCatID = (selectedCatID != -1 && NetworkManager::Get().IsCatControlledLocally(selectedCatID))
+                                        ? selectedCatID
+                                        : myControlledCats[g_evilStorageCounter % myControlledCats.size()];
+
+        auto *screen = ParaboxAPI::GetActiveInventoryScreen2();
+        if (screen && screen->boxes.data_ && screen->boxes.size() > 0) {
+            const uint32_t boxIdx = g_evilStorageCounter % screen->boxes.size();
+            g_evilStorageCounter++;
+            const auto *box = screen->boxes.data_[boxIdx];
+            if (box) {
+                ParaboxAPI::RefreshInventoryEquippedStatus();
+                const int64_t currentOwner = ParaboxAPI::GetItemEquippedOwner(box->item_id);
+
+                // don't touch teammates' gear
+                if (currentOwner != -1 && !NetworkManager::Get().IsCatControlledLocally(currentOwner)) {
+                    return;
+                }
+
+                // toggle our cat's item or grab loose storage items
+                int64_t targetCatIDForBox = -1;
+                if (currentOwner == targetCatID) {
+                    targetCatIDForBox = -1;
+                } else if (currentOwner == -1) {
+                    targetCatIDForBox = targetCatID;
+                } else {
+                    return;
+                }
+
+                const int32_t sortOrder = ParaboxAPI::GetItemSortOrder(box);
+                if (sortOrder < 0) {
+                    return;
+                }
 
                 StorageItemSyncPacket packet = {};
                 packet.steamID = SteamUser()->GetSteamID().ConvertToUint64();
-                packet.catID = targetCatID;
-                packet.slotIndex = slotIndex;
+                packet.catID = targetCatIDForBox;
+                packet.sortOrder = sortOrder;
 
                 if (NetworkManager::Get().IsHost()) {
                     HandleStorageItemSyncInternal(&packet, sizeof(packet));

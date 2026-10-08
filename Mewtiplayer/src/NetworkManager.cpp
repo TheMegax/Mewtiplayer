@@ -10,6 +10,7 @@
 #include "MewSQL.h"
 #include "EventSubscribers.h"
 #include "events/CombatSubscribers.h"
+#include "events/SaveSubscribers.h"
 #include "hooks/AdventureBoxHooks.h"
 #include "ChatManager.h"
 #include <algorithm>
@@ -639,6 +640,23 @@ uint64_t NetworkManager::GetCatOwner(const int64_t uid) {
   if (it != m_catOwnership.end())
     return it->second;
   return 0;
+}
+
+bool NetworkManager::IsCatControlledLocally(const int64_t uid) {
+  if (uid <= 0) return false;
+  uint64_t ownerSteamID = GetCatOwner(uid);
+  if (ownerSteamID == 0) {
+    const auto it = g_catIdToOwnerSteamID.find(uid);
+    if (it != g_catIdToOwnerSteamID.end()) {
+      ownerSteamID = it->second;
+    }
+  }
+  if (!SteamUser()) return false;
+  const uint64_t localSteamID = SteamUser()->GetSteamID().ConvertToUint64();
+  if (ownerSteamID != 0) {
+    return ownerSteamID == localSteamID;
+  }
+  return IsHost();
 }
 
 uint64_t NetworkManager::GetNUIDOwner(const uint32_t nuid) const {
@@ -1852,6 +1870,9 @@ void NetworkManager::HandleLobbyReady(const void *data, const uint32_t length) {
   }
 
   if (IsHost() && AreAllLobbyMembersReady()) {
+    HostAuditCollarState();
+    HostBroadcastFullCollarState(true);
+    HostAuditAndBroadcastStorageState(true);
     BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
     CatSelectorHooks_TriggerLockInProceed();
   }

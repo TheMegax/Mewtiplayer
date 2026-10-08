@@ -234,7 +234,7 @@ struct LobbyReadyPacket {
 struct StorageItemSyncPacket {
   uint64_t steamID;
   int64_t catID;
-  int32_t slotIndex;
+  int32_t sortOrder;
 };
 #pragma pack(pop)
 
@@ -380,6 +380,7 @@ public:
   [[nodiscard]] bool IsCombatActive() const { return m_combatActive; }
   [[nodiscard]] uint32_t GetActiveNUID() const { return m_activeNUID; }
   uint64_t GetCatOwner(int64_t uid);
+  bool IsCatControlledLocally(int64_t uid);
   [[nodiscard]] uint64_t GetNUIDOwner(uint32_t nuid) const;
   [[nodiscard]] uint32_t GetNextNuid() const { return m_nextNuid; }
   [[nodiscard]] uint64_t GetLastControllingPlayer() const { return m_lastControllingPlayer; }

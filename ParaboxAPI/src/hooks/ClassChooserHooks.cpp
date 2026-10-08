@@ -1,24 +1,9 @@
 #include "hooks/ClassChooserHooks.h"
 #include "hooks/HookMacros.h"
 #include "GameUtils.h"
+#include "MewgenicsTypes.h"
 #include "Scanner.h"
 #include "ParaboxAPI.h"
-
-struct ClassTagBox : Component  {
-  void *classChooser;                     // 0x38
-  [[maybe_unused]] char _padding_0[0x18]; // 0x40
-  MsvcReleaseModeXString boxName;         // 0x58
-  [[maybe_unused]] char _padding_1[0x18]; // 0x78
-  int64_t catID;                          // 0x90
-};
-
-struct ClassChooser : Component {
-  [[maybe_unused]] char _padding_0[0x64]; // 0x38
-  uint32_t numTagBoxes;                   // 0x9c
-  ClassTagBox **tagBoxes;                 // 0xa0
-  [[maybe_unused]] char _padding_1[0x28]; // 0xa8
-  int64_t catID;                          // 0xd0
-};
 
 static void *g_activeCatSelector = nullptr;
 
@@ -26,56 +11,82 @@ typedef void *(__fastcall *LookupCatData_t)(void *pedigreeState, int64_t catID);
 typedef void (__fastcall *RefreshCatSelectorUI_t)(void *selector);
 typedef void (__fastcall *ApplyCollar_t)(CatData *cat, void *collarNameStr);
 typedef void (__fastcall *RefreshInventoryGrid_t)(void *classChooser);
+typedef void (__fastcall *ClassChooserResetCat_t)(ClassChooser *chooser, int64_t catID, bool param_2);
+typedef void (__fastcall *ClassChooserClose_t)(ClassChooser *chooser);
 
 static LookupCatData_t g_LookupCatData = nullptr;
 static RefreshCatSelectorUI_t g_RefreshCatSelectorUI = nullptr;
 static ApplyCollar_t g_ApplyCollar = nullptr;
 static RefreshInventoryGrid_t g_RefreshInventoryGrid = nullptr;
+static ClassChooserResetCat_t g_ClassChooserResetCat = nullptr;
+static ClassChooserClose_t g_ClassChooserClose = nullptr;
 
 HOOK_DEFINE(CatSelector_init, void, void *, int64_t)
 HOOK_DEFINE(ClassTagBox_Click, void, void *)
 HOOK_DEFINE(ClassChooser_LockIn, void, void *)
 
-static std::vector<void *>* g_classTagBoxes = new std::vector<void *>();
-
 namespace ParaboxAPI {
 
 PARABOX_API void ClearClassTagBoxes() {
-  g_classTagBoxes->clear();
+  // Deprecated stub: tag boxes are queried directly from ClassChooser::boxes
 }
 
 PARABOX_API void RegisterClassTagBox(void *comp) {
-  if (comp) {
-    g_classTagBoxes->push_back(comp);
+  // Deprecated stub: tag boxes are queried directly from ClassChooser::boxes
+}
+
+PARABOX_API ClassChooser* GetActiveClassChooser() {
+  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
+    if (!scene) continue;
+    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
+      if (!comp || comp->deleted) continue;
+      MsvcReleaseModeXString name = {};
+      if (GameUtils::SafeGetComponentName(comp, &name)) {
+        const bool match = name.as_native_string_view() == "ClassChooser";
+        GameUtils::FreeXString(name);
+        if (match) return const_cast<ClassChooser *>(reinterpret_cast<const ClassChooser *>(comp));
+      }
+    }
+  }
+  return nullptr;
+}
+
+PARABOX_API void ResetCatOnClassChooser(ClassChooser *chooser, const int64_t catID, const bool restoreDefaults) {
+  if (!chooser) chooser = GetActiveClassChooser();
+  if (g_ClassChooserResetCat && chooser) {
+    g_ClassChooserResetCat(chooser, catID, restoreDefaults);
+  }
+}
+
+PARABOX_API void ForceClassChooserClose(ClassChooser *chooser) {
+  if (!chooser) chooser = GetActiveClassChooser();
+  if (g_ClassChooserClose && chooser) {
+    g_ClassChooserClose(chooser);
   }
 }
 
 int64_t ResolveCatIDFromTagBox(void *tagBox) {
   const auto *box = static_cast<ClassTagBox *>(tagBox);
-  int64_t catID = box->catID;
+  if (!box) return -1;
+  int64_t catID = box->equipped_cat_id;
   if (catID == -1) {
-    if (const auto *classChooser = static_cast<ClassChooser *>(box->classChooser)) {
-      catID = classChooser->catID;
+    if (const auto *classChooser = box->parent ? box->parent : GetActiveClassChooser()) {
+      catID = classChooser->current_cat;
     }
   }
   return catID;
 }
 
 int32_t FindTagBoxIndex(const void *tagBoxPtr, const void *classChooserPtr) {
-  for (size_t i = 0; i < g_classTagBoxes->size(); i++) {
-    if ((*g_classTagBoxes)[i] == tagBoxPtr) {
-      return static_cast<int32_t>(i);
-    }
+  const auto *classChooser = static_cast<const ClassChooser *>(classChooserPtr);
+  if (!classChooser) {
+    classChooser = GetActiveClassChooser();
   }
-
-  const ClassTagBox *tagBox = static_cast<const ClassTagBox *>(tagBoxPtr);
-  const ClassChooser *classChooser = static_cast<const ClassChooser *>(classChooserPtr);
-
-  if (!classChooser || !classChooser->tagBoxes) {
+  if (!classChooser || !classChooser->boxes.data_) {
     return -1;
   }
-  for (uint32_t i = 0; i < classChooser->numTagBoxes; i++) {
-    if (classChooser->tagBoxes[i] == tagBox) {
+  for (uint32_t i = 0; i < classChooser->boxes.size(); i++) {
+    if (classChooser->boxes.data_[i] == tagBoxPtr) {
       return static_cast<int32_t>(i);
     }
   }
@@ -98,7 +109,7 @@ static void __fastcall Hook_CatSelector_init(void *self, const int64_t param2) {
 
 static void __fastcall Hook_ClassTagBox_Click(void *tagBox) {
   const auto *box = static_cast<ClassTagBox *>(tagBox);
-  const auto *classChooser = box ? static_cast<ClassChooser *>(box->classChooser) : nullptr;
+  const auto *classChooser = box ? box->parent : nullptr;
   const int32_t clickedIndex = classChooser ? ParaboxAPI::FindTagBoxIndex(box, classChooser) : -1;
   const int64_t catID = ParaboxAPI::ResolveCatIDFromTagBox(tagBox);
 
@@ -184,85 +195,40 @@ PARABOX_API void RefreshClassChooserInventory() {
   if (!g_RefreshInventoryGrid) {
     return;
   }
-  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
-    if (!scene) continue;
-    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
-      MsvcReleaseModeXString name = {};
-      if (GameUtils::SafeGetComponentName(comp, &name)) {
-        const bool match = name.as_native_string_view() == "ClassChooser";
-        GameUtils::FreeXString(name);
-        if (match) {
-          g_RefreshInventoryGrid(const_cast<void *>(reinterpret_cast<const void *>(comp)));
-          return;
-        }
-      }
-    }
+  if (auto *chooser = GetActiveClassChooser()) {
+    g_RefreshInventoryGrid(chooser);
   }
 }
 
 PARABOX_API void UpdateClassChooserTagBoxes(const int64_t catID, const int32_t collarIndex) {
-  if (!g_classTagBoxes->empty()) {
-    if (collarIndex != -1) {
-      if (collarIndex >= 0 && static_cast<size_t>(collarIndex) < g_classTagBoxes->size()) {
-        for (size_t j = 0; j < g_classTagBoxes->size(); j++) {
-          auto *box = static_cast<ClassTagBox *>((*g_classTagBoxes)[j]);
-          if (box->catID == catID) {
-            box->catID = -1;
-          }
-        }
-        auto *targetBox = static_cast<ClassTagBox *>((*g_classTagBoxes)[collarIndex]);
-        targetBox->catID = catID;
-        return;
-      }
-    } else {
-      for (size_t i = 0; i < g_classTagBoxes->size(); i++) {
-        auto *box = static_cast<ClassTagBox *>((*g_classTagBoxes)[i]);
-        if (box->catID == catID) {
-          box->catID = -1;
-          break;
+  auto *chooser = GetActiveClassChooser();
+  if (!chooser || !chooser->boxes.data_) return;
+
+  if (collarIndex != -1) {
+    if (collarIndex >= 0 && static_cast<uint32_t>(collarIndex) < chooser->boxes.size()) {
+      // clear cat from any other tag box
+      for (uint32_t j = 0; j < chooser->boxes.size(); j++) {
+        ClassTagBox *otherBox = chooser->boxes.data_[j];
+        if (otherBox && otherBox->equipped_cat_id == catID) {
+          otherBox->equipped_cat_id = -1;
+          otherBox->equipped = false;
         }
       }
-      return;
+      ClassTagBox *targetBox = chooser->boxes.data_[collarIndex];
+      if (targetBox) {
+        targetBox->equipped_cat_id = catID;
+        targetBox->equipped = true;
+      }
     }
-  }
-
-  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
-    if (!scene) continue;
-    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
-      MsvcReleaseModeXString name = {};
-      if (GameUtils::SafeGetComponentName(comp, &name)) {
-        const bool match = name.as_native_string_view() == "ClassChooser";
-        GameUtils::FreeXString(name);
-        if (!match) continue;
-      } else {
-        continue;
+  } else {
+    // clear tag box bound to this cat
+    for (uint32_t i = 0; i < chooser->boxes.size(); i++) {
+      ClassTagBox *box = chooser->boxes.data_[i];
+      if (box && box->equipped_cat_id == catID) {
+        box->equipped_cat_id = -1;
+        box->equipped = false;
+        break;
       }
-
-      const auto *classChooser = static_cast<ClassChooser *>(const_cast<Component *>(comp)); // NOLINT(*-pro-type-static-cast-downcast)
-      if (!classChooser->tagBoxes || classChooser->numTagBoxes == 0) continue;
-
-      if (collarIndex != -1) {
-        if (collarIndex >= 0 && static_cast<uint32_t>(collarIndex) < classChooser->numTagBoxes) {
-          // Remove this cat from any other tag box first
-          for (uint32_t j = 0; j < classChooser->numTagBoxes; j++) {
-            ClassTagBox *otherBox = classChooser->tagBoxes[j];
-            if (otherBox->catID == catID) {
-              otherBox->catID = -1;
-            }
-          }
-          classChooser->tagBoxes[collarIndex]->catID = catID;
-        }
-      } else {
-        // Clear any tag box that has this cat
-        for (uint32_t i = 0; i < classChooser->numTagBoxes; i++) {
-          ClassTagBox *box = classChooser->tagBoxes[i];
-          if (box->catID == catID) {
-            box->catID = -1;
-            break;
-          }
-        }
-      }
-      return;
     }
   }
 }
@@ -272,29 +238,11 @@ PARABOX_API const char *ResolveCollarNameFromIndex(const int32_t collarIndex) {
     return "Colorless";
   }
 
-  if (collarIndex >= 0 && static_cast<size_t>(collarIndex) < g_classTagBoxes->size()) {
-    const auto *box = static_cast<const ClassTagBox *>((*g_classTagBoxes)[collarIndex]);
-    return box->boxName.is_valid() ? box->boxName.begin() : "Colorless";
-  }
-
-  for (const Scene *scene : GameUtils::GetCurrentScenes()) {
-    if (!scene) continue;
-    for (const Component *comp : GameUtils::GetSceneComponents(scene)) {
-      MsvcReleaseModeXString compName = {};
-      if (GameUtils::SafeGetComponentName(comp, &compName)) {
-        const bool match = compName.as_native_string_view() == "ClassChooser";
-        GameUtils::FreeXString(compName);
-        if (!match) continue;
-      } else {
-        continue;
-      }
-
-      const auto *classChooser = static_cast<ClassChooser *>(const_cast<Component *>(comp)); // NOLINT(*-pro-type-static-cast-downcast)
-      if (!classChooser->tagBoxes || collarIndex < 0 || static_cast<uint32_t>(collarIndex) >= classChooser->numTagBoxes) {
-        return "Colorless";
-      }
-      const ClassTagBox *box = classChooser->tagBoxes[collarIndex];
-      return box->boxName.is_valid() ? box->boxName.begin() : "Colorless";
+  const auto *chooser = GetActiveClassChooser();
+  if (chooser && chooser->boxes.data_ && collarIndex >= 0 && static_cast<uint32_t>(collarIndex) < chooser->boxes.size()) {
+    const ClassTagBox *box = chooser->boxes.data_[collarIndex];
+    if (box && box->cat_class.is_valid()) {
+      return box->cat_class.begin();
     }
   }
   return "Colorless";
@@ -307,7 +255,10 @@ PARABOX_API void ForceClassChooserLockIn(void *lambdaThis) {
 }
 
 PARABOX_API int32_t GetClassTagBoxCount() {
-  return g_classTagBoxes ? static_cast<int32_t>(g_classTagBoxes->size()) : 0;
+  if (const auto *chooser = GetActiveClassChooser()) {
+    return static_cast<int32_t>(chooser->boxes.size());
+  }
+  return 0;
 }
 
 } // namespace ParaboxAPI
@@ -317,6 +268,8 @@ void CatSelectorHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
   RESOLVE_FUNC(gameBase, GameSymbols::CatData_set_class_preview, g_ApplyCollar);
   RESOLVE_FUNC(gameBase, GameSymbols::CatDatabase_get_cat, g_LookupCatData);
   RESOLVE_FUNC(gameBase, GameSymbols::CatSelector_RefreshAll, g_RefreshCatSelectorUI);
+  RESOLVE_FUNC(gameBase, GameSymbols::ClassChooser_ResetCat, g_ClassChooserResetCat);
+  RESOLVE_FUNC(gameBase, GameSymbols::ClassChooser_close, g_ClassChooserClose);
 
   HOOK_INSTALL(mj, gameBase, CatSelector_init, GameSymbols::CatSelector_init, 0);
   HOOK_INSTALL(mj, gameBase, ClassTagBox_Click, GameSymbols::ClassTagBox_click, 0);

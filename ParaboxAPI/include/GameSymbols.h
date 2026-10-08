@@ -56,12 +56,20 @@ namespace GameSymbols {
     constexpr uintptr_t ClassChooser_init_embark        = 0x00141E40;
     constexpr uintptr_t CatData_set_class_preview       = 0x000BDC70;
     constexpr uintptr_t ClassChooser_refresh_item_locations = 0x0013EF10;
+    constexpr uintptr_t ClassChooser_ResetCat           = 0x0013E100;
+    constexpr uintptr_t ClassChooser_close              = 0x0013FCE0;
 
     // --- Storage ---
     constexpr uintptr_t InventoryItemBox_click          = 0x0034EB20;
     constexpr uintptr_t InventoryItemBox_click_equip    = 0x0034F0A0;
     constexpr uintptr_t InventoryScreen2_close          = 0x0034D870;
     constexpr uintptr_t InventoryScreen2_refresh_item_locations = 0x0034BE50;
+    constexpr uintptr_t InventoryScreen2_lookup         = 0x0034BDD0;
+    constexpr uintptr_t InventoryScreen2_item_equipped_status = 0x0034BCB0;
+    constexpr uintptr_t InventoryScreen2_refresh_equipped_status = 0x0034BB50;
+    constexpr uintptr_t CatData_Equip                   = 0x000CA2E0;
+    constexpr uintptr_t CatData_Unequip                 = 0x000CA510;
+    constexpr uintptr_t Equipment_kind                  = 0x002E0030;
     constexpr uintptr_t Director_AddScene               = 0x009D4950;
     constexpr uintptr_t Scene_AddComponent              = 0x0096B340;
 
