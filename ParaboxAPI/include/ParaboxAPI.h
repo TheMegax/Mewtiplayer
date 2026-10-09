@@ -518,6 +518,11 @@ PARABOX_API int32_t GetItemSortOrder(const void *itemBox);
 PARABOX_API int64_t GetSortOrderItemEquippedOwner(int32_t sortOrder);
 PARABOX_API void UpdateStorageItemBySortOrder(int32_t sortOrder, int64_t catID);
 PARABOX_API Equipment *GetActiveInventoryItemBySortOrder(int32_t sortOrder, InventoryItemBox **outBox = nullptr);
+PARABOX_API uint64_t GetItemSerial(const void *itemBox);
+PARABOX_API int64_t GetSerialItemEquippedOwner(uint64_t itemSerial);
+PARABOX_API void UpdateStorageItemBySerial(uint64_t itemSerial, int64_t targetCatID, int64_t fromCatID = -1);
+PARABOX_API Equipment *GetActiveInventoryItemBySerial(uint64_t itemSerial, int64_t preferredOwner = -1, InventoryItemBox **outBox = nullptr);
+PARABOX_API Equipment *GetEquipmentFromItemBox(const void *itemBox);
 
 
 // Map API

@@ -2630,6 +2630,25 @@ struct Equipment {
 };
 static_assert(sizeof(Equipment) == 96, "Equipment size mismatch");
 
+inline uint64_t ComputeItemSerial(const Equipment *equip) {
+  if (!equip || !equip->name.is_valid() || equip->name.Mysize == 0) return 0;
+  uint64_t h = 14695981039346656037ULL;
+  auto hashBytes = [&](const void *data, size_t len) {
+    const auto *p = static_cast<const uint8_t *>(data);
+    for (size_t i = 0; i < len; ++i) {
+      h ^= p[i];
+      h *= 1099511628211ULL;
+    }
+  };
+  const auto nameView = equip->name.as_native_string_view();
+  hashBytes(nameView.data(), nameView.size());
+  hashBytes(&equip->condition, sizeof(equip->condition));
+  hashBytes(&equip->durability, sizeof(equip->durability));
+  hashBytes(&equip->flags, sizeof(equip->flags));
+  hashBytes(&equip->quest_item_destination, sizeof(equip->quest_item_destination));
+  return h;
+}
+
 struct InventoryItemBox : Component {
   InventoryScreen2 *parent;                              // 0x038
   void *renderer;                                        // 0x040

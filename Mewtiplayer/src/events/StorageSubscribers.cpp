@@ -131,14 +131,14 @@ void StorageHooks_TriggerEmbarkProceed() {
     }
 }
 
-static std::map<int32_t, int64_t> g_hostLastBroadcastStorageState;
-static std::map<int32_t, int64_t> g_clientCurrentStorageState;
-static std::map<int32_t, ULONGLONG> g_lastStorageClickTimePerSlot;
+static std::map<uint64_t, int64_t> g_hostLastBroadcastStorageState;
+static std::map<uint64_t, int64_t> g_clientCurrentStorageState;
+static std::map<uint64_t, ULONGLONG> g_lastStorageClickTimePerSerial;
 
 void ResetStorageSyncState() {
     g_hostLastBroadcastStorageState.clear();
     g_clientCurrentStorageState.clear();
-    g_lastStorageClickTimePerSlot.clear();
+    g_lastStorageClickTimePerSerial.clear();
 }
 
 void HostAuditAndBroadcastStorageState(bool force) {
@@ -148,35 +148,64 @@ void HostAuditAndBroadcastStorageState(bool force) {
 
     ParaboxAPI::RefreshInventoryEquippedStatus();
 
+    struct AuditEntry {
+        int64_t owner = -1;
+        char name[32] = {0};
+    };
+    std::map<uint64_t, AuditEntry> currentAuditState;
+
     for (uint32_t i = 0; i < screen->boxes.size(); i++) {
         const auto *box = screen->boxes.data_[i];
-        if (!box) continue;
-        const int32_t sortOrder = ParaboxAPI::GetItemSortOrder(box);
-        if (sortOrder < 0) continue;
+        if (!box || box->item_id <= 0) continue;
+        const uint64_t serial = ParaboxAPI::GetItemSerial(box);
+        if (serial == 0) continue;
 
-        const int64_t currentOwner = ParaboxAPI::GetItemEquippedOwner(box->item_id);
+        const int64_t owner = ParaboxAPI::GetItemEquippedOwner(box->item_id);
+        auto it = currentAuditState.find(serial);
+        if (it == currentAuditState.end()) {
+            AuditEntry entry;
+            entry.owner = owner;
+            Equipment *eq = ParaboxAPI::GetEquipmentFromItemBox(box);
+            if (eq && eq->name.is_valid()) {
+                const auto nameView = eq->name.as_native_string_view();
+                snprintf(entry.name, sizeof(entry.name), "%.*s", (int)nameView.size(), nameView.data());
+            }
+            currentAuditState[serial] = entry;
+        } else if (it->second.owner == -1 && owner != -1) {
+            it->second.owner = owner;
+        }
+    }
+
+    for (const auto& [serial, entry] : currentAuditState) {
+        const int64_t currentOwner = entry.owner;
+        int64_t previousOwner = -1;
         if (!force) {
-            auto it = g_hostLastBroadcastStorageState.find(sortOrder);
+            auto it = g_hostLastBroadcastStorageState.find(serial);
             if (it != g_hostLastBroadcastStorageState.end()) {
                 if (it->second == currentOwner) {
                     continue;
                 }
+                previousOwner = it->second;
             } else {
                 // seed unequipped state quietly on first pass
                 if (currentOwner == -1) {
-                    g_hostLastBroadcastStorageState[sortOrder] = -1;
+                    g_hostLastBroadcastStorageState[serial] = -1;
                     continue;
                 }
             }
         }
-        g_hostLastBroadcastStorageState[sortOrder] = currentOwner;
+        g_hostLastBroadcastStorageState[serial] = currentOwner;
 
         StorageItemSyncPacket pkt = {};
         pkt.steamID = SteamUser()->GetSteamID().ConvertToUint64();
         pkt.catID = currentOwner;
-        pkt.sortOrder = sortOrder;
+        pkt.fromCatID = previousOwner;
+        pkt.itemSerial = serial;
+        snprintf(pkt.itemName, sizeof(pkt.itemName), "%s", entry.name);
+
         NetworkManager::Get().BroadcastPacket(PacketType::StorageItemSync, &pkt, sizeof(pkt), true);
-        Overlay::Log("[STORAGE] Host broadcast: item %d -> cat %lld", sortOrder, currentOwner);
+        Overlay::Log("[STORAGE] Host broadcast: item '%s' (0x%llx) -> cat %lld",
+                     pkt.itemName, serial, currentOwner);
     }
 }
 
@@ -188,9 +217,10 @@ void HandleStorageItemSyncInternal(const void *data, const uint32_t length) {
     if (length != sizeof(StorageItemSyncPacket)) return;
 
     const auto *packet = (const StorageItemSyncPacket *)data;
+    if (packet->itemSerial == 0) return;
 
     if (NetworkManager::Get().IsHost()) {
-        const int64_t currentOwner = ParaboxAPI::GetSortOrderItemEquippedOwner(packet->sortOrder);
+        const int64_t currentOwner = ParaboxAPI::GetSerialItemEquippedOwner(packet->itemSerial);
 
         // make sure sender owns the cat receiving the item
         if (packet->catID != -1) {
@@ -205,7 +235,9 @@ void HandleStorageItemSyncInternal(const void *data, const uint32_t length) {
                 StorageItemSyncPacket healPkt = {};
                 healPkt.steamID = SteamUser()->GetSteamID().ConvertToUint64();
                 healPkt.catID = currentOwner;
-                healPkt.sortOrder = packet->sortOrder;
+                healPkt.fromCatID = -1;
+                healPkt.itemSerial = packet->itemSerial;
+                snprintf(healPkt.itemName, sizeof(healPkt.itemName), "%s", packet->itemName);
                 NetworkManager::Get().BroadcastPacket(PacketType::StorageItemSync, &healPkt, sizeof(healPkt), true);
                 return;
             }
@@ -219,55 +251,57 @@ void HandleStorageItemSyncInternal(const void *data, const uint32_t length) {
                 if (it != g_catIdToOwnerSteamID.end()) currentOwnerSteamID = it->second;
             }
             if (currentOwnerSteamID != 0 && currentOwnerSteamID != packet->steamID) {
-                Overlay::Log("[STORAGE] Rejected sync from %llu: item %d on cat %lld owned by %llu",
-                             packet->steamID, packet->sortOrder, currentOwner, currentOwnerSteamID);
+                Overlay::Log("[STORAGE] Rejected sync from %llu: item '%s' on cat %lld owned by %llu",
+                             packet->steamID, packet->itemName, currentOwner, currentOwnerSteamID);
                 StorageItemSyncPacket healPkt = {};
                 healPkt.steamID = SteamUser()->GetSteamID().ConvertToUint64();
                 healPkt.catID = currentOwner;
-                healPkt.sortOrder = packet->sortOrder;
+                healPkt.fromCatID = -1;
+                healPkt.itemSerial = packet->itemSerial;
+                snprintf(healPkt.itemName, sizeof(healPkt.itemName), "%s", packet->itemName);
                 NetworkManager::Get().BroadcastPacket(PacketType::StorageItemSync, &healPkt, sizeof(healPkt), true);
                 return;
             }
         }
 
-        auto hostStateIt = g_hostLastBroadcastStorageState.find(packet->sortOrder);
+        auto hostStateIt = g_hostLastBroadcastStorageState.find(packet->itemSerial);
         if (hostStateIt != g_hostLastBroadcastStorageState.end() && hostStateIt->second == packet->catID) {
             return;
         }
 
         g_isHandlingNetworkStorageItemSync = true;
-        ParaboxAPI::UpdateStorageItemBySortOrder(packet->sortOrder, packet->catID);
+        ParaboxAPI::UpdateStorageItemBySerial(packet->itemSerial, packet->catID, packet->fromCatID);
         g_isHandlingNetworkStorageItemSync = false;
 
-        Overlay::Log("[STORAGE] Host applied: player %llu, item %d -> cat %lld",
-                     packet->steamID, packet->sortOrder, packet->catID);
+        Overlay::Log("[STORAGE] Host applied: player %llu, item '%s' -> cat %lld",
+                     packet->steamID, packet->itemName, packet->catID);
 
         // broadcast diffs for this change (handles swapped out item too)
         HostAuditAndBroadcastStorageState(false);
     } else {
-        const int64_t currentOwner = ParaboxAPI::GetSortOrderItemEquippedOwner(packet->sortOrder);
+        const int64_t currentOwner = ParaboxAPI::GetSerialItemEquippedOwner(packet->itemSerial);
         if (currentOwner == packet->catID) {
-            g_clientCurrentStorageState[packet->sortOrder] = packet->catID;
+            g_clientCurrentStorageState[packet->itemSerial] = packet->catID;
             return;
         }
 
         const uint64_t localSteamID = SteamUser()->GetSteamID().ConvertToUint64();
         if (packet->steamID == localSteamID) {
-            const auto clickTimeIt = g_lastStorageClickTimePerSlot.find(packet->sortOrder);
-            if (clickTimeIt != g_lastStorageClickTimePerSlot.end()) {
+            const auto clickTimeIt = g_lastStorageClickTimePerSerial.find(packet->itemSerial);
+            if (clickTimeIt != g_lastStorageClickTimePerSerial.end()) {
                 if (GetTickCount64() - clickTimeIt->second < 150) {
                     return;
                 }
             }
         }
 
-        g_clientCurrentStorageState[packet->sortOrder] = packet->catID;
+        g_clientCurrentStorageState[packet->itemSerial] = packet->catID;
 
-        Overlay::Log("[STORAGE] Client sync: player %llu, item %d (%lld -> cat %lld)",
-                     packet->steamID, packet->sortOrder, currentOwner, packet->catID);
+        Overlay::Log("[STORAGE] Client sync: player %llu, item '%s' (%lld -> cat %lld)",
+                     packet->steamID, packet->itemName, currentOwner, packet->catID);
 
         g_isHandlingNetworkStorageItemSync = true;
-        ParaboxAPI::UpdateStorageItemBySortOrder(packet->sortOrder, packet->catID);
+        ParaboxAPI::UpdateStorageItemBySerial(packet->itemSerial, packet->catID, packet->fromCatID);
         g_isHandlingNetworkStorageItemSync = false;
         ParaboxAPI::RefreshCatSelectorUI();
     }
@@ -324,25 +358,24 @@ void RegisterStorageSubscribers() {
             }
 
             const auto *box = static_cast<const InventoryItemBox *>(ev.self);
-            if (!box || catID == -1) {
+            if (!box || box->item_id <= 0 || catID == -1) {
                 ev.Cancel();
                 return;
             }
 
-            const int32_t sortOrder = ParaboxAPI::GetItemSortOrder(box);
-            if (sortOrder < 0) {
-                ev.Cancel();
+            const uint64_t serial = ParaboxAPI::GetItemSerial(box);
+            if (serial == 0) {
                 return;
             }
 
-            static std::map<int32_t, ULONGLONG> s_lastSlotUserClickTime;
+            static std::map<uint64_t, ULONGLONG> s_lastSerialUserClickTime;
             const ULONGLONG now = GetTickCount64();
-            auto clickIt = s_lastSlotUserClickTime.find(sortOrder);
-            if (clickIt != s_lastSlotUserClickTime.end() && (now - clickIt->second < 150)) {
+            auto clickIt = s_lastSerialUserClickTime.find(serial);
+            if (clickIt != s_lastSerialUserClickTime.end() && (now - clickIt->second < 150)) {
                 ev.Cancel();
                 return;
             }
-            s_lastSlotUserClickTime[sortOrder] = now;
+            s_lastSerialUserClickTime[serial] = now;
 
             ParaboxAPI::RefreshInventoryEquippedStatus();
             const int64_t currentOwner = ParaboxAPI::GetItemEquippedOwner(box->item_id);
@@ -360,22 +393,29 @@ void RegisterStorageSubscribers() {
             StorageItemSyncPacket packet = {};
             packet.steamID = SteamUser()->GetSteamID().ConvertToUint64();
             packet.catID = targetCatID;
-            packet.sortOrder = sortOrder;
+            packet.fromCatID = currentOwner;
+            packet.itemSerial = serial;
 
-            g_lastStorageClickTimePerSlot[sortOrder] = GetTickCount64();
+            Equipment *eq = ParaboxAPI::GetEquipmentFromItemBox(box);
+            if (eq && eq->name.is_valid()) {
+                const auto nameView = eq->name.as_native_string_view();
+                snprintf(packet.itemName, sizeof(packet.itemName), "%.*s", (int)nameView.size(), nameView.data());
+            }
+
+            g_lastStorageClickTimePerSerial[serial] = GetTickCount64();
 
             if (NetworkManager::Get().IsHost()) {
                 HandleStorageItemSyncInternal(&packet, sizeof(packet));
                 ev.Cancel();
             } else {
-                g_clientCurrentStorageState[sortOrder] = targetCatID;
+                g_clientCurrentStorageState[serial] = targetCatID;
                 g_isHandlingNetworkStorageItemSync = true;
-                ParaboxAPI::UpdateStorageItemBySortOrder(sortOrder, targetCatID);
+                ParaboxAPI::UpdateStorageItemBySerial(serial, targetCatID, currentOwner);
                 g_isHandlingNetworkStorageItemSync = false;
                 ParaboxAPI::RefreshCatSelectorUI();
 
                 NetworkManager::Get().SendPacketReliable(NetworkManager::Get().GetHostID(), PacketType::StorageItemSync, &packet, sizeof(packet));
-                Overlay::Log("[STORAGE] Client request: item %d -> cat %lld", sortOrder, targetCatID);
+                Overlay::Log("[STORAGE] Client request: item '%s' -> cat %lld", packet.itemName, targetCatID);
                 ev.Cancel();
             }
         }

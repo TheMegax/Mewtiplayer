@@ -290,7 +290,9 @@ struct LobbyReadyPacket {
 struct StorageItemSyncPacket {
   uint64_t steamID;
   int64_t catID;
-  int32_t sortOrder;
+  int64_t fromCatID;
+  uint64_t itemSerial;
+  char itemName[32];
 };
 #pragma pack(pop)
 

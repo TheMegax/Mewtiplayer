@@ -106,15 +106,16 @@ static void EvilModeUpdate() {
                     return;
                 }
 
-                const int32_t sortOrder = ParaboxAPI::GetItemSortOrder(box);
-                if (sortOrder < 0) {
+                const uint64_t serial = ParaboxAPI::GetItemSerial(box);
+                if (serial == 0) {
                     return;
                 }
 
                 StorageItemSyncPacket packet = {};
                 packet.steamID = SteamUser()->GetSteamID().ConvertToUint64();
                 packet.catID = targetCatIDForBox;
-                packet.sortOrder = sortOrder;
+                packet.fromCatID = currentOwner;
+                packet.itemSerial = serial;
 
                 if (NetworkManager::Get().IsHost()) {
                     HandleStorageItemSyncInternal(&packet, sizeof(packet));

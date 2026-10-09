@@ -71,8 +71,6 @@ static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr
       }
     }
 
-    ParaboxAPI::Log("[STORAGE] Created scene '%s'", sceneName.c_str());
-
     ParaboxAPI::SceneAddedEvent evAdd = {};
     evAdd.director = self;
     evAdd.scene = createdScene;
@@ -177,6 +175,7 @@ PARABOX_API void RefreshInventoryEquippedStatus() {
 }
 
 PARABOX_API int64_t GetItemEquippedOwner(const int64_t itemID) {
+  if (itemID <= 0) return -1;
   auto *screen = GetActiveInventoryScreen2();
   if (!screen || !g_InventoryScreen2ItemEquippedStatus) {
     return -1;
@@ -196,14 +195,16 @@ PARABOX_API int64_t GetStorageSlotEquippedOwner(const int32_t slotIndex) {
   if (!screen || !screen->boxes.data_) return -1;
   if (slotIndex >= 0 && static_cast<uint32_t>(slotIndex) < screen->boxes.size()) {
     if (const auto *box = screen->boxes.data_[slotIndex]) {
-      return GetItemEquippedOwner(box->item_id);
+      if (box->item_id > 0) {
+        return GetItemEquippedOwner(box->item_id);
+      }
     }
   }
   return -1;
 }
 
 static void UpdateStorageItemBox(InventoryScreen2 *screen, InventoryItemBox *targetBox, const int64_t catID) {
-  if (!screen || !targetBox) return;
+  if (!screen || !targetBox || targetBox->item_id <= 0) return;
 
   if (g_InventoryScreen2RefreshEquippedStatus) {
     g_InventoryScreen2RefreshEquippedStatus(screen);
@@ -227,9 +228,13 @@ static void UpdateStorageItemBox(InventoryScreen2 *screen, InventoryItemBox *tar
   }
   if (!equip) return;
 
-  // kind >= 5 (None) triggers a null deref in CatEquipment::unequip
-  if (equip->uid == -1 || !equip->name.is_valid() || equip->name.Mysize == 0) {
-    Log("[STORAGE] [WARN] Skipping invalid item");
+  if (equip->uid <= 0 || equip->uid != targetBox->item_id) {
+    Log("[STORAGE] [WARN] Skipping invalid item UID %lld", equip->uid);
+    return;
+  }
+
+  if (!equip->name.is_valid() || equip->name.Mysize == 0) {
+    Log("[STORAGE] [WARN] Skipping invalid item name");
     return;
   }
 
@@ -239,6 +244,9 @@ static void UpdateStorageItemBox(InventoryScreen2 *screen, InventoryItemBox *tar
       Log("[STORAGE] [WARN] Skipping item with invalid kind %d", kind);
       return;
     }
+  } else {
+    Log("[STORAGE] [WARN] Missing g_EquipmentKind, skipping equip");
+    return;
   }
 
   if (catID == -1) {
@@ -276,49 +284,198 @@ static void UpdateStorageItemBox(InventoryScreen2 *screen, InventoryItemBox *tar
 PARABOX_API int32_t GetItemSortOrder(const void *itemBox) {
   if (!itemBox) return -1;
   const auto *box = static_cast<const InventoryItemBox *>(itemBox);
+  if (box->item_id <= 0) return -1;
   auto *screen = GetActiveInventoryScreen2();
   if (!screen) screen = box->parent;
   if (!screen || !g_InventoryScreen2Lookup) return -1;
   Equipment *equip = g_InventoryScreen2Lookup(screen, box->item_id);
-  if (equip && equip->uid == box->item_id) {
+  if (equip && equip->uid == box->item_id && equip->uid > 0) {
+    if (equip->inventory_sortorder <= 0 || equip->inventory_sortorder >= 9999999) {
+      return -1;
+    }
+    if (!equip->name.is_valid() || equip->name.Mysize == 0) {
+      return -1;
+    }
+    if (g_EquipmentKind) {
+      const int32_t kind = g_EquipmentKind(equip);
+      if (kind < 0 || kind > 4) {
+        return -1;
+      }
+    }
     return equip->inventory_sortorder;
   }
   return -1;
 }
 
 PARABOX_API Equipment *GetActiveInventoryItemBySortOrder(const int32_t sortOrder, InventoryItemBox **outBox) {
-  if (sortOrder < 0) return nullptr;
+  if (sortOrder <= 0 || sortOrder >= 9999999) return nullptr;
   auto *screen = GetActiveInventoryScreen2();
   if (!screen || !screen->boxes.data_ || !g_InventoryScreen2Lookup) return nullptr;
+  Equipment *bestEq = nullptr;
+  InventoryItemBox *bestBox = nullptr;
   for (uint32_t i = 0; i < screen->boxes.size(); i++) {
     auto *box = screen->boxes.data_[i];
-    if (box) {
+    if (box && box->item_id > 0) {
       Equipment *eq = g_InventoryScreen2Lookup(screen, box->item_id);
-      if (eq && eq->inventory_sortorder == sortOrder) {
-        if (outBox) *outBox = box;
-        return eq;
+      if (eq && eq->uid == box->item_id && eq->uid > 0 && eq->inventory_sortorder == sortOrder) {
+        if (!eq->name.is_valid() || eq->name.Mysize == 0) continue;
+        if (g_EquipmentKind) {
+          const int32_t kind = g_EquipmentKind(eq);
+          if (kind < 0 || kind > 4) continue;
+        }
+        if (box->slot >= 0 || box->equipped) {
+          if (outBox) *outBox = box;
+          return eq;
+        }
+        if (!bestBox) {
+          bestBox = box;
+          bestEq = eq;
+        }
       }
     }
   }
-  return nullptr;
+  if (outBox) *outBox = bestBox;
+  return bestEq;
 }
 
 PARABOX_API int64_t GetSortOrderItemEquippedOwner(const int32_t sortOrder) {
-  InventoryItemBox *box = nullptr;
-  Equipment *eq = GetActiveInventoryItemBySortOrder(sortOrder, &box);
-  if (box) {
-    return GetItemEquippedOwner(box->item_id);
+  if (sortOrder <= 0 || sortOrder >= 9999999) return -1;
+  auto *screen = GetActiveInventoryScreen2();
+  if (!screen || !screen->boxes.data_ || !g_InventoryScreen2Lookup) return -1;
+  int64_t bestOwner = -1;
+  for (uint32_t i = 0; i < screen->boxes.size(); i++) {
+    auto *box = screen->boxes.data_[i];
+    if (box && box->item_id > 0) {
+      Equipment *eq = g_InventoryScreen2Lookup(screen, box->item_id);
+      if (eq && eq->uid == box->item_id && eq->inventory_sortorder == sortOrder) {
+        const int64_t owner = GetItemEquippedOwner(box->item_id);
+        if (owner != -1) {
+          return owner;
+        }
+        bestOwner = owner;
+      }
+    }
   }
-  return -1;
+  return bestOwner;
 }
 
 PARABOX_API void UpdateStorageItemBySortOrder(const int32_t sortOrder, const int64_t catID) {
+  if (sortOrder <= 0 || sortOrder >= 9999999) return;
   auto *screen = GetActiveInventoryScreen2();
   if (!screen) return;
   InventoryItemBox *box = nullptr;
   Equipment *eq = GetActiveInventoryItemBySortOrder(sortOrder, &box);
-  if (box) {
+  if (box && eq) {
     UpdateStorageItemBox(screen, box, catID);
+  }
+}
+
+PARABOX_API Equipment *GetEquipmentFromItemBox(const void *itemBox) {
+  if (!itemBox) return nullptr;
+  const auto *box = static_cast<const InventoryItemBox *>(itemBox);
+  if (box->item_id <= 0) return nullptr;
+  auto *screen = GetActiveInventoryScreen2();
+  if (!screen) screen = box->parent;
+  if (!screen || !g_InventoryScreen2Lookup) return nullptr;
+  Equipment *equip = g_InventoryScreen2Lookup(screen, box->item_id);
+  if (equip && equip->uid == box->item_id && equip->uid > 0) {
+    return equip;
+  }
+  return nullptr;
+}
+
+PARABOX_API uint64_t GetItemSerial(const void *itemBox) {
+  Equipment *equip = GetEquipmentFromItemBox(itemBox);
+  if (!equip) return 0;
+  if (!equip->name.is_valid() || equip->name.Mysize == 0) {
+    return 0;
+  }
+  if (g_EquipmentKind) {
+    const int32_t kind = g_EquipmentKind(equip);
+    if (kind < 0 || kind > 4) {
+      return 0;
+    }
+  }
+  return ComputeItemSerial(equip);
+}
+
+PARABOX_API Equipment *GetActiveInventoryItemBySerial(const uint64_t itemSerial, const int64_t preferredOwner, InventoryItemBox **outBox) {
+  if (itemSerial == 0) return nullptr;
+  auto *screen = GetActiveInventoryScreen2();
+  if (!screen || !screen->boxes.data_ || !g_InventoryScreen2Lookup) return nullptr;
+
+  Equipment *bestEq = nullptr;
+  InventoryItemBox *bestBox = nullptr;
+  int bestScore = -1;
+
+  for (uint32_t i = 0; i < screen->boxes.size(); i++) {
+    auto *box = screen->boxes.data_[i];
+    if (box && box->item_id > 0) {
+      Equipment *eq = g_InventoryScreen2Lookup(screen, box->item_id);
+      if (eq && eq->uid == box->item_id && eq->uid > 0 && ComputeItemSerial(eq) == itemSerial) {
+        if (!eq->name.is_valid() || eq->name.Mysize == 0) continue;
+        if (g_EquipmentKind) {
+          const int32_t kind = g_EquipmentKind(eq);
+          if (kind < 0 || kind > 4) continue;
+        }
+
+        const int64_t owner = GetItemEquippedOwner(box->item_id);
+        int score = 0;
+        if (preferredOwner != -1 && owner == preferredOwner) {
+          score = 3;
+        } else if (preferredOwner == -1 && owner == -1) {
+          score = 3;
+        } else if (owner == -1) {
+          score = 2;
+        } else {
+          score = 1;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestBox = box;
+          bestEq = eq;
+          if (score == 3) break;
+        }
+      }
+    }
+  }
+
+  if (outBox) *outBox = bestBox;
+  return bestEq;
+}
+
+PARABOX_API int64_t GetSerialItemEquippedOwner(const uint64_t itemSerial) {
+  if (itemSerial == 0) return -1;
+  auto *screen = GetActiveInventoryScreen2();
+  if (!screen || !screen->boxes.data_ || !g_InventoryScreen2Lookup) return -1;
+  int64_t bestOwner = -1;
+  for (uint32_t i = 0; i < screen->boxes.size(); i++) {
+    auto *box = screen->boxes.data_[i];
+    if (box && box->item_id > 0) {
+      Equipment *eq = g_InventoryScreen2Lookup(screen, box->item_id);
+      if (eq && eq->uid == box->item_id && eq->uid > 0 && ComputeItemSerial(eq) == itemSerial) {
+        const int64_t owner = GetItemEquippedOwner(box->item_id);
+        if (owner != -1) {
+          return owner;
+        }
+        bestOwner = owner;
+      }
+    }
+  }
+  return bestOwner;
+}
+
+PARABOX_API void UpdateStorageItemBySerial(const uint64_t itemSerial, const int64_t targetCatID, const int64_t fromCatID) {
+  if (itemSerial == 0) return;
+  auto *screen = GetActiveInventoryScreen2();
+  if (!screen) return;
+
+  InventoryItemBox *box = nullptr;
+  const int64_t preferred = (targetCatID == -1) ? fromCatID : (fromCatID != -1 ? fromCatID : -1);
+  Equipment *eq = GetActiveInventoryItemBySerial(itemSerial, preferred, &box);
+  if (box && eq) {
+    UpdateStorageItemBox(screen, box, targetCatID);
   }
 }
 
