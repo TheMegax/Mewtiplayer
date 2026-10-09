@@ -13,6 +13,7 @@
 #include "events/SaveSubscribers.h"
 #include "hooks/AdventureBoxHooks.h"
 #include "ChatManager.h"
+#include "SceneSyncManager.h"
 #include <algorithm>
 #include <cctype>
 
@@ -38,6 +39,7 @@ void NetworkManager::Update() {
   SteamAPI_RunCallbacks();
   ReceivePackets();
   ProcessSimulatedPackets();
+  SceneSyncManager::Get().Update();
 
   if (m_CurrentLobby.IsValid()) {
     UpdateLobbyMemberNamesCache();
@@ -90,7 +92,7 @@ bool NetworkManager::SendPacketDirect(const CSteamID target, const PacketType ty
 
 bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
                                 const void *data, const uint32_t size) {
-  if (g_modState.packetTesting) {
+  if (g_modState.networkSimulation) {
     if (g_modState.simLossRate > 0.0f) {
       float roll = static_cast<float>(rand() % 10000) / 100.0f;
       if (roll < g_modState.simLossRate) {
@@ -359,6 +361,12 @@ void NetworkManager::ReceivePackets() {
       break;
     case PacketType::ChatMessage:
       HandleChatMessage(remoteID, payload, payloadLen);
+      break;
+    case PacketType::SceneLoadReady:
+      HandleSceneLoadReady(remoteID, payload, payloadLen);
+      break;
+    case PacketType::SceneLoadProceed:
+      HandleSceneLoadProceed(payload, payloadLen);
       break;
     case PacketType::RNGCheckRequest:
       HandleRNGCheckRequest(remoteID, payload, payloadLen);
@@ -702,6 +710,7 @@ void NetworkManager::LeaveLobby() {
     m_lobbyMemberCatCounts.clear();
     ClearPeerTracking();
     ResetLobbyReadyStates();
+    SceneSyncManager::Get().Reset();
     RefreshLobbyList();
   }
 }
@@ -1171,7 +1180,7 @@ void NetworkManager::ResetEntityMapping() {
 }
 
 bool NetworkManager::SendPacketReliable(const CSteamID target, const PacketType type, const void *data, const uint32_t size) {
-  if (g_modState.packetTesting) {
+  if (g_modState.networkSimulation) {
     int32_t retransmitDelay = 0;
     if (g_modState.simLossRate > 0.0f) {
       float roll = static_cast<float>(rand() % 10000) / 100.0f;
@@ -2654,4 +2663,16 @@ void NetworkManager::CheckSaveSyncTimeouts() {
       }
     }
   }
+}
+
+void NetworkManager::HandleSceneLoadReady(const CSteamID remoteID, const void *data, uint32_t length) {
+  if (length < sizeof(SceneLoadReadyPacket)) return;
+  const auto *pkt = static_cast<const SceneLoadReadyPacket *>(data);
+  SceneSyncManager::Get().HandleSceneLoadReady(remoteID.ConvertToUint64(), pkt);
+}
+
+void NetworkManager::HandleSceneLoadProceed(const void *data, uint32_t length) {
+  if (length < sizeof(SceneLoadProceedPacket)) return;
+  const auto *pkt = static_cast<const SceneLoadProceedPacket *>(data);
+  SceneSyncManager::Get().HandleSceneLoadProceed(pkt);
 }

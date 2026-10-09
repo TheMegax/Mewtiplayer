@@ -60,6 +60,9 @@ enum class PacketType : uint8_t {
   ShopFastForward,
   // --- Chat ---
   ChatMessage,
+  // --- Scene Barrier Sync ---
+  SceneLoadReady,
+  SceneLoadProceed,
   // --- RNG Check / Desync ---
   RNGCheckRequest,
   RNGCheckResponse,
@@ -360,6 +363,16 @@ struct ShopChestClickPacket {
 struct ShopFastForwardPacket {
   uint8_t dummy;
 };
+
+struct SceneLoadReadyPacket {
+  uint32_t barrierId;
+  char sceneName[32];
+};
+
+struct SceneLoadProceedPacket {
+  uint32_t barrierId;
+  char sceneName[32];
+};
 #pragma pack(pop)
 
 enum class SaveSyncState : uint8_t {
@@ -604,6 +617,8 @@ private:
   void HandleShopChestClick(const void* data, uint32_t length);
   void HandleShopFastForward(const void* data, uint32_t length);
   void HandleChatMessage(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleSceneLoadReady(CSteamID remoteID, const void *data, uint32_t length);
+  void HandleSceneLoadProceed(const void *data, uint32_t length);
 
   // Save synchronization state variables
   SaveSyncState m_saveSyncState = SaveSyncState::Idle;

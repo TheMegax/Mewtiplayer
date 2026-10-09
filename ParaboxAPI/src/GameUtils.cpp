@@ -778,6 +778,17 @@ Scene *GetSceneByName(const char *name) {
   return nullptr;
 }
 
+void SetScenePaused(Scene *scene, bool paused, bool controlsPrevented) {
+  if (!scene) return;
+  scene->paused = paused;
+  scene->controls_prevented = controlsPrevented;
+}
+
+bool IsScenePaused(const Scene *scene) {
+  if (!scene) return false;
+  return scene->paused;
+}
+
 ParaboxAPI::Array<Scene *> GetCurrentScenes() {
   std::vector<Scene *> result;
   const MewDirector *p_md = GetMewDirectorSingleton();

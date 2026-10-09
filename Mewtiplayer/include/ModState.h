@@ -9,7 +9,7 @@ struct ModState {
     MewjectorAPI *mj = nullptr;
     UINT_PTR gameBase = 0;
 
-    bool packetTesting = false;
+    bool networkSimulation = false;
     uint32_t simPingMs = 150;
     uint32_t simJitterMs = 20;
     float simLossRate = 5.0f; // Loss percentage (e.g. 5.0 = 5%)
@@ -19,6 +19,7 @@ struct ModState {
     bool autoJoin = false;
     bool evilMode = false;
     bool evilShuffler = false;
+    int simSceneLoadDelaySeconds = 5;
 };
 
 extern ModState g_modState;

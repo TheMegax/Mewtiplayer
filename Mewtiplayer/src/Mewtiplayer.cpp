@@ -14,6 +14,7 @@
 #include "EventSubscribers.h"
 #include "events/ClassChooserSubscribers.h"
 #include "events/StorageSubscribers.h"
+#include "SceneSyncManager.h"
 
 ModState g_modState;
 
@@ -202,6 +203,7 @@ void RegisterSubscribers() {
     RegisterLevelUpSubscribers();
     RegisterWorldEventSubscribers();
     RegisterShopSubscribers();
+    SceneSyncManager::Get().Init();
 }
 
 // ---------------------------------------------------------------------------
@@ -217,21 +219,31 @@ static void Initialize() {
 
     const char *cmdLine = GetCommandLineA();
 
-    if (strstr(cmdLine, "-packet_testing")) {
-        g_modState.packetTesting = true;
-        Overlay::Log("[INIT] Network Simulation (Packet Testing) Active! (Ping: %u ms, Loss: %.1f%%)",
-                     g_modState.simPingMs, g_modState.simLossRate);
+    if (strstr(cmdLine, "-network_simulation")) {
+        g_modState.networkSimulation = true;
+        Overlay::Log("[INIT] Network simulation active (ping: %ums, loss: %.1f%%, scene delay: %ds)",
+                     g_modState.simPingMs, g_modState.simLossRate, g_modState.simSceneLoadDelaySeconds);
     }
     if (const char *pingArg = strstr(cmdLine, "-sim_ping=")) {
         g_modState.simPingMs = (uint32_t)atoi(pingArg + 10);
-        g_modState.packetTesting = true;
-        Overlay::Log("[INIT] Custom Sim Ping: %u ms", g_modState.simPingMs);
+        g_modState.networkSimulation = true;
+        Overlay::Log("[INIT] Custom sim ping: %ums", g_modState.simPingMs);
     }
     if (const char *lossArg = strstr(cmdLine, "-sim_loss=")) {
         g_modState.simLossRate = (float)atof(lossArg + 10);
-        g_modState.packetTesting = true;
-        Overlay::Log("[INIT] Custom Sim Loss: %.1f%%", g_modState.simLossRate);
+        g_modState.networkSimulation = true;
+        Overlay::Log("[INIT] Custom sim loss: %.1f%%", g_modState.simLossRate);
     }
+    if (const char *sceneDelayArg = strstr(cmdLine, "-sim_scene_delay=")) {
+        g_modState.simSceneLoadDelaySeconds = atoi(sceneDelayArg + 17);
+        g_modState.networkSimulation = true;
+        Overlay::Log("[INIT] Custom sim scene delay: %ds", g_modState.simSceneLoadDelaySeconds);
+    } else if (const char *sceneDelayArg2 = strstr(cmdLine, "-sim_scene_load_delay=")) {
+        g_modState.simSceneLoadDelaySeconds = atoi(sceneDelayArg2 + 22);
+        g_modState.networkSimulation = true;
+        Overlay::Log("[INIT] Custom sim scene delay: %ds", g_modState.simSceneLoadDelaySeconds);
+    }
+
     if (strstr(cmdLine, "-no_steven")) {
         g_modState.noSteven = true;
         Overlay::Log("[INIT] No Steven Active!");

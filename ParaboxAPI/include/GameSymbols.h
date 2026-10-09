@@ -74,6 +74,7 @@ namespace GameSymbols {
     constexpr uintptr_t Scene_AddComponent              = 0x0096B340;
 
     // --- Map ---
+    constexpr uintptr_t MewDirector_ResumeMap           = 0x003B6BF0;
     constexpr uintptr_t MapScreen_EnterNode             = 0x00391C20;
     constexpr uintptr_t MapNode_click_action            = 0x00228700;
     constexpr uintptr_t MapScreen_open_inventory        = 0x0039A340;

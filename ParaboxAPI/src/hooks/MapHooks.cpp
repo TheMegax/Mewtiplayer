@@ -7,6 +7,7 @@
 
 HOOK_DEFINE(MapNode_Click, void, void *)
 HOOK_DEFINE(MapScreen_EnterNode, void, void *, void *)
+HOOK_DEFINE(MewDirector_ResumeMap, void, void *)
 
 typedef void(__fastcall *MapScreen_OpenInventory_t)(void *closure);
 static MapScreen_OpenInventory_t g_MapScreen_OpenInventory = nullptr;
@@ -75,6 +76,19 @@ static void __fastcall Hook_MapScreen_EnterNode(void *self, void *node) {
   }
 }
 
+static void __fastcall Hook_MewDirector_ResumeMap(void *self) {
+  if (g_origMewDirector_ResumeMap) {
+    g_origMewDirector_ResumeMap(self);
+  }
+
+  Scene *mapScene = GameUtils::GetSceneByName("Map");
+  ParaboxAPI::Log("[MAP] Resuming map scene");
+  ParaboxAPI::ResumeMapEvent ev = {};
+  ev.mewDirector = self;
+  ev.mapScene = mapScene;
+  ParaboxAPI::OnResumeMap.Publish(ev);
+}
+
 namespace ParaboxAPI {
   PARABOX_API bool g_isHandlingNetworkMapNodeSync = false;
 
@@ -124,4 +138,5 @@ void MapHooks_Init(MewjectorAPI *mj, const uintptr_t gameBase) {
 
   HOOK_INSTALL(mj, gameBase, MapScreen_EnterNode, GameSymbols::MapScreen_EnterNode, 0);
   HOOK_INSTALL(mj, gameBase, MapNode_Click, GameSymbols::MapNode_click_action, 0);
+  HOOK_INSTALL(mj, gameBase, MewDirector_ResumeMap, GameSymbols::MewDirector_ResumeMap, 0);
 }

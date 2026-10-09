@@ -13,6 +13,7 @@ set(MEWTIPLAYER_SOURCES
     include/ModState.h
     include/NetworkManager.h   src/NetworkManager.cpp
     include/Overlay.h          src/Overlay.cpp
+    include/SceneSyncManager.h src/SceneSyncManager.cpp
     include/SteamABICompat.h
 
     # Resources

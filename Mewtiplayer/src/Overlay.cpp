@@ -7,6 +7,7 @@
 #include "InputGhost.h"
 #include "NetworkManager.h"
 #include "ChatManager.h"
+#include "SceneSyncManager.h"
 #include "hooks/AdventureBoxHooks.h"
 #include "imgui.h"
 #include "mew_ui_api.h"
@@ -385,11 +386,12 @@ static void RenderNetworkTab() {
 
   ImGui::Spacing();
   if (ImGui::CollapsingHeader("Network Simulation & Stress Controls")) {
-    ImGui::Checkbox("Enable Network Simulation", &g_modState.packetTesting);
-    if (g_modState.packetTesting) {
+    ImGui::Checkbox("Enable Network Simulation", &g_modState.networkSimulation);
+    if (g_modState.networkSimulation) {
       ImGui::SliderInt("Simulated Ping (ms)", (int*)&g_modState.simPingMs, 0, 1000);
       ImGui::SliderInt("Simulated Jitter (ms)", (int*)&g_modState.simJitterMs, 0, 200);
       ImGui::SliderFloat("Packet Loss Rate (%)", &g_modState.simLossRate, 0.0f, 50.0f, "%.1f%%");
+      ImGui::SliderInt("Simulated Scene Load Delay (s)", &g_modState.simSceneLoadDelaySeconds, 0, 20);
     }
     if (g_modState.evilMode) {
       ImGui::Separator();
@@ -1008,12 +1010,70 @@ static void RenderScenesTab() {
   }
 }
 
+static void RenderSceneLoadWaitingPopup() {
+  if (!SceneSyncManager::Get().IsWaitingForPeers()) return;
+
+  ImGuiIO &io = ImGui::GetIO();
+  const ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
+  ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Always);
+
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoResize |
+                                 ImGuiWindowFlags_NoCollapse |
+                                 ImGuiWindowFlags_AlwaysAutoResize |
+                                 ImGuiWindowFlags_NoSavedSettings;
+
+  if (ImGui::Begin("Waiting players to load##SceneLoadWaiting", nullptr, flags)) {
+    const std::string &sceneName = SceneSyncManager::Get().GetCurrentSceneName();
+    const auto statuses = SceneSyncManager::Get().GetPeerStatuses();
+
+    int readyCount = 0;
+    for (const auto &st : statuses) {
+      if (st.isReady) readyCount++;
+    }
+
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Scene: %s", sceneName.c_str());
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::Text("Waiting for all players to load...");
+    ImGui::Text("Status: (%d / %d players loaded)", readyCount, (int)statuses.size());
+    ImGui::Spacing();
+
+    if (ImGui::BeginTable("##barrier_status_table", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+      ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch);
+      ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+      ImGui::TableHeadersRow();
+
+      for (const auto &st : statuses) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted(st.name.c_str());
+
+        ImGui::TableSetColumnIndex(1);
+        if (st.isReady) {
+          ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Ready");
+        } else {
+          ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Loading");
+        }
+      }
+      ImGui::EndTable();
+    }
+
+    ImGui::End();
+  }
+}
+
 static void InternalRender() {
   // Draw remote cursors
   RenderRemoteCursors();
 
   // Draw Chat UI
   ChatManager::Get().Render();
+
+  // Loading barrier modal
+  RenderSceneLoadWaitingPopup();
 
   if (!g_visible)
     return;

@@ -257,6 +257,12 @@ struct SceneManagerCreateSceneEvent : EventBase {
     void *returnValue = nullptr;
 };
 
+struct SceneAddedEvent : EventBase {
+    void *director;
+    void *scene;
+    const char *sceneName;
+};
+
 struct SceneAddComponentEvent : EventBase {
     void *scene;
     void *comp;
@@ -285,6 +291,11 @@ struct MapNodeClickEvent : EventBase {
 struct MapScreenEnterNodeEvent : EventBase {
     void *self;
     void *node;
+};
+
+struct ResumeMapEvent : EventBase {
+    void *mewDirector;
+    void *mapScene;
 };
 
 // ---------------------------------------------------------------------------
@@ -439,6 +450,7 @@ extern PARABOX_API Event<ClassChooserLockInEvent>     OnClassChooserLockIn;
 
 // Storage events
 extern PARABOX_API Event<SceneManagerCreateSceneEvent> OnSceneManagerCreateScene;
+extern PARABOX_API Event<SceneAddedEvent>              OnSceneAdded;
 extern PARABOX_API Event<SceneAddComponentEvent>       OnSceneAddComponent;
 extern PARABOX_API Event<InventoryItemBoxClickEvent>   OnInventoryItemBoxClick;
 extern PARABOX_API Event<InventoryItemBoxEquippedEvent> OnInventoryItemBoxEquipped;
@@ -447,6 +459,7 @@ extern PARABOX_API Event<InventoryScreen2CloseEvent>   OnInventoryScreen2Close;
 // Map events
 extern PARABOX_API Event<MapNodeClickEvent>           OnMapNodeClick;
 extern PARABOX_API Event<MapScreenEnterNodeEvent>     OnMapScreenEnterNode;
+extern PARABOX_API Event<ResumeMapEvent>              OnResumeMap;
 
 // ActSelection events
 extern PARABOX_API Event<ActSelectionScreenInitEvent>      OnActSelectionScreenInit;

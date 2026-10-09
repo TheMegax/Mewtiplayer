@@ -40,6 +40,14 @@ static void __fastcall Hook_InventoryItemBox_EquipInternal(void **itemBoxPtr) {
 }
 
 static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr) {
+  std::string sceneName;
+  if (nameStr) {
+    const auto *xstr = static_cast<const MsvcReleaseModeXString *>(nameStr);
+    if (xstr->is_valid() && xstr->Mysize > 0) {
+      sceneName = std::string(xstr->as_native_string_view());
+    }
+  }
+
   ParaboxAPI::SceneManagerCreateSceneEvent ev = {};
   ev.self = self;
   ev.nameStr = nameStr;
@@ -50,10 +58,29 @@ static void * __fastcall Hook_SceneManager_CreateScene(void *self, void *nameStr
     return ev.returnValue;
   }
 
+  void *createdScene = nullptr;
   if (g_origSceneManager_CreateScene) {
-    return g_origSceneManager_CreateScene(self, nameStr);
+    createdScene = g_origSceneManager_CreateScene(self, nameStr);
   }
-  return nullptr;
+
+  if (createdScene) {
+    if (sceneName.empty()) {
+      const auto *sc = static_cast<const Scene *>(createdScene);
+      if (sc->name.is_valid() && sc->name.Mysize > 0) {
+        sceneName = std::string(sc->name.as_native_string_view());
+      }
+    }
+
+    ParaboxAPI::Log("[STORAGE] Created scene '%s'", sceneName.c_str());
+
+    ParaboxAPI::SceneAddedEvent evAdd = {};
+    evAdd.director = self;
+    evAdd.scene = createdScene;
+    evAdd.sceneName = sceneName.c_str();
+    ParaboxAPI::OnSceneAdded.Publish(evAdd);
+  }
+
+  return createdScene;
 }
 
 static void __fastcall Hook_Scene_AddComponent(void *scene, void *comp) {
