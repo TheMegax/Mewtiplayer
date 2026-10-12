@@ -1,6 +1,5 @@
 #include "ImGuiHook.h"
 #include "ChatManager.h"
-#include "SteamABICompat.h"
 #include "NetworkManager.h"
 #include "Overlay.h"
 #include "external/kiero/kiero.h"
@@ -28,8 +27,8 @@ static HWND g_hWnd = nullptr;
 static MewjectorAPI *g_mj = nullptr;
 
 // Render function variables
-static std::function<void()> g_renderMain = []() {};
-static std::function<void()> g_extraInit = []() {};
+static std::function g_renderMain = [] {};
+static std::function g_extraInit = [] {};
 
 // Last error status
 static std::string g_lastError;

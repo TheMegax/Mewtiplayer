@@ -1,6 +1,6 @@
 #include "ChatManager.h"
 #include "NetworkManager.h"
-#include "InputGhost.h"
+#include "ViewportHelper.cpp"
 #include "ImGuiHook.h"
 #include "GameUtils.h"
 #include "imgui.h"
@@ -43,7 +43,7 @@ void ChatManager::AddMessage(uint64_t senderSteamID, const std::string &senderNa
 }
 
 void ChatManager::AddSystemMessage(const std::string &text) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard lock(m_mutex);
     ChatMessageEntry entry;
     entry.senderSteamID = 0;
     entry.senderName = "System";
@@ -69,7 +69,7 @@ void ChatManager::Render() {
 
     int vpX = 0, vpY = 0, vpW = (int)io.DisplaySize.x, vpH = (int)io.DisplaySize.y;
     if (hWnd) {
-        InputGhost::GetViewportInfo(hWnd, vpX, vpY, vpW, vpH);
+        ViewportHelper::GetViewportInfo(hWnd, vpX, vpY, vpW, vpH);
     } else {
         constexpr float targetAspect = 16.0f / 9.0f;
         const float windowAspect = io.DisplaySize.x / io.DisplaySize.y;
@@ -120,7 +120,7 @@ void ChatManager::Render() {
         if (!ImGui::IsWindowCollapsed()) {
             ImGui::BeginChild("##chat_scroll", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             {
-                std::lock_guard<std::mutex> lock(m_mutex);
+                std::lock_guard lock(m_mutex);
                 ImGui::PushTextWrapPos(0.0f);
                 for (const auto &msg : m_messages) {
                     if (msg.isSystem) {

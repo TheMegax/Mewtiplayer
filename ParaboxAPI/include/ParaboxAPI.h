@@ -389,6 +389,15 @@ struct PopupChoiceEvent : EventBase {
     bool  choice; ///< true = YES clicked, false = NO clicked
 };
 
+// ---------------------------------------------------------------------------
+// Event types — ResourceHooks
+// ---------------------------------------------------------------------------
+struct FileGetEvent : EventBase {
+    const char *path;
+    const void *overrideData = nullptr;
+    size_t      overrideSize = 0;
+};
+
 
 // ---------------------------------------------------------------------------
 // Logging callback. Can be redirected with SetLogCallback().
@@ -483,6 +492,16 @@ extern PARABOX_API Event<WorldEventClickEndCustomEvent> OnWorldEventClickEndCust
 // Popup events
 extern PARABOX_API Event<PopupShowEvent>   OnPopupShow;
 extern PARABOX_API Event<PopupChoiceEvent> OnPopupChoice;
+
+// Resource events
+extern PARABOX_API Event<FileGetEvent>     OnFileGet;
+
+// Resource & File Override API
+PARABOX_API bool RegisterModResources(HMODULE hModule = nullptr);
+PARABOX_API bool HasFileOverride(const char *virtualPath);
+PARABOX_API void RegisterMemoryOverride(const char *virtualPath, const void *data, size_t size);
+PARABOX_API void RemoveFileOverride(const char *virtualPath);
+PARABOX_API void ClearFileOverrides();
 
 PARABOX_API void InstallHooks(MewjectorAPI *mj, uintptr_t gameBase);
 PARABOX_API void* GameAllocate(size_t size);

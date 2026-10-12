@@ -6,10 +6,6 @@
 #include "GameUtils.h"
 #include "SteamABICompat.h"
 
-// ---------------------------------------------------------------------------
-// LevelUpHooks Subscribers
-// ---------------------------------------------------------------------------
-
 void RegisterLevelUpSubscribers() {
     ParaboxAPI::OnLevelUpScreenInit.Subscribe([](ParaboxAPI::LevelUpScreenInitEvent& ev) {
         if (ev.cat) {
@@ -89,8 +85,8 @@ void RegisterLevelUpSubscribers() {
 
     ParaboxAPI::OnAbilityChooserSelectSlot.Subscribe([](ParaboxAPI::AbilityChooserSelectSlotEvent& ev) {
         if (NetworkManager::Get().GetCurrentLobby().IsValid()) {
-            CatData* cat = nullptr;
-            auto it = g_abilityChooserToCat.find(ev.self);
+            const CatData* cat = nullptr;
+            const auto it = g_abilityChooserToCat.find(ev.self);
             if (it != g_abilityChooserToCat.end()) {
                 cat = it->second;
             }

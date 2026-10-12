@@ -2,7 +2,6 @@
 #include "ModState.h"
 #include "Overlay.h"
 #include "GameUtils.h"
-#include <cstring>
 
 static bool IsSyncedRunScene(const std::string &sceneName) {
   return (sceneName == "Battle" ||
@@ -18,12 +17,12 @@ static bool IsSyncedRunScene(const std::string &sceneName) {
 void SceneSyncManager::Init() {
   ParaboxAPI::OnSceneAdded.Subscribe([](ParaboxAPI::SceneAddedEvent &ev) {
     if (ev.scene && ev.sceneName) {
-      SceneSyncManager::Get().OnSceneAdded(static_cast<Scene*>(ev.scene), ev.sceneName);
+      Get().OnSceneAdded(static_cast<Scene*>(ev.scene), ev.sceneName);
     }
   });
 
   ParaboxAPI::OnResumeMap.Subscribe([](ParaboxAPI::ResumeMapEvent &ev) {
-    SceneSyncManager::Get().OnResumeMap(static_cast<Scene*>(ev.mapScene));
+    Get().OnResumeMap(static_cast<Scene*>(ev.mapScene));
   });
 
   Overlay::Log("[BARRIER] Initialized");

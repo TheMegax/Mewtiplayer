@@ -4,7 +4,7 @@
 #include "ImGuiHook.h"
 #include "Overlay.h"
 #include "NetworkManager.h"
-#include "InputGhost.h"
+#include "ViewportHelper.cpp"
 #include "GameUtils.h"
 #include "ParaboxAPI.h"
 #include "mew_ui_api.h"
@@ -22,7 +22,7 @@ extern const ParaboxAPI::String CUSTOM_SAVE_NAME = ParaboxAPI::MakeString("mewti
 
 static MewjectorAPI mj;
 
-void InitializeMewUI();
+static void InitializeMewUI();
 
 static ULONGLONG g_lastEvilSpamTime = 0;
 static size_t g_evilCollarCounter = 0;
@@ -82,12 +82,11 @@ static void EvilModeUpdate() {
                                         ? selectedCatID
                                         : myControlledCats[g_evilStorageCounter % myControlledCats.size()];
 
-        auto *screen = ParaboxAPI::GetActiveInventoryScreen2();
+        const auto *screen = ParaboxAPI::GetActiveInventoryScreen2();
         if (screen && screen->boxes.data_ && screen->boxes.size() > 0) {
             const uint32_t boxIdx = g_evilStorageCounter % screen->boxes.size();
             g_evilStorageCounter++;
-            const auto *box = screen->boxes.data_[boxIdx];
-            if (box) {
+            if (const auto *box = screen->boxes.data_[boxIdx]) {
                 ParaboxAPI::RefreshInventoryEquippedStatus();
                 const int64_t currentOwner = ParaboxAPI::GetItemEquippedOwner(box->item_id);
 
@@ -127,11 +126,7 @@ static void EvilModeUpdate() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ParaboxAPI subscribers
-// ---------------------------------------------------------------------------
-
-void RegisterSubscribers() {
+static void RegisterSubscribers() {
     ParaboxAPI::OnRunFrame.Subscribe([](ParaboxAPI::RunFrameEvent& ev) {
         if (!ev.rcx) return;
         
@@ -149,8 +144,7 @@ void RegisterSubscribers() {
 
         if (networkInitialized) {
             NetworkManager::Get().Update();
-            InputGhost::Update();
-            InputGhost::SetIsHost(NetworkManager::Get().IsHost());
+            ViewportHelper::Update();
             EvilModeUpdate();
 
             static ULONGLONG s_lastHostPeriodicSyncTime = 0;
@@ -204,12 +198,7 @@ void RegisterSubscribers() {
     RegisterLevelUpSubscribers();
     RegisterWorldEventSubscribers();
     RegisterShopSubscribers();
-    SceneSyncManager::Get().Init();
 }
-
-// ---------------------------------------------------------------------------
-// Core initialisation
-// ---------------------------------------------------------------------------
 
 static void Initialize() {
     if (!MJ_Resolve(&mj))
@@ -271,13 +260,11 @@ static void Initialize() {
 
     // Register all ParaboxAPI subscribers before installing hooks
     RegisterSubscribers();
-
     ParaboxAPI::InstallHooks(&mj, g_modState.gameBase);
+
+    SceneSyncManager::Init();
 }
 
-// ---------------------------------------------------------------------------
-// UI tick (called each ImGui frame)
-// ---------------------------------------------------------------------------
 
 static void __cdecl Mewtiplayer_UITick(void *userData) {
     (void)userData;
@@ -290,14 +277,11 @@ void InitializeMewUI() {
     MewUI_Start("Mewtiplayer", 0, 100, 0, Mewtiplayer_UITick, nullptr);
 }
 
-// ---------------------------------------------------------------------------
-// DllMain
-// ---------------------------------------------------------------------------
-
 BOOL APIENTRY DllMain(HMODULE hModule, const DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         CrashHandler::Register();
+        ParaboxAPI::RegisterModResources(hModule);
         if (MJ_Resolve(&mj))
             Overlay::Log("Loading!");
         Initialize();

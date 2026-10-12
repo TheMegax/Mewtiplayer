@@ -1,25 +1,20 @@
 cmake_minimum_required(VERSION 4.2)
 
-# ── Sources ──────────────────────────────────────────────────────────────────
 set(MEWTIPLAYER_SOURCES
-    # Entry point & mod logic
     src/Mewtiplayer.cpp
 
-    # Mewtiplayer-specific modules
     include/ChatManager.h      src/ChatManager.cpp
     include/CrashHandler.h     src/CrashHandler.cpp
     include/ImGuiHook.h        src/ImGuiHook.cpp
-    include/InputGhost.h       src/InputGhost.cpp
+    include/ViewportHelper.h   src/ViewportHelper.cpp
     include/ModState.h
     include/NetworkManager.h   src/NetworkManager.cpp
     include/Overlay.h          src/Overlay.cpp
     include/SceneSyncManager.h src/SceneSyncManager.cpp
     include/SteamABICompat.h
 
-    # Resources
     src/resources.rc
 
-    # Event Subscribers
     include/EventSubscribers.h
     include/events/CombatSubscribers.h       src/events/CombatSubscribers.cpp
     include/events/SaveSubscribers.h         src/events/SaveSubscribers.cpp
@@ -32,7 +27,6 @@ set(MEWTIPLAYER_SOURCES
     include/events/WorldEventSubscribers.h  src/events/WorldEventSubscribers.cpp
     include/events/ShopSubscribers.h        src/events/ShopSubscribers.cpp
 
-    # imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/imconfig.h
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/imgui.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/imgui.h
@@ -51,7 +45,6 @@ set(MEWTIPLAYER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/imstb_textedit.h
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/imstb_truetype.h
 
-    # kiero / minhook
     ${CMAKE_CURRENT_SOURCE_DIR}/external/kiero/minhook/include/MinHook.h
     ${CMAKE_CURRENT_SOURCE_DIR}/external/kiero/minhook/src/hde/hde32.c
     ${CMAKE_CURRENT_SOURCE_DIR}/external/kiero/minhook/src/hde/hde32.h
@@ -72,7 +65,6 @@ set(MEWTIPLAYER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/external/mew-ui-api/mew_ui_api.c
     ${CMAKE_CURRENT_SOURCE_DIR}/external/mew-ui-api/mew_ui_api.h
 
-    # Steam headers (header-only)
     ${CMAKE_CURRENT_SOURCE_DIR}/external/steam/steam_api.h
     ${CMAKE_CURRENT_SOURCE_DIR}/external/steam/steam_api_common.h
     ${CMAKE_CURRENT_SOURCE_DIR}/external/steam/steam_api_flat.h
@@ -90,7 +82,10 @@ set(MEWTIPLAYER_SOURCES
 
 add_library(Mewtiplayer SHARED ${MEWTIPLAYER_SOURCES})
 
-# Link against ParaboxAPI (which provides the event bus and MiscHooks)
+include("${CMAKE_SOURCE_DIR}/ParaboxAPI/cmake/MewResources.cmake")
+mew_target_resources(Mewtiplayer)
+
+# Link against ParaboxAPI
 target_link_libraries(Mewtiplayer PRIVATE ParaboxAPI)
 
 target_compile_definitions(Mewtiplayer PRIVATE NOMINMAX PARABOX_MOD_TAG="Mewtiplayer")
@@ -107,7 +102,6 @@ target_include_directories(Mewtiplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/mewjector
     ${CMAKE_CURRENT_SOURCE_DIR}/external/mew-ui-api
     ${CMAKE_CURRENT_SOURCE_DIR}/external/steam
-    # ParaboxAPI public headers (MewgenicsTypes, GameUtils, etc.)
     ${CMAKE_SOURCE_DIR}/ParaboxAPI/include
 )
 

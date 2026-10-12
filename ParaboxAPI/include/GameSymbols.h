@@ -14,6 +14,12 @@ namespace GameSymbols {
     constexpr uintptr_t Camera_main                     = 0x00978330;
     constexpr uintptr_t Scene_current                   = 0x013C18F0;
 
+    // --- Resource & File Management ---
+    constexpr uintptr_t FileManagerClass_GetFile         = 0x0099FF50;
+    constexpr uintptr_t FileManagerClass_GetFileRawLoose = 0x009A0300;
+    constexpr uintptr_t FileManagerClass_GetFileRawPak   = 0x009A0670;
+    constexpr uintptr_t FileManagerClass_FileExists      = 0x009A14C0;
+
     // --- Combat ---
     constexpr uintptr_t Character_BeginTurn             = 0x0010A9B0;
     constexpr uintptr_t Level_update                    = 0x003611E0;

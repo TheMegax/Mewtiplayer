@@ -4,7 +4,7 @@
 #include "SteamABICompat.h"
 #include "GameUtils.h"
 #include "ImGuiHook.h"
-#include "InputGhost.h"
+#include "ViewportHelper.h"
 #include "Overlay.h"
 #include "mewjector.h"
 #include "MewSQL.h"
@@ -99,7 +99,7 @@ bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
         return true;
       }
     }
-    ULONGLONG now = GetTickCount64();
+    const ULONGLONG now = GetTickCount64();
     int32_t jitter = 0;
     if (g_modState.simJitterMs > 0) {
       jitter = (rand() % (static_cast<int>(g_modState.simJitterMs) * 2 + 1)) - static_cast<int>(g_modState.simJitterMs);
@@ -125,7 +125,7 @@ bool NetworkManager::SendPacket(const CSteamID target, const PacketType type,
 void NetworkManager::ProcessSimulatedPackets() {
   if (m_simulatedPacketQueue.empty()) return;
 
-  ULONGLONG now = GetTickCount64();
+  const ULONGLONG now = GetTickCount64();
   auto it = m_simulatedPacketQueue.begin();
   while (it != m_simulatedPacketQueue.end()) {
     if (now >= it->deliverTime) {
@@ -156,7 +156,7 @@ void NetworkManager::ClearPeerTracking() {
 void NetworkManager::SendHeartbeat() {
   if (!m_CurrentLobby.IsValid()) return;
 
-  ULONGLONG now = GetTickCount64();
+  const ULONGLONG now = GetTickCount64();
   if (now - m_lastHeartbeatSentTime < 3000) return;
   m_lastHeartbeatSentTime = now;
 
@@ -181,7 +181,7 @@ void NetworkManager::SendHeartbeat() {
 void NetworkManager::CheckHeartbeatTimeouts() {
   if (!m_CurrentLobby.IsValid()) return;
 
-  ULONGLONG now = GetTickCount64();
+  const ULONGLONG now = GetTickCount64();
   const uint64_t myID = SteamUser()->GetSteamID().ConvertToUint64();
 
   if (IsHost()) {
@@ -216,10 +216,10 @@ void NetworkManager::CheckHeartbeatTimeouts() {
       }
     }
   } else {
-    CSteamID hostID = GetHostID();
-    uint64_t hostSteamID = hostID.ConvertToUint64();
+    const CSteamID hostID = GetHostID();
+    const uint64_t hostSteamID = hostID.ConvertToUint64();
     if (hostSteamID != 0 && hostSteamID != myID) {
-      auto it = m_peerLastSeenMap.find(hostSteamID);
+      const auto it = m_peerLastSeenMap.find(hostSteamID);
       if (it == m_peerLastSeenMap.end()) {
         m_peerLastSeenMap[hostSteamID] = now;
       } else if (now - it->second > 15000) {
@@ -412,14 +412,7 @@ void NetworkManager::HandleMouseMove(const void *data, const uint32_t length) {
 
     // Only show the ghost cursor and name tag if it's NOT the local player
     if (actualSender != SteamUser()->GetSteamID().ConvertToUint64()) {
-      // Only simulate the mouse moving around if we are NOT focused
-      // AND it's that player's turn (or everyone can move outside combat).
-      if (GetForegroundWindow() != ImGuiHook::GetHWND() &&
-          !IsInputBlocked(actualSender)) {
-        InputGhost::SimulateMouseMove(move->x, move->y, ImGuiHook::GetHWND());
-      }
-      Overlay::UpdateRemoteCursor(actualSender, move->x, move->y,
-                                  move->cursorType);
+      Overlay::UpdateRemoteCursor(actualSender, move->x, move->y, move->cursorType);
     }
   }
 }
@@ -1300,7 +1293,7 @@ void NetworkManager::BeginMultiplayerSave() {
         const size_t blobSize = blob.size();
         PendingCatBlob pending;
         pending.senderSteamID = myID.ConvertToUint64();
-        std::vector<uint8_t> stdBlob(blob.begin(), blob.end());
+        std::vector stdBlob(blob.begin(), blob.end());
         pending.data = std::move(stdBlob);
         pending.originalAge = GetButchBoxCatAge(key);
         m_collectedCatBlobs.push_back(std::move(pending));
@@ -1483,13 +1476,13 @@ void NetworkManager::HandleSaveCatResponse(const CSteamID remoteID, const void *
       }
 
       if (offset + respHdr->unlocksSize <= bufferSize) {
-        std::vector<uint8_t> unlocksBlob(buffer.data() + offset, buffer.data() + offset + respHdr->unlocksSize);
+        std::vector unlocksBlob(buffer.data() + offset, buffer.data() + offset + respHdr->unlocksSize);
         m_collectedUnlocksBlobs.push_back(unlocksBlob);
         offset += respHdr->unlocksSize;
       }
 
       if (offset + respHdr->inventorySize <= bufferSize) {
-        std::vector<uint8_t> invBlob(buffer.data() + offset, buffer.data() + offset + respHdr->inventorySize);
+        std::vector invBlob(buffer.data() + offset, buffer.data() + offset + respHdr->inventorySize);
         m_collectedInventoryBlobs.push_back(invBlob);
         offset += respHdr->inventorySize;
       }

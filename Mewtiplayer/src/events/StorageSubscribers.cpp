@@ -9,11 +9,6 @@
 #include "GameUtils.h"
 #include "SteamABICompat.h"
 #include <windows.h>
-
-// ---------------------------------------------------------------------------
-// StorageHooks Subscribers and UI state
-// ---------------------------------------------------------------------------
-
 #include <set>
 #include <map>
 
@@ -264,7 +259,7 @@ void HandleStorageItemSyncInternal(const void *data, const uint32_t length) {
             }
         }
 
-        auto hostStateIt = g_hostLastBroadcastStorageState.find(packet->itemSerial);
+        const auto hostStateIt = g_hostLastBroadcastStorageState.find(packet->itemSerial);
         if (hostStateIt != g_hostLastBroadcastStorageState.end() && hostStateIt->second == packet->catID) {
             return;
         }
@@ -396,7 +391,7 @@ void RegisterStorageSubscribers() {
             packet.fromCatID = currentOwner;
             packet.itemSerial = serial;
 
-            Equipment *eq = ParaboxAPI::GetEquipmentFromItemBox(box);
+            const Equipment *eq = ParaboxAPI::GetEquipmentFromItemBox(box);
             if (eq && eq->name.is_valid()) {
                 const auto nameView = eq->name.as_native_string_view();
                 snprintf(packet.itemName, sizeof(packet.itemName), "%.*s", (int)nameView.size(), nameView.data());
@@ -419,10 +414,6 @@ void RegisterStorageSubscribers() {
                 ev.Cancel();
             }
         }
-    });
-
-    ParaboxAPI::OnInventoryItemBoxEquipped.Subscribe([](ParaboxAPI::InventoryItemBoxEquippedEvent& ev) {
-        // Handled via OnInventoryItemBoxClick
     });
 
     ParaboxAPI::OnInventoryScreen2Close.Subscribe([](ParaboxAPI::InventoryScreen2CloseEvent& ev) {

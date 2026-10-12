@@ -4,10 +4,6 @@
 #include "Overlay.h"
 #include "hooks/ShopHooks.h"
 
-// ---------------------------------------------------------------------------
-// ShopHooks Subscribers
-// ---------------------------------------------------------------------------
-
 void RegisterShopSubscribers() {
     ParaboxAPI::OnShopBuyItem.Subscribe([](ParaboxAPI::ShopBuyItemEvent& ev) {
         if (NetworkManager::Get().GetCurrentLobby().IsValid()) {

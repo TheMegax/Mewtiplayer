@@ -2,9 +2,7 @@
 #include "ParaboxAPI.h"
 #include "NetworkManager.h"
 
-// ---------------------------------------------------------------------------
-// AdventureBoxHooks Subscribers
-// ---------------------------------------------------------------------------
+
 void RegisterAdventureBoxSubscribers() {
     ParaboxAPI::OnButchBoxInit.Subscribe([](ParaboxAPI::ButchBoxInitEvent& ev) {
         NetworkManager::Get().SendLocalCatCount();

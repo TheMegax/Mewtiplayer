@@ -5,11 +5,6 @@
 #include "Overlay.h"
 #include "mew_ui_api.h"
 #include "GameUtils.h"
-#include "ModState.h"
-
-// ---------------------------------------------------------------------------
-// MapHooks Subscribers
-// ---------------------------------------------------------------------------
 
 uint32_t g_pendingMapNodeSyncIndex = 0xFFFFFFFF;
 
@@ -82,7 +77,7 @@ void ForceMapInventoryOpen() {
 void RegisterMapSubscribers() {
     ParaboxAPI::OnMapNodeClick.Subscribe([](ParaboxAPI::MapNodeClickEvent& ev) {
         if (!NetworkManager::Get().GetCurrentLobby().IsValid()) return;
-        if (ParaboxAPI::g_isHandlingNetworkMapNodeSync) return;
+        if (g_isHandlingNetworkMapNodeSync) return;
 
         if (ev.nodeIndex != 0xFFFFFFFF) {
             MapNodeSyncPacket pkt = {};
@@ -122,7 +117,7 @@ void TriggerMapNodeSync(const uint32_t nodeIndex) {
     }
 
     Overlay::Log("[MAP] Triggering network-synced Click (index %u)", nodeIndex);
-    ParaboxAPI::g_isHandlingNetworkMapNodeSync = true;
+    g_isHandlingNetworkMapNodeSync = true;
     ParaboxAPI::ForceMapNodeClick(matchedNode);
-    ParaboxAPI::g_isHandlingNetworkMapNodeSync = false;
+    g_isHandlingNetworkMapNodeSync = false;
 }

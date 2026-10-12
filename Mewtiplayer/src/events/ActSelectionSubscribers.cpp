@@ -4,10 +4,6 @@
 #include "Overlay.h"
 #include "GameUtils.h"
 
-// ---------------------------------------------------------------------------
-// ActSelectionHooks Subscribers
-// ---------------------------------------------------------------------------
-
 uint32_t g_pendingActSelectIndex = 0;
 static bool g_isHandlingNetworkActSelect = false;
 
@@ -58,7 +54,7 @@ void TriggerActSelect(uint32_t actIndex) {
         return;
     }
 
-    Overlay::Log("[ACT] Triggering network-synced SelectAct (index %u)", actIndex);
+    Overlay::Log("[ACT] Triggering SelectAct (index %u)", actIndex);
     g_isHandlingNetworkActSelect = true;
     ParaboxAPI::ForceActSelectionScreenSelectAct(ParaboxAPI::GetActSelectionScreen(), actIndex);
     g_isHandlingNetworkActSelect = false;

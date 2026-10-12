@@ -30,7 +30,10 @@ set(PARABOX_SOURCES
     include/hooks/WorldEventHooks.h   src/hooks/WorldEventHooks.cpp
     include/hooks/ShopHooks.h         src/hooks/ShopHooks.cpp
     include/hooks/PopupHooks.h        src/hooks/PopupHooks.cpp
+    include/hooks/ResourceHooks.h     src/hooks/ResourceHooks.cpp
 )
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MewResources.cmake")
 
 add_library(ParaboxAPI SHARED ${PARABOX_SOURCES})
 

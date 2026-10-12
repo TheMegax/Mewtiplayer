@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.2)
 
-# ── Cross-compilation toolchain (Linux → Windows via Clang-MSVC) ────────────
+# Cross-compilation toolchain
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND NOT FORCE_LINUX)
     if(NOT CMAKE_TOOLCHAIN_FILE)
         set(CMAKE_TOOLCHAIN_FILE
@@ -16,13 +16,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build." FORCE)
 endif()
 
-# ── Global settings ──────────────────────────────────────────────────────────
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded" CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ── Sub-projects ─────────────────────────────────────────────────────────────
 # ParaboxAPI must be added first so Mewtiplayer can link against it
 add_subdirectory(ParaboxAPI)
 add_subdirectory(Mewtiplayer)

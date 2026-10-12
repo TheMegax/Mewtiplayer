@@ -4,7 +4,7 @@
 #include "GameUtils.h"
 #include "ImGuiHook.h"
 #include "MewSQL.h"
-#include "InputGhost.h"
+#include "ViewportHelper.cpp"
 #include "NetworkManager.h"
 #include "ChatManager.h"
 #include "SceneSyncManager.h"
@@ -110,13 +110,6 @@ void LoadCursorTextures() {
             g_CursorHotspots[i] = ImVec2(0, 0);
           }
 
-          // Register signature (CRC32 of first 4096 bytes)
-          size_t bytes = static_cast<size_t>(w) * h * 4;
-          if (bytes > 4096)
-            bytes = 4096;
-          uint32_t crc = GameUtils::CalculateCRC32(data, bytes);
-          InputGhost::RegisterCursorSignature(crc, i);
-
           stbi_image_free(data);
         }
       }
@@ -202,9 +195,8 @@ static void RenderRemoteCursors() {
     if (g_CursorTextures.count(it->second.type)) {
       int px, py;
       int vx, vy, vw, vh;
-      InputGhost::GetViewportInfo(hWnd, vx, vy, vw, vh);
-      InputGhost::DenormalizeCoordinates(it->second.x, it->second.y, hWnd, px,
-                                         py);
+      ViewportHelper::GetViewportInfo(hWnd, vx, vy, vw, vh);
+      ViewportHelper::DenormalizeCoordinates(it->second.x, it->second.y, hWnd, px, py);
 
       const float scale = ((float)vw / 1920.0f) * 0.5f;
       ImVec2 size = g_CursorSizes[it->second.type];

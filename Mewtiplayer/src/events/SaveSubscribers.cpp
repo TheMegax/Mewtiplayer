@@ -11,9 +11,6 @@ std::map<int64_t, uint64_t> g_catIdToOwnerSteamID;
 
 bool g_isHandlingNetworkMapInventoryOpen = false;
 
-// ---------------------------------------------------------------------------
-// SaveHooks Subscribers
-// ---------------------------------------------------------------------------
 void RegisterSaveSubscribers() {
     ParaboxAPI::OnCreateStrayCat.Subscribe([](ParaboxAPI::CreateStrayCatEvent& ev) {
         void* cat = ev.returnValue;

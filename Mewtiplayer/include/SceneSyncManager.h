@@ -15,7 +15,7 @@ public:
     return instance;
   }
 
-  void Init();
+  static void Init();
   void Update();
 
   void OnSceneAdded(Scene *scene, const char *sceneName);

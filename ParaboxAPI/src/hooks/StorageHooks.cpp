@@ -421,9 +421,7 @@ PARABOX_API Equipment *GetActiveInventoryItemBySerial(const uint64_t itemSerial,
 
         const int64_t owner = GetItemEquippedOwner(box->item_id);
         int score = 0;
-        if (preferredOwner != -1 && owner == preferredOwner) {
-          score = 3;
-        } else if (preferredOwner == -1 && owner == -1) {
+        if ((preferredOwner != -1 && owner == preferredOwner) || (preferredOwner == -1 && owner == -1)) {
           score = 3;
         } else if (owner == -1) {
           score = 2;

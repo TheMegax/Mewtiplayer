@@ -1,5 +1,4 @@
 #include "events/ClassChooserSubscribers.h"
-#include "events/SaveSubscribers.h"
 #include "events/StorageSubscribers.h"
 #include "ParaboxAPI.h"
 #include "NetworkManager.h"
@@ -8,9 +7,6 @@
 #include "GameUtils.h"
 #include <windows.h>
 
-// ---------------------------------------------------------------------------
-// ClassChooserHooks Subscribers and UI state
-// ---------------------------------------------------------------------------
 
 std::map<uint64_t, bool> g_lobbyReadyStates;
 bool g_localReady = false;
@@ -233,6 +229,8 @@ void HandleCollarSyncInternal(const void *data, const uint32_t length) {
 }
 
 static void ApplyLockInButtonText() {
+    // TODO: UGLY!!! Replace this asap
+
     if (!g_lockInButton) return;
 
     const char* lockinoutText = g_localReady ? "Lock Out" : "Lock In!";

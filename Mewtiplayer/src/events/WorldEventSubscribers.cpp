@@ -5,10 +5,6 @@
 #include "GameUtils.h"
 #include "SteamABICompat.h"
 
-// ---------------------------------------------------------------------------
-// WorldEventHooks Subscribers
-// ---------------------------------------------------------------------------
-
 // Check if local player is allowed to interact with the event screen
 static bool CanInteract(const WorldEvent* worldEvent) {
     if (!NetworkManager::Get().GetCurrentLobby().IsValid()) {
@@ -125,15 +121,15 @@ void TriggerWorldEventSelectOption(int64_t catUID, uint32_t optionIndex) {
         return;
     }
 
-    CatData* activeCat = event->cat_choice;
+    const CatData* activeCat = event->cat_choice;
     if (!activeCat || activeCat->cat_uid != catUID) {
         Overlay::Log("[WORLDEVENT] [ERR] TriggerWorldEventSelectOption: active screen cat UID (%lld) does not match packet UID (%lld).",
                      activeCat ? activeCat->cat_uid : -1, catUID);
         return;
     }
 
-    WorldEventOption* vectorStart = event->action_pane.options.Myfirst;
-    WorldEventOption* vectorEnd = event->action_pane.options.Mylast;
+    const WorldEventOption* vectorStart = event->action_pane.options.Myfirst;
+    const WorldEventOption* vectorEnd = event->action_pane.options.Mylast;
     if (!vectorStart || !vectorEnd) {
         Overlay::Log("[WORLDEVENT] [ERR] TriggerWorldEventSelectOption: options vector is null.");
         return;
@@ -150,7 +146,7 @@ void TriggerWorldEventSelectOption(int64_t catUID, uint32_t optionIndex) {
 }
 
 void TriggerWorldEventSelectCat(int64_t selectedCatUID) {
-    WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
+    const WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
     if (!event || !GameUtils::IsComponentValid(event)) {
         Overlay::Log("[WORLDEVENT] TriggerWorldEventSelectCat error: g_activeWorldEvent is null or invalid.");
         return;
@@ -161,7 +157,7 @@ void TriggerWorldEventSelectCat(int64_t selectedCatUID) {
 }
 
 void TriggerWorldEventClickEnd(uint8_t buttonType) {
-    WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
+    const WorldEvent* event = ParaboxAPI::GetActiveWorldEvent();
     if (!event || !GameUtils::IsComponentValid(event)) {
         Overlay::Log("[WORLDEVENT] TriggerWorldEventClickEnd error: g_activeWorldEvent is null or invalid.");
         return;
