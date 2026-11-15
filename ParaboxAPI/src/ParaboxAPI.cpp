@@ -11,6 +11,7 @@
 namespace ParaboxAPI {
 
 static LogCallback g_logCallback = nullptr;
+static bool hooksInitialized = false;
 
 PARABOX_API void SetLogCallback(LogCallback cb) {
     g_logCallback = cb;
@@ -131,8 +132,8 @@ std::string NormalizePath(const char *path) {
 }
 
 bool LookupFileOverride(const std::string &normalizedPath, const void *&outData, size_t &outSize) {
-    std::lock_guard<std::mutex> lock(g_fileOverridesMutex);
-    auto it = g_fileOverrides.find(normalizedPath);
+    std::lock_guard lock(g_fileOverridesMutex);
+    const auto it = g_fileOverrides.find(normalizedPath);
     if (it != g_fileOverrides.end()) {
         outData = it->second.data;
         outSize = it->second.size;
@@ -207,15 +208,12 @@ PARABOX_API bool RegisterModResources(HMODULE hModule) {
         return false;
     }
 
-    // 1. Check for manifest resource (ID 1, type L"MEWRESOURCE")
-    HRSRC hManifestRes = FindResourceW(hModule, MAKEINTRESOURCEW(1), L"MEWRESOURCE");
-    if (hManifestRes) {
-        HGLOBAL hMem = LoadResource(hModule, hManifestRes);
-        DWORD size = SizeofResource(hModule, hManifestRes);
+    if (HRSRC hManifestRes = FindResourceW(hModule, MAKEINTRESOURCEW(1), L"MEWRESOURCE")) {
+        const HGLOBAL hMem = LoadResource(hModule, hManifestRes);
+        const DWORD size = SizeofResource(hModule, hManifestRes);
         if (hMem && size > 0) {
-            const char *pManifest = (const char *)LockResource(hMem);
-            if (pManifest) {
-                std::string manifestStr(pManifest, size);
+            if (const auto pManifest = (const char *)LockResource(hMem)) {
+                const std::string manifestStr(pManifest, size);
                 std::istringstream stream(manifestStr);
                 std::string line;
                 int count = 0;
@@ -226,26 +224,24 @@ PARABOX_API bool RegisterModResources(HMODULE hModule) {
                     if (line.empty() || line[0] == '#') continue;
                     size_t space = line.find(' ');
                     if (space == std::string::npos) continue;
-                    int id = 0;
+                    int id;
                     try {
                         id = std::stoi(line.substr(0, space));
                     } catch (...) {
                         continue;
                     }
                     std::string virtualPath = line.substr(space + 1);
-                    size_t start = virtualPath.find_first_not_of(" \t");
+                    const size_t start = virtualPath.find_first_not_of(" \t");
                     if (start != std::string::npos) {
                         virtualPath = virtualPath.substr(start);
                     }
 
-                    HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(id), L"MEWRESOURCE");
-                    if (hRes) {
-                        HGLOBAL hResMem = LoadResource(hModule, hRes);
-                        DWORD resSize = SizeofResource(hModule, hRes);
+                    if (HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(id), L"MEWRESOURCE")) {
+                        const HGLOBAL hResMem = LoadResource(hModule, hRes);
+                        const DWORD resSize = SizeofResource(hModule, hRes);
                         if (hResMem && resSize > 0) {
-                            void *pData = LockResource(hResMem);
-                            if (pData) {
-                                RegisterMemoryOverride(virtualPath.c_str(), pData, (size_t)resSize);
+                            if (const void *pData = LockResource(hResMem)) {
+                                RegisterMemoryOverride(virtualPath.c_str(), pData, resSize);
                                 Log("[RESOURCES] Registered embedded override: %s (%u bytes, ID %d)",
                                                 virtualPath.c_str(), resSize, id);
                                 count++;
@@ -261,8 +257,8 @@ PARABOX_API bool RegisterModResources(HMODULE hModule) {
         }
     }
 
-    // 2. Fallback: enum named resources of type MEWRESOURCE
-    BOOL ok = EnumResourceNamesW(hModule, L"MEWRESOURCE", EnumMewResourcesCallback, 0);
+    // Fallback: enum named resources of type MEWRESOURCE
+    const BOOL ok = EnumResourceNamesW(hModule, L"MEWRESOURCE", EnumMewResourcesCallback, 0);
     return ok != FALSE;
 }
 
@@ -285,6 +281,10 @@ void PopupHooks_Init(MewjectorAPI *mj, uintptr_t gameBase);
 namespace ParaboxAPI {
 
 PARABOX_API void InstallHooks(MewjectorAPI *mj, uintptr_t gameBase) {
+    if (hooksInitialized)
+        return;
+    hooksInitialized = true;
+
     MiscHooks_Init(mj, gameBase);
     CombatHooks_Init(mj, gameBase);
     SaveHooks_Init(mj, gameBase);

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+# TODO: This should be able to be overriden and apply to both mewtiplayer and parabox
 MODS_DIR="/home/megax/.local/share/Steam/steamapps/common/Mewgenics/Mods"
 CLEANUP=0
 

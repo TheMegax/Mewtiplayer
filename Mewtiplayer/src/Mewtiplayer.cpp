@@ -28,7 +28,7 @@ static ULONGLONG g_lastEvilSpamTime = 0;
 static size_t g_evilCollarCounter = 0;
 static size_t g_evilStorageCounter = 0;
 
-static void EvilModeUpdate() {
+static void EvilModeUpdate() { // TODO: Should be moved elsewhere
     if (!g_modState.evilMode || !g_modState.evilShuffler) return;
     if (!NetworkManager::Get().GetCurrentLobby().IsValid()) return;
 
@@ -127,6 +127,7 @@ static void EvilModeUpdate() {
 }
 
 static void RegisterSubscribers() {
+    // TODO: Should also go elsewhere
     ParaboxAPI::OnRunFrame.Subscribe([](ParaboxAPI::RunFrameEvent& ev) {
         if (!ev.rcx) return;
         
@@ -260,6 +261,7 @@ static void Initialize() {
 
     // Register all ParaboxAPI subscribers before installing hooks
     RegisterSubscribers();
+    // TODO: These should be auto installed by parabox to avoid conflicts
     ParaboxAPI::InstallHooks(&mj, g_modState.gameBase);
 
     SceneSyncManager::Init();

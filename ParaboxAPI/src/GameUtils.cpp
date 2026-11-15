@@ -801,34 +801,30 @@ ParaboxAPI::Array<Scene *> GetCurrentScenes() {
 
 ParaboxAPI::Array<Character *> GetAllEntities() {
   std::vector<Character *> result;
-  __try {
-    const TurnControl *tc = GetTurnControl();
-    if (!tc || !tc->scene) return ParaboxAPI::MakeArray(result);
-    if (tc->scene->CachedActiveComponentLists) {
-      CachedActiveComponentList *charList = &tc->scene->CachedActiveComponentLists[505];
-      if (charList && charList->ActiveComponents.internal_data && charList->ActiveComponents.internal_data->list.data_) {
-        auto &list = charList->ActiveComponents.internal_data->list;
-        for (uint32_t i = 0; i < list.size_; ++i) {
-          if (Character *c = static_cast<Character*>(list.data_[i])) {
-            result.push_back(c);
-          }
-        }
-        return ParaboxAPI::MakeArray(result);
-      }
-    }
-    for (uint32_t i = 0; i < tc->scene->Entities.size_; ++i) {
-      if (Entity *e = tc->scene->Entities.data_[i]) {
-        for (uint32_t j = 0; j < e->components.size_; ++j) {
-          if (Component *comp = e->components.data_[j]) {
-            if (comp->_objid == 505) {
-              result.push_back(static_cast<Character*>(comp));
-            }
-          }
+  const TurnControl *tc = GetTurnControl();
+  if (!tc || !tc->scene) return ParaboxAPI::MakeArray(result);
+  if (tc->scene->CachedActiveComponentLists) {
+    CachedActiveComponentList *charList = &tc->scene->CachedActiveComponentLists[505];
+    if (charList && charList->ActiveComponents.internal_data && charList->ActiveComponents.internal_data->list.data_) {
+      auto &list = charList->ActiveComponents.internal_data->list;
+      for (uint32_t i = 0; i < list.size_; ++i) {
+        if (Character *c = static_cast<Character*>(list.data_[i])) {
+          result.push_back(c);
         }
       }
+      return ParaboxAPI::MakeArray(result);
     }
-  } __except(EXCEPTION_EXECUTE_HANDLER) {
-    result.clear();
+  }
+  for (uint32_t i = 0; i < tc->scene->Entities.size_; ++i) {
+    if (Entity *e = tc->scene->Entities.data_[i]) {
+      for (uint32_t j = 0; j < e->components.size_; ++j) {
+        if (Component *comp = e->components.data_[j]) {
+          if (comp->_objid == 505) {
+            result.push_back(static_cast<Character*>(comp));
+          }
+        }
+      }
+    }
   }
   return ParaboxAPI::MakeArray(result);
 }
