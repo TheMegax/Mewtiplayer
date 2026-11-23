@@ -136,6 +136,49 @@ void ResetStorageSyncState() {
     g_lastStorageClickTimePerSerial.clear();
 }
 
+// Fallback. If the host and clients equipment state differs, we use this as a safeguard.
+// This makes it so the equipment of the player's cat is 1-1 to what they actually see, regardless of the actual state.
+// This results in the cat's equipment being "duped" if needed.
+void HandleEquipmentSyncInternal(const void *data, const uint32_t length) {
+    if (length != sizeof(EquipmentSyncPacket)) return;
+    const auto *packet = (const EquipmentSyncPacket *)data;
+
+    const auto director = GameUtils::GetMewDirectorSingleton();
+    if (!director || !director->current_battle_cats.data_ || director->current_battle_cats.size() <= packet->catIdx) return;
+
+    const int64_t catUID = director->current_battle_cats.data_[packet->catIdx];
+    CatData *cat = ParaboxAPI::GetCatDataById(catUID);
+    if (!cat) return;
+    cat->equipment = packet->equipment;
+}
+
+void BroadcastEquipmentState() {
+    const auto director = GameUtils::GetMewDirectorSingleton();
+    if (!director || !director->current_battle_cats.data_ || director->current_battle_cats.size() == 0) return;
+
+    std::vector<int64_t> myControlledCats;
+    for (size_t i = 0; i < director->current_battle_cats.size(); ++i) {
+        const int64_t catUID = director->current_battle_cats.data_[i];
+        if (NetworkManager::Get().IsCatControlledLocally(catUID)) {
+            myControlledCats.push_back(catUID);
+        }
+    }
+    if (myControlledCats.empty()) return;
+
+    for (size_t i = 0; i < myControlledCats.size(); ++i) {
+        const int64_t catUID = myControlledCats[i];
+        CatData *cat = ParaboxAPI::GetCatDataById(catUID);
+
+        EquipmentSyncPacket pkt = {};
+        pkt.steamID = SteamUser()->GetSteamID().ConvertToUint64();
+        pkt.catIdx = i;
+        pkt.equipment = cat->equipment;
+
+        NetworkManager::Get().BroadcastPacket(PacketType::EquipmentSync, &pkt, sizeof(pkt), true);
+        Overlay::Log("[STORAGE] Cat equipment sync broadcast");
+    }
+}
+
 void HostAuditAndBroadcastStorageState(bool force) {
     if (!NetworkManager::Get().IsHost()) return;
     auto *screen = ParaboxAPI::GetActiveInventoryScreen2();
@@ -157,6 +200,7 @@ void HostAuditAndBroadcastStorageState(bool force) {
 
         const int64_t owner = ParaboxAPI::GetItemEquippedOwner(box->item_id);
         auto it = currentAuditState.find(serial);
+
         if (it == currentAuditState.end()) {
             AuditEntry entry;
             entry.owner = owner;
@@ -450,7 +494,7 @@ void RegisterStorageSubscribers() {
             if (!g_hasTriggeredProceed) {
                 HostAuditCollarState();
                 HostBroadcastFullCollarState(true);
-                HostAuditAndBroadcastStorageState(true);
+                BroadcastEquipmentState();
                 NetworkManager::Get().BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
                 CatSelectorHooks_TriggerLockInProceed();
             } else {

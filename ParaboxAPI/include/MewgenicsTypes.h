@@ -1699,6 +1699,28 @@ struct GameTLSLayout {
 // Cat & Character Data
 // ============================================================================
 
+struct Equipment {
+  int64_t uid;
+  MsvcReleaseModeXString name;
+  MsvcReleaseModeXString str_aux;
+  int32_t durability;
+  int32_t aux;
+  uint32_t flags;
+  int32_t inventory_sortorder;
+  int8_t quest_item_destination;
+  int8_t _pad[3];
+  uint32_t condition;
+};
+static_assert(sizeof(Equipment) == 96, "Equipment size mismatch");
+
+struct CatEquipment {
+  Equipment head;
+  Equipment face;
+  Equipment neck;
+  Equipment weapon;
+  Equipment trinket;
+};
+
 struct CatStats {
   int32_t hp;
   int32_t mana;
@@ -1725,7 +1747,7 @@ struct CatData {
   uint8_t _pad78C[28];                                   // 0x78C
   uint8_t temp_stats[40];                                // 0x7A8
   uint8_t abilities[480];                                // 0x7D0
-  uint8_t equipment[480];                                // 0x9B0
+  CatEquipment equipment;                                // 0x9B0
   uint8_t personality[104];                              // 0xB90
   uint64_t flags;                                        // 0xBF8
   uint8_t areas_visited[8];                              // 0xC00
@@ -2615,20 +2637,6 @@ struct Shop : Component {
   Button *previous_displayed_tooltip;                    // 0xB8
 };
 static_assert(sizeof(Shop) == 192, "Shop size mismatch");
-
-struct Equipment {
-  int64_t uid;                             // 0x00
-  MsvcReleaseModeXString name;             // 0x08
-  MsvcReleaseModeXString str_aux;          // 0x28 (40)
-  int32_t durability;                      // 0x48 (72)
-  int32_t aux;                             // 0x4C (76)
-  uint32_t flags;                          // 0x50 (80)
-  int32_t inventory_sortorder;             // 0x54 (84)
-  int8_t quest_item_destination;           // 0x58 (88)
-  int8_t _pad[3];                          // 0x59 (89)
-  uint32_t condition;                      // 0x5C (92)
-};
-static_assert(sizeof(Equipment) == 96, "Equipment size mismatch");
 
 inline uint64_t ComputeItemSerial(const Equipment *equip) {
   if (!equip || !equip->name.is_valid() || equip->name.Mysize == 0) return 0;

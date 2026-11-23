@@ -316,6 +316,9 @@ void NetworkManager::ReceivePackets() {
     case PacketType::StorageItemSync:
       HandleStorageItemSync(payload, payloadLen);
       break;
+    case PacketType::EquipmentSync:
+      HandleEquipmentSync(payload, payloadLen);
+      break;
     case PacketType::MapNodeSync:
       HandleMapNodeSync(payload, payloadLen);
       break;
@@ -1892,6 +1895,10 @@ void NetworkManager::HandleLobbyProceed() const {
 
 void NetworkManager::HandleStorageItemSync(const void *data, const uint32_t length) {
   HandleStorageItemSyncInternal(data, length);
+}
+
+void NetworkManager::HandleEquipmentSync(const void *data, const uint32_t length) {
+  HandleEquipmentSyncInternal(data, length);
 }
 
 void NetworkManager::HandleMapNodeSync(const void *data, const uint32_t length) {

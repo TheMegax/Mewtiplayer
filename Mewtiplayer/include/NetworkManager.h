@@ -41,6 +41,7 @@ enum class PacketType : uint8_t {
   LobbyProceed,
   // --- Storage ---
   StorageItemSync,
+  EquipmentSync,
   // --- Map ---
   MapNodeSync,
   ActSelectSync,
@@ -293,6 +294,14 @@ struct StorageItemSyncPacket {
   int64_t fromCatID;
   uint64_t itemSerial;
   char itemName[32];
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct EquipmentSyncPacket {
+  uint64_t steamID;
+  int64_t catIdx;
+  CatEquipment equipment;
 };
 #pragma pack(pop)
 
@@ -604,6 +613,7 @@ private:
   void HandleLobbyReady(const void *data, uint32_t length);
   void HandleLobbyProceed() const;
   void HandleStorageItemSync(const void *data, uint32_t length);
+  void HandleEquipmentSync(const void *data, uint32_t length);
   void HandleMapNodeSync(const void *data, uint32_t length);
   void HandleActSelectSync(const void *data, uint32_t length);
   void HandleMapInventoryOpen(const void *data, uint32_t length);
