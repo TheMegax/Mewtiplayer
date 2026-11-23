@@ -494,7 +494,6 @@ void RegisterStorageSubscribers() {
             if (!g_hasTriggeredProceed) {
                 HostAuditCollarState();
                 HostBroadcastFullCollarState(true);
-                BroadcastEquipmentState();
                 NetworkManager::Get().BroadcastPacket(PacketType::LobbyProceed, nullptr, 0, true);
                 CatSelectorHooks_TriggerLockInProceed();
             } else {

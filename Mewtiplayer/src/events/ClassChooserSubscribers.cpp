@@ -323,6 +323,7 @@ void CatSelectorHooks_TriggerLockInProceed() {
     g_activeClassChooserLambdaThis = nullptr;
 
     StorageHooks_TriggerEmbarkProceed();
+    BroadcastEquipmentState();
 
     g_lobbyReadyStates.clear();
     g_localReady = false;
