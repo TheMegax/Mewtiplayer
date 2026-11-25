@@ -2180,13 +2180,13 @@ CombatStateChecksum NetworkManager::ComputeCombatStateChecksum() {
             [](const auto& a, const auto& b) { return a.first < b.first; });
 
   std::vector<FighterVitalsData> vitalsList;
-  std::vector<FighterPositionData> posList;
+  //std::vector<FighterPositionData> posList;
   std::vector<FighterStatsData> statsList;
   std::vector<FighterPassivesData> passivesList;
   std::vector<FighterStatusData> statusList;
 
   vitalsList.reserve(sortedFighters.size());
-  posList.reserve(sortedFighters.size());
+  //posList.reserve(sortedFighters.size());
   statsList.reserve(sortedFighters.size());
   passivesList.reserve(sortedFighters.size());
   statusList.reserve(sortedFighters.size());
@@ -2201,6 +2201,7 @@ CombatStateChecksum NetworkManager::ComputeCombatStateChecksum() {
     vdata.lives = c->divine_shield;
     vitalsList.push_back(vdata);
 
+    /*
     // Tile coordinates and facing direction
     FighterPositionData pdata = {};
     pdata.nuid = nuid;
@@ -2209,6 +2210,7 @@ CombatStateChecksum NetworkManager::ComputeCombatStateChecksum() {
     pdata.orientX = c->orientation.x;
     pdata.orientY = c->orientation.y;
     posList.push_back(pdata);
+    */
 
     // Mana and move/action pools
     FighterStatsData sdata = {};
@@ -2261,9 +2263,9 @@ CombatStateChecksum NetworkManager::ComputeCombatStateChecksum() {
     statusList.push_back(stData);
   }
 
-  const uint32_t fighterCount = static_cast<uint32_t>(sortedFighters.size());
+  const auto fighterCount = static_cast<uint32_t>(sortedFighters.size());
   const uint32_t vitalsCrc = vitalsList.empty() ? 0 : GameUtils::CalculateCRC32(vitalsList.data(), vitalsList.size() * sizeof(FighterVitalsData));
-  const uint32_t positionsCrc = posList.empty() ? 0 : GameUtils::CalculateCRC32(posList.data(), posList.size() * sizeof(FighterPositionData));
+  //const uint32_t positionsCrc = posList.empty() ? 0 : GameUtils::CalculateCRC32(posList.data(), posList.size() * sizeof(FighterPositionData));
   const uint32_t statsCrc = statsList.empty() ? 0 : GameUtils::CalculateCRC32(statsList.data(), statsList.size() * sizeof(FighterStatsData));
   const uint32_t passivesCrc = passivesList.empty() ? 0 : GameUtils::CalculateCRC32(passivesList.data(), passivesList.size() * sizeof(FighterPassivesData));
   const uint32_t statusCrc = statusList.empty() ? 0 : GameUtils::CalculateCRC32(statusList.data(), statusList.size() * sizeof(FighterStatusData));
@@ -2272,7 +2274,7 @@ CombatStateChecksum NetworkManager::ComputeCombatStateChecksum() {
   std::vector<uint8_t> fightersBuffer;
   fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&fighterCount, (const uint8_t*)&fighterCount + sizeof(fighterCount));
   fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&vitalsCrc, (const uint8_t*)&vitalsCrc + sizeof(vitalsCrc));
-  fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&positionsCrc, (const uint8_t*)&positionsCrc + sizeof(positionsCrc));
+  //fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&positionsCrc, (const uint8_t*)&positionsCrc + sizeof(positionsCrc));
   fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&statsCrc, (const uint8_t*)&statsCrc + sizeof(statsCrc));
   fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&passivesCrc, (const uint8_t*)&passivesCrc + sizeof(passivesCrc));
   fightersBuffer.insert(fightersBuffer.end(), (const uint8_t*)&statusCrc, (const uint8_t*)&statusCrc + sizeof(statusCrc));
@@ -2292,7 +2294,7 @@ CombatStateChecksum NetworkManager::ComputeCombatStateChecksum() {
   result.turnControlCrc = turnControlCrc;
   result.fighterCount = fighterCount;
   result.vitalsCrc = vitalsCrc;
-  result.positionsCrc = positionsCrc;
+  //result.positionsCrc = positionsCrc;
   result.statsCrc = statsCrc;
   result.passivesCrc = passivesCrc;
   result.statusCrc = statusCrc;
@@ -2354,9 +2356,9 @@ void NetworkManager::RecordTurnState(const uint32_t turnNum) {
   m_turnRngHistory[turnNum] = localChecksum.masterCrc;
 
   if (g_modState.talkative) {
-    Overlay::Log("[SYNC] Turn %u recorded: master=0x%08X rng=0x%08X fighters=0x%08X (%u units) tc=0x%08X vitals=0x%08X pos=0x%08X stats=0x%08X",
+    Overlay::Log("[SYNC] Turn %u recorded: master=0x%08X rng=0x%08X fighters=0x%08X (%u units) tc=0x%08X vitals=0x%08X stats=0x%08X",
                  turnNum, localChecksum.masterCrc, localChecksum.rngCrc, localChecksum.fightersCrc,
-                 localChecksum.fighterCount, localChecksum.turnControlCrc, localChecksum.vitalsCrc, localChecksum.positionsCrc, localChecksum.statsCrc);
+                 localChecksum.fighterCount, localChecksum.turnControlCrc, localChecksum.vitalsCrc, localChecksum.statsCrc);
   }
 
   // Process host check if it beat us to this turn
@@ -2379,7 +2381,7 @@ void NetworkManager::RecordTurnState(const uint32_t turnNum) {
     respPkt.clientTurnControlCrc = localChecksum.turnControlCrc;
     respPkt.clientFighterCount = localChecksum.fighterCount;
     respPkt.clientVitalsCrc = localChecksum.vitalsCrc;
-    respPkt.clientPositionsCrc = localChecksum.positionsCrc;
+    //respPkt.clientPositionsCrc = localChecksum.positionsCrc;
     respPkt.clientStatsCrc = localChecksum.statsCrc;
     respPkt.clientPassivesCrc = localChecksum.passivesCrc;
     respPkt.clientStatusCrc = localChecksum.statusCrc;
@@ -2407,9 +2409,11 @@ void NetworkManager::RecordTurnState(const uint32_t turnNum) {
         Overlay::Log("[DESYNC]     Vitals (HP/Shield):    %s (local=0x%08X host=0x%08X)",
                      (localChecksum.vitalsCrc == hostPkt.hostVitalsCrc) ? "MATCH" : "MISMATCH",
                      localChecksum.vitalsCrc, hostPkt.hostVitalsCrc);
+        /*
         Overlay::Log("[DESYNC]     Positions (Grid):      %s (local=0x%08X host=0x%08X)",
                      (localChecksum.positionsCrc == hostPkt.hostPositionsCrc) ? "MATCH" : "MISMATCH",
                      localChecksum.positionsCrc, hostPkt.hostPositionsCrc);
+        */
         Overlay::Log("[DESYNC]     Stats (Mana/Move/Act): %s (local=0x%08X host=0x%08X)",
                      (localChecksum.statsCrc == hostPkt.hostStatsCrc) ? "MATCH" : "MISMATCH",
                      localChecksum.statsCrc, hostPkt.hostStatsCrc);
@@ -2440,7 +2444,7 @@ void NetworkManager::SendDesyncCheck(const uint32_t turnNum) {
   reqPkt.hostTurnControlCrc = hostChecksum.turnControlCrc;
   reqPkt.hostFighterCount = hostChecksum.fighterCount;
   reqPkt.hostVitalsCrc = hostChecksum.vitalsCrc;
-  reqPkt.hostPositionsCrc = hostChecksum.positionsCrc;
+  //reqPkt.hostPositionsCrc = hostChecksum.positionsCrc;
   reqPkt.hostStatsCrc = hostChecksum.statsCrc;
   reqPkt.hostPassivesCrc = hostChecksum.passivesCrc;
   reqPkt.hostStatusCrc = hostChecksum.statusCrc;
@@ -2497,7 +2501,7 @@ void NetworkManager::HandleRNGCheckRequest(const CSteamID remoteID, const void *
     respPkt.clientTurnControlCrc = localChecksum.turnControlCrc;
     respPkt.clientFighterCount = localChecksum.fighterCount;
     respPkt.clientVitalsCrc = localChecksum.vitalsCrc;
-    respPkt.clientPositionsCrc = localChecksum.positionsCrc;
+    //respPkt.clientPositionsCrc = localChecksum.positionsCrc;
     respPkt.clientStatsCrc = localChecksum.statsCrc;
     respPkt.clientPassivesCrc = localChecksum.passivesCrc;
     respPkt.clientStatusCrc = localChecksum.statusCrc;
@@ -2525,9 +2529,11 @@ void NetworkManager::HandleRNGCheckRequest(const CSteamID remoteID, const void *
         Overlay::Log("[DESYNC]     Vitals (HP/Shield):    %s (local=0x%08X host=0x%08X)",
                      (localChecksum.vitalsCrc == pkt->hostVitalsCrc) ? "MATCH" : "MISMATCH",
                      localChecksum.vitalsCrc, pkt->hostVitalsCrc);
+        /*
         Overlay::Log("[DESYNC]     Positions (Grid):      %s (local=0x%08X host=0x%08X)",
                      (localChecksum.positionsCrc == pkt->hostPositionsCrc) ? "MATCH" : "MISMATCH",
                      localChecksum.positionsCrc, pkt->hostPositionsCrc);
+        */
         Overlay::Log("[DESYNC]     Stats (Mana/Move/Act): %s (local=0x%08X host=0x%08X)",
                      (localChecksum.statsCrc == pkt->hostStatsCrc) ? "MATCH" : "MISMATCH",
                      localChecksum.statsCrc, pkt->hostStatsCrc);
@@ -2583,9 +2589,11 @@ void NetworkManager::HandleRNGCheckResponse(const CSteamID remoteID, const void 
       Overlay::Log("[DESYNC]     Vitals (HP/Shield):    %s (host=0x%08X client=0x%08X)",
                    (hostChecksum.vitalsCrc == pkt->clientVitalsCrc) ? "MATCH" : "MISMATCH",
                    hostChecksum.vitalsCrc, pkt->clientVitalsCrc);
+      /*
       Overlay::Log("[DESYNC]     Positions (Grid):      %s (host=0x%08X client=0x%08X)",
                    (hostChecksum.positionsCrc == pkt->clientPositionsCrc) ? "MATCH" : "MISMATCH",
                    hostChecksum.positionsCrc, pkt->clientPositionsCrc);
+      */
       Overlay::Log("[DESYNC]     Stats (Mana/Move/Act): %s (host=0x%08X client=0x%08X)",
                    (hostChecksum.statsCrc == pkt->clientStatsCrc) ? "MATCH" : "MISMATCH",
                    hostChecksum.statsCrc, pkt->clientStatsCrc);

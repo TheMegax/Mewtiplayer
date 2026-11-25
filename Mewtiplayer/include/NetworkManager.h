@@ -217,7 +217,7 @@ struct RNGCheckRequestPacket {
   uint32_t hostTurnControlCrc;
   uint32_t hostFighterCount;
   uint32_t hostVitalsCrc;
-  uint32_t hostPositionsCrc;
+  //uint32_t hostPositionsCrc;
   uint32_t hostStatsCrc;
   uint32_t hostPassivesCrc;
   uint32_t hostStatusCrc;
@@ -233,7 +233,7 @@ struct RNGCheckResponsePacket {
   uint32_t clientTurnControlCrc;
   uint32_t clientFighterCount;
   uint32_t clientVitalsCrc;
-  uint32_t clientPositionsCrc;
+  //uint32_t clientPositionsCrc;
   uint32_t clientStatsCrc;
   uint32_t clientPassivesCrc;
   uint32_t clientStatusCrc;
@@ -247,7 +247,7 @@ struct CombatStateChecksum {
   uint32_t turnControlCrc = 0;
   uint32_t fighterCount = 0;
   uint32_t vitalsCrc = 0;
-  uint32_t positionsCrc = 0;
+  //uint32_t positionsCrc = 0;
   uint32_t statsCrc = 0;
   uint32_t passivesCrc = 0;
   uint32_t statusCrc = 0;
